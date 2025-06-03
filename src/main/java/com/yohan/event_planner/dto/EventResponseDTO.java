@@ -1,41 +1,51 @@
 package com.yohan.event_planner.dto;
 
-import com.yohan.event_planner.domain.Event;
-
 import java.time.ZonedDateTime;
 
 /**
- * Response DTO for exposing public-facing {@link Event} information.
+ * Response DTO representing a fully populated view of an event.
  *
  * <p>
- * This DTO is returned to clients and includes all relevant event fields such as:
+ * All time values are returned in UTC. If the original time zone of the event's
+ * start or end differs from the creator's profile time zone, that information is
+ * included separately to allow clients to re-construct the original local time.
  * </p>
- * <ul>
- *   <li>{@code id} – unique event identifier</li>
- *   <li>{@code name} – event name</li>
- *   <li>{@code startTime}, {@code endTime} – event times in original timezones</li>
- *   <li>{@code startTimezone}, {@code endTimezone} – original timezone IDs</li>
- *   <li>{@code description} – optional event description</li>
- * </ul>
- *
- * <p>
- * Timestamps are returned in the original zone (not UTC) for client display.
- * </p>
- *
- * @param id             unique identifier of the event
- * @param name           name of the event
- * @param startTime      event start time with original timezone
- * @param endTime        event end time with original timezone
- * @param startTimezone  ID of the start time's original timezone
- * @param endTimezone    ID of the end time's original timezone
- * @param description    optional event description
  */
 public record EventResponseDTO(
+
+        /** Unique identifier of the event. */
         Long id,
+
+        /** Name or title of the event. */
         String name,
-        ZonedDateTime startTime,
-        ZonedDateTime endTime,
-        String startTimezone,
-        String endTimezone,
-        String description
+
+        /** Event start time in UTC. */
+        ZonedDateTime startTimeUtc,
+
+        /** Event end time in UTC. */
+        ZonedDateTime endTimeUtc,
+
+        /**
+         * Original time zone ID used for the event's start time, if different
+         * from the creator's time zone. Otherwise {@code null}.
+         */
+        String startTimeZone,
+
+        /**
+         * Original time zone ID used for the event's end time, if different
+         * from the creator's time zone. Otherwise {@code null}.
+         */
+        String endTimeZone,
+
+        /** Optional event description, if provided by the creator. */
+        String description,
+
+        /** ID of the user who created the event. */
+        Long creatorId,
+
+        /** Username of the user who created the event. */
+        String creatorUsername,
+
+        /** Time zone of the user who created the event. */
+        String creatorTimezone
 ) {}

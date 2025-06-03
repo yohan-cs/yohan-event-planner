@@ -47,8 +47,7 @@ public enum ErrorCode {
     UNAUTHORIZED_ACCESS,  // 401 Unauthorized
     ACCESS_DENIED,        // 403 Forbidden
 
-    // Generic errors
-    VALIDATION_FAILED,
+    // Generic errors,
     UNKNOWN_ERROR
 }
 

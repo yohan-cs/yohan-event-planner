@@ -1,75 +1,82 @@
 package com.yohan.event_planner.security;
 
+import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.exception.EventOwnershipException;
 import com.yohan.event_planner.exception.UserOwnershipException;
-import com.yohan.event_planner.util.TestConstants;
 import com.yohan.event_planner.util.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_EVENT_ACCESS;
+import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_USER_ACCESS;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
 
-class OwnershipValidatorTest {
+public class OwnershipValidatorTest {
 
-    private SecurityService securityService;
-    private OwnershipValidator ownershipValidator;
+    private OwnershipValidator validator;
 
     @BeforeEach
     void setUp() {
-        securityService = mock(SecurityService.class);
-        ownershipValidator = new OwnershipValidator(securityService);
+        validator = new OwnershipValidator();
     }
 
     @Nested
     class ValidateEventOwnershipTests {
 
+        @Test
+        void testValidateEventOwnership_idsMatch_noExceptionThrown() {
+            // Arrange
+            Long userId = 1L;
+            User user = TestUtils.createUserEntityWithId(userId);
+            Event event = TestUtils.createEventEntityWithId(100L, user);
+
+            // Act + Assert
+            assertDoesNotThrow(() -> validator.validateEventOwnership(userId, event));
+        }
+
+        @Test
+        void testValidateEventOwnership_idsMismatch_throwsException() {
+            // Arrange
+            Long userId = 1L;
+            User eventCreator = TestUtils.createUserEntityWithId(2L);
+            Event event = TestUtils.createEventEntityWithId(100L, eventCreator);
+
+            // Act + Assert
+            EventOwnershipException ex = assertThrows(EventOwnershipException.class,
+                    () -> validator.validateEventOwnership(userId, event));
+
+            assertEquals(UNAUTHORIZED_EVENT_ACCESS, ex.getErrorCode());
+            assertEquals(100L, event.getId());
+        }
     }
 
     @Nested
     class ValidateUserOwnershipTests {
 
         @Test
-        void testValidateUserOwnership_validOwner_doesNotThrow() {
-            // Mocks
-            when(securityService.requireCurrentUserId()).thenReturn(TestConstants.USER_ID);
-
-            // Act + Assert
-            assertDoesNotThrow(() -> ownershipValidator.validateUserOwnership(TestConstants.USER_ID));
-        }
-
-        @Test
-        void testValidateUserOwnership_invalidOwner_throwsUserOwnershipException() {
-            // Mocks
-            when(securityService.requireCurrentUserId()).thenReturn(99L);
-
-            // Act + Assert
-            assertThrows(UserOwnershipException.class,
-                    () -> ownershipValidator.validateUserOwnership(TestConstants.USER_ID));
-        }
-    }
-
-    @Nested
-    class GetCurrentUserTests {
-
-        @Test
-        void testGetCurrentUser_delegatesToSecurityService() {
+        void testValidateUserOwnership_idsMatch_noExceptionThrown() {
             // Arrange
-            User expectedUser = TestUtils.createUserEntityWithId();
+            Long userId = 5L;
 
-            // Mocks
-            when(securityService.getAuthenticatedUser()).thenReturn(expectedUser);
-
-            // Act
-            User result = ownershipValidator.getCurrentUser();
-
-            // Assert
-            assertEquals(expectedUser, result);
-            verify(securityService).getAuthenticatedUser();
+            // Act + Assert
+            assertDoesNotThrow(() -> validator.validateUserOwnership(userId, userId));
         }
+
+        @Test
+        void testValidateUserOwnership_idsMismatch_throwsException() {
+            // Arrange
+            Long currentUserId = 10L;
+            Long targetUserId = 20L;
+
+            // Act + Assert
+            UserOwnershipException ex = assertThrows(UserOwnershipException.class,
+                    () -> validator.validateUserOwnership(currentUserId, targetUserId));
+
+            assertEquals(UNAUTHORIZED_USER_ACCESS, ex.getErrorCode());
+            assertTrue(ex.getMessage().contains(String.valueOf(targetUserId)));
+        }
+
     }
-
-
-
 }

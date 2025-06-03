@@ -6,41 +6,31 @@ import jakarta.validation.constraints.Size;
 import java.time.ZonedDateTime;
 
 /**
- * Data Transfer Object for partially updating {@link Event} entities.
+ * Request DTO for partially updating an existing {@link Event}.
  *
  * <p>
- * Designed for PATCH-style updates, this DTO allows partial modification of event details.
- * Only non-null fields will be considered during patch operations.
+ * Used for PATCH-style operations where only non-null fields are applied.
+ * Fields are individually validated if present.
  * </p>
  *
  * <p>
- * Validation constraints (applied only if fields are present):
- * <ul>
- *   <li><b>{@code name}</b>: 1–100 characters</li>
- *   <li><b>{@code description}</b>: max 500 characters</li>
- * </ul>
+ * Time values must include zone information. Internally, they are normalized to UTC
+ * and stored along with the original time zone ID.
  * </p>
- *
- * <p>
- * Start and end times must be provided as {@link java.time.ZonedDateTime} with timezone info.
- * Internal storage will normalize to UTC and persist original timezones separately.
- * </p>
- *
- * @param name        optional new event name
- * @param startTime   optional new start time (with timezone)
- * @param endTime     optional new end time (with timezone)
- * @param description optional new event description
  */
 public record EventUpdateDTO(
 
+        /** Optional new event name. Must be 1–100 characters if present. */
         @Size(min = 1, max = 100, message = "Event name must be between 1 and 100 characters")
         String name,
 
+        /** Optional new start time with time zone. */
         ZonedDateTime startTime,
 
+        /** Optional new end time with time zone. */
         ZonedDateTime endTime,
 
+        /** Optional new event description. Max 500 characters if present. */
         @Size(max = 500, message = "Description must not exceed 500 characters")
         String description
-) {
-}
+) {}

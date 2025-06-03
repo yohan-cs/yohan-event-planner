@@ -46,18 +46,22 @@ public class CustomUserDetails implements UserDetails {
     }
 
     /**
-     * Returns the authorities granted to the user.
-     * Maps each {@link Role} to a {@link SimpleGrantedAuthority} using its string representation.
+     * Returns the unique identifier of the authenticated user.
      *
-     * @return a collection of granted authorities (e.g., ROLE_USER, ROLE_ADMIN)
+     * @return the user ID
+     */
+    public Long getUserId() {
+        return user.getId();
+    }
+
+    /**
+     * Returns the username used to authenticate the user.
+     *
+     * @return the user's username
      */
     @Override
-    public Collection<? extends GrantedAuthority> getAuthorities() {
-        return user.getRoles()
-                .stream()
-                .map(Role::getAuthority)
-                .map(SimpleGrantedAuthority::new)
-                .collect(Collectors.toList());
+    public String getUsername() {
+        return user.getUsername();
     }
 
     /**
@@ -71,13 +75,18 @@ public class CustomUserDetails implements UserDetails {
     }
 
     /**
-     * Returns the username used to authenticate the user.
+     * Returns the authorities granted to the user.
+     * Maps each {@link Role} to a {@link SimpleGrantedAuthority} using its string representation.
      *
-     * @return the user's username
+     * @return a collection of granted authorities (e.g., ROLE_USER, ROLE_ADMIN)
      */
     @Override
-    public String getUsername() {
-        return user.getUsername();
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return user.getRoles()
+                .stream()
+                .map(Role::getAuthority)
+                .map(SimpleGrantedAuthority::new)
+                .collect(Collectors.toList());
     }
 
     /**
@@ -114,13 +123,13 @@ public class CustomUserDetails implements UserDetails {
     }
 
     /**
-     * Indicates whether the user is enabled.
-     * Delegates to {@link User#isActive()}.
+     * Indicates whether the user is enabled. Users who are banned (inactive) or soft-deleted
+     * are considered disabled and will not be allowed to authenticate.
      *
-     * @return {@code true} if the user is active; {@code false} otherwise
+     * @return {@code true} if the user is active and not deleted; {@code false} otherwise
      */
     @Override
     public boolean isEnabled() {
-        return user.isActive();
+        return user.isActive() && !user.isDeleted();
     }
 }

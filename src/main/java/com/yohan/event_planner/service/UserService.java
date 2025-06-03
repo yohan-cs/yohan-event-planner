@@ -1,137 +1,154 @@
 package com.yohan.event_planner.service;
 
-import com.yohan.event_planner.business.handler.UserPatchHandler;
-import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.Role;
 import com.yohan.event_planner.dto.UserCreateDTO;
+import com.yohan.event_planner.dto.UserResponseDTO;
 import com.yohan.event_planner.dto.UserUpdateDTO;
 import com.yohan.event_planner.exception.*;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
- * Service interface for managing {@link User} entities.
+ * Service interface for managing user operations and business logic.
  *
  * <p>
- * Provides core operations for creating, updating, deleting, and retrieving users,
- * as well as utilities for checking uniqueness and filtering by roles or credentials.
- * All user-specific business logic and validation is enforced through the service layer.
+ * Provides high-level access to core user flows, including identity lookups,
+ * account creation, updates, deletions, and validation for uniqueness.
+ * This is the main orchestrator for user-related concerns.
  * </p>
  */
 public interface UserService {
 
     /**
-     * Retrieves a user by their unique identifier.
+     * Retrieves a user by their unique ID.
      *
      * @param userId the ID of the user to retrieve
-     * @return an {@link Optional} containing the user, or empty if not found
+     * @return the corresponding {@link UserResponseDTO}
+     * @throws UserNotFoundException if the user is not found
      */
-    Optional<User> getUserById(Long userId);
+    UserResponseDTO getUserById(Long userId);
+
+    /**
+     * Retrieves the currently authenticated user's profile.
+     *
+     * @return the current user's profile as a {@link UserResponseDTO}
+     * @throws UserNotFoundException if the current user does not exist
+     */
+    UserResponseDTO getCurrentUser();
 
     /**
      * Retrieves a user by their username (case-insensitive).
-     * <p>
-     * The provided username is normalized to lowercase before lookup.
-     * </p>
      *
-     * @param username the username to search
-     * @return an {@link Optional} containing the user, or empty if not found
+     * @param username the username to retrieve
+     * @return the corresponding {@link UserResponseDTO}
+     * @throws UserNotFoundException if no user is found
      */
-    Optional<User> getUserByUsername(String username);
+    UserResponseDTO getUserByUsername(String username);
 
     /**
      * Retrieves a user by their email address (case-insensitive).
-     * <p>
-     * The provided email is normalized to lowercase before lookup.
-     * </p>
      *
-     * @param email the email to search
-     * @return an {@link Optional} containing the user, or empty if not found
+     * @param email the email address to retrieve
+     * @return the corresponding {@link UserResponseDTO}
+     * @throws UserNotFoundException if no user is found
      */
-    Optional<User> getUserByEmail(String email);
+    UserResponseDTO getUserByEmail(String email);
 
     /**
      * Retrieves all users assigned a specific role.
      *
-     * @param role the role to filter by (e.g., {@link Role#ADMIN})
-     * @return a list of users with the specified role, or an empty list if none match
+     * @param role the role to filter by
+     * @return a list of matching {@link UserResponseDTO}s (may be empty)
      */
-    List<User> getUsersByRole(Role role);
+    List<UserResponseDTO> getUsersByRole(Role role);
 
     /**
-     * Retrieves all users in the system.
+     * Retrieves all users in the system using pagination.
      *
-     * @return a list of all users
+     * @param page the page number (0-based)
+     * @param size the page size
+     * @return a list of {@link UserResponseDTO}s (may be empty)
      */
-    List<User> getAllUsers(int page, int size); // keeping signature for interface stability in V1
+    List<UserResponseDTO> getAllUsers(int page, int size);
 
     /**
-     * Creates a new user from the provided data transfer object (DTO).
+     * Creates a new user with the provided details.
+     *
+     * @param dto the user creation payload
+     * @return the created {@link UserResponseDTO}
+     * @throws UsernameException if the username is taken
+     * @throws EmailException    if the email is taken
+     */
+    UserResponseDTO createUser(UserCreateDTO dto);
+
+    /**
+     * Applies a partial update to a specific user.
      * <p>
-     * Performs uniqueness checks for both username and email (case-insensitive),
-     * encrypts the password, and persists the user.
+     * Requires that the current user is authorized to modify the target user.
      * </p>
      *
-     * @param dto the user creation payload, including raw password
-     * @return the created {@link User}
-     * @throws UsernameException if the username is already in use
-     * @throws EmailException    if the email is already in use
-     */
-    User createUser(UserCreateDTO dto);
-
-    /**
-     * Applies partial updates to an existing user.
-     * <p>
-     * Fields that are non-null in the DTO will be applied via {@link UserPatchHandler}.
-     * Performs validation for ownership, and checks for updated username/email conflicts.
-     * </p>
-     *
-     * @param userId the ID of the user being updated
-     * @param dto    the update payload
-     * @return the updated {@link User}
+     * @param userId the ID of the user to update
+     * @param dto    the patch payload
+     * @return the updated {@link UserResponseDTO}
      * @throws UserNotFoundException  if the user does not exist
-     * @throws UserOwnershipException if the current user is not authorized
+     * @throws UserOwnershipException if the current user is unauthorized
      * @throws UsernameException      if the new username is taken
      * @throws EmailException         if the new email is taken
      */
-    User updateUser(Long userId, UserUpdateDTO dto);
+    UserResponseDTO updateUser(Long userId, UserUpdateDTO dto);
 
     /**
-     * Soft-deletes a user by their ID.
+     * Applies a partial update to the currently authenticated user.
+     *
+     * @param dto the patch payload
+     * @return the updated {@link UserResponseDTO}
+     * @throws UserNotFoundException if the current user does not exist
+     * @throws UsernameException     if the new username is taken
+     * @throws EmailException        if the new email is taken
+     */
+    UserResponseDTO updateCurrentUser(UserUpdateDTO dto);
+
+    /**
+     * Soft-deletes a user.
      * <p>
-     * Enforces ownership rules to ensure only the user or an admin can delete the account.
-     * The deletion is logical — the user is marked as {@code deleted = true} and {@code active = false},
-     * ensuring they can no longer authenticate or appear in public queries.
+     * Requires that the current user is authorized to perform the deletion.
      * </p>
      *
      * @param userId the ID of the user to delete
      * @throws UserNotFoundException  if the user does not exist
-     * @throws UserOwnershipException if the current user is not authorized
+     * @throws UserOwnershipException if the current user is unauthorized
      */
     void deleteUser(Long userId);
 
     /**
-     * Checks whether a user exists with the given username (case-insensitive).
-     * <p>
-     * Used to enforce uniqueness before creating or updating a user.
-     * </p>
+     * Soft-deletes the currently authenticated user.
+     *
+     * @throws UserNotFoundException if the user does not exist
+     */
+    void deleteCurrentUser();
+
+    /**
+     * Checks whether a username exists (case-insensitive).
      *
      * @param username the username to check
-     * @return {@code true} if a user exists, {@code false} otherwise
+     * @return {@code true} if the username is taken; otherwise {@code false}
      */
     boolean existsByUsername(String username);
 
     /**
-     * Checks whether a user exists with the given email (case-insensitive).
-     * <p>
-     * Used to enforce uniqueness before creating or updating a user.
-     * </p>
+     * Checks whether an email address exists (case-insensitive).
      *
-     * @param email the email to check
-     * @return {@code true} if a user exists, {@code false} otherwise
+     * @param email the email address to check
+     * @return {@code true} if the email is taken; otherwise {@code false}
      */
     boolean existsByEmail(String email);
+
+    /**
+     * Returns the number of users who are not soft-deleted.
+     *
+     * @return count of active (non-deleted) users
+     */
+    long countActiveUsers();
 
     /**
      * Returns the total number of users in the system.
@@ -139,4 +156,5 @@ public interface UserService {
      * @return the user count
      */
     long countUsers();
+
 }

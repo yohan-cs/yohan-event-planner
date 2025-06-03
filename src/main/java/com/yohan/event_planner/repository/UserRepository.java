@@ -18,7 +18,8 @@ import java.util.Optional;
  * </p>
  *
  * <p>
- * Note that authorization and access control should be enforced at the service layer.
+ * This repository does not enforce any access control or authorization.
+ * All such concerns must be handled at the service or business layer.
  * </p>
  */
 @Repository
@@ -30,7 +31,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * Method redeclared for explicit documentation purposes.
      * </p>
      *
-     * @param id the unique identifier of the user
+     * @param id the ID of the user
      * @return an {@link Optional} containing the found user, or empty if not found
      */
     @Override
@@ -39,7 +40,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /**
      * Retrieves a user by their unique username.
      *
-     * @param username the unique username to search for
+     * @param username the username to search for
      * @return an {@link Optional} containing the found user, or empty if none found
      */
     Optional<User> findByUsername(String username);
@@ -47,7 +48,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /**
      * Retrieves a user by their unique email address.
      *
-     * @param email the unique email to search for
+     * @param email the email address to search for
      * @return an {@link Optional} containing the found user, or empty if none found
      */
     Optional<User> findByEmail(String email);
@@ -64,9 +65,9 @@ public interface UserRepository extends JpaRepository<User, Long> {
     List<User> findAllByRoles(Role role);
 
     /**
-     * Deletes the user entity with the specified unique identifier.
+     * Deletes the user entity with the specified ID.
      *
-     * @param id the unique identifier of the user to delete
+     * @param id the ID of the user to delete
      */
     @Override
     void deleteById(Long id);
@@ -74,16 +75,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /**
      * Checks if a user exists with the specified username.
      *
-     * @param username the username to check existence for
-     * @return true if a user with the username exists, false otherwise
+     * @param username the username to check
+     * @return {@code true} if a user with the username exists, {@code false} otherwise
      */
     boolean existsByUsername(String username);
 
     /**
      * Checks if a user exists with the specified email address.
      *
-     * @param email the email to check existence for
-     * @return true if a user with the email exists, false otherwise
+     * @param email the email address to check
+     * @return {@code true} if a user with the email exists, {@code false} otherwise
      */
     boolean existsByEmail(String email);
 
@@ -103,7 +104,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /**
      * Counts the number of users who have not been soft-deleted.
      *
-     * @return total number of users with {@code deleted = false}
+     * @return the total number of users with {@code deleted = false}
      */
     long countByDeletedFalse();
 }

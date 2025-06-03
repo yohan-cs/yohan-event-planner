@@ -4,13 +4,20 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 /**
- * The PasswordBO class handles password encryption and comparison.
- * It uses a {@link PasswordEncoder} implementation to hash passwords
- * and verify if a raw password matches the hashed version.
+ * Business object responsible for password encryption and comparison.
  *
- * <p>It is a business object used to isolate password-related logic,
- * ensuring that passwords are securely hashed before storage and compared
- * securely during authentication.</p>
+ * <p>
+ * This component centralizes password-related logic to ensure consistent and secure handling
+ * of user credentials. It uses a {@link PasswordEncoder} to:
+ * <ul>
+ *   <li>Hash raw passwords before storing them</li>
+ *   <li>Verify raw password input against hashed values during authentication</li>
+ * </ul>
+ * </p>
+ *
+ * <p>
+ * This class performs no validation or formatting and assumes all inputs have been checked upstream.
+ * </p>
  */
 @Service
 public class PasswordBO {
@@ -18,33 +25,30 @@ public class PasswordBO {
     private final PasswordEncoder passwordEncoder;
 
     /**
-     * Constructs a PasswordBO instance with the provided {@link PasswordEncoder}.
-     * The PasswordEncoder is used for hashing and comparing passwords.
+     * Constructs a {@code PasswordBO} instance with the provided {@link PasswordEncoder}.
      *
-     * @param passwordEncoder the {@link PasswordEncoder} to use for password operations.
+     * @param passwordEncoder the encoder used to hash and verify passwords
      */
     public PasswordBO(PasswordEncoder passwordEncoder) {
         this.passwordEncoder = passwordEncoder;
     }
 
     /**
-     * Encrypts the raw password and returns the hashed version.
-     * This method uses the provided {@link PasswordEncoder} to hash the password.
+     * Encrypts a raw password using the configured {@link PasswordEncoder}.
      *
-     * @param rawPassword the raw password to encrypt.
-     * @return the hashed version of the password.
+     * @param rawPassword the raw password to encrypt
+     * @return the hashed (encoded) version of the password
      */
     public String encryptPassword(String rawPassword) {
         return passwordEncoder.encode(rawPassword);
     }
 
     /**
-     * Checks if the raw password matches the provided hashed password.
-     * This method uses the {@link PasswordEncoder} to compare the raw password with the hashed one.
+     * Verifies whether the given raw password matches the stored hashed password.
      *
-     * @param rawPassword the raw password entered by the user.
-     * @param hashedPassword the hashed password stored in the system.
-     * @return {@code true} if the raw password matches the hashed password, {@code false} otherwise.
+     * @param rawPassword the plain-text password to check
+     * @param hashedPassword the previously stored hashed password
+     * @return {@code true} if the raw password matches the hashed password; otherwise {@code false}
      */
     public boolean isMatch(String rawPassword, String hashedPassword) {
         return passwordEncoder.matches(rawPassword, hashedPassword);

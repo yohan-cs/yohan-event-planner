@@ -1,148 +1,100 @@
 package com.yohan.event_planner.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jayway.jsonpath.JsonPath;
+import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.dto.UserUpdateDTO;
-import com.yohan.event_planner.dto.auth.LoginRequestDTO;
 import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
+import com.yohan.event_planner.repository.UserRepository;
+import com.yohan.event_planner.security.JwtUtils;
+import com.yohan.event_planner.util.TestAuthUtils;
 import com.yohan.event_planner.util.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.util.UUID;
+import java.util.Optional;
 
-import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
-@ActiveProfiles("test")
 @AutoConfigureMockMvc
-public class UserFlowIntegrationTest {
+@TestPropertySource(locations = "classpath:application-test.properties")
+@Transactional
+class UserFlowIntegrationTest {
 
-    @Autowired private MockMvc mockMvc;
+    @Autowired
+    private MockMvc mockMvc;
     @Autowired private ObjectMapper objectMapper;
-
-    private String token;
-    private RegisterRequestDTO registeredUser;
+    @Autowired private UserRepository userRepository;
+    @Autowired private JwtUtils jwtUtils;
+    private TestAuthUtils testAuthUtils;
 
     @BeforeEach
-    void setUp() throws Exception {
-        // Generate unique suffix for this test instance
-        String suffix = UUID.randomUUID().toString().substring(0, 8);
-        registeredUser = TestUtils.createValidRegisterPayload(suffix);
+    void setUp() {
+        testAuthUtils = new TestAuthUtils(jwtUtils, mockMvc, objectMapper);
+    }
 
-        // Register user
-        mockMvc.perform(post("/auth/register")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(registeredUser)))
-                .andExpect(status().isCreated());
+    @Test
+    void testUserLifecycleFlow() throws Exception {
+        // Register + Login
+        String suffix = "flow1";
+        RegisterRequestDTO registerDTO = TestUtils.createValidRegisterPayload(suffix);
+        String jwt = testAuthUtils.registerAndLoginUser(suffix);
 
-        // Login user
-        LoginRequestDTO loginDTO = new LoginRequestDTO(registeredUser.username(), registeredUser.password());
-
-        MvcResult result = mockMvc.perform(post("/auth/login")
-                        .contentType(APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(loginDTO)))
+        // GET /users/me
+        mockMvc.perform(get("/users/me")
+                        .header("Authorization", "Bearer " + jwt))
                 .andExpect(status().isOk())
-                .andReturn();
+                .andExpect(jsonPath("$.username").value(registerDTO.username()))
+                .andExpect(jsonPath("$.email").value(registerDTO.email()))
+                .andExpect(jsonPath("$.timezone").value(registerDTO.timezone()));
 
-        token = JsonPath.read(result.getResponse().getContentAsString(), "$.token");
-    }
+        // PATCH /users/me
+        UserUpdateDTO updateDTO = new UserUpdateDTO(
+                null,
+                null,
+                null,
+                "UpdatedName",
+                null,
+                null
+        );
 
-    @Nested
-    class RegisterTests {
+        mockMvc.perform(patch("/users/me")
+                        .header("Authorization", "Bearer " + jwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateDTO)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.firstName").value("UpdatedName"));
 
-        @Test
-        void testRegisterSuccess() throws Exception {
-            RegisterRequestDTO dto = TestUtils.createValidRegisterPayload(UUID.randomUUID().toString().substring(0, 8));
+        mockMvc.perform(patch("/users/me")
+                        .header("Authorization", "Bearer " + jwt)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(updateDTO)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.firstName").value("UpdatedName"));
 
-            mockMvc.perform(post("/auth/register")
-                            .contentType(APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(dto)))
-                    .andExpect(status().isCreated());
-        }
+        // Verify DB reflects the change
+        Optional<User> updatedUserOpt = userRepository.findByUsername(registerDTO.username());
+        assertThat(updatedUserOpt).isPresent();
+        assertThat(updatedUserOpt.get().getFirstName()).isEqualTo("UpdatedName");
 
-        // Optionally test 409 username/email conflict here
-    }
+        // DELETE /users/me
+        mockMvc.perform(delete("/users/me")
+                        .header("Authorization", "Bearer " + jwt))
+                .andExpect(status().isNoContent());
 
-    @Nested
-    class LoginTests {
-
-        @Test
-        void testLoginSuccess() throws Exception {
-            LoginRequestDTO loginDTO = new LoginRequestDTO(registeredUser.username(), registeredUser.password());
-
-            mockMvc.perform(post("/auth/login")
-                            .contentType(APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(loginDTO)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.token").exists())
-                    .andExpect(jsonPath("$.username").value(registeredUser.username()));
-        }
-    }
-
-    @Nested
-    class GetCurrentUserTests {
-
-        @Test
-        void testGetCurrentUserProfile() throws Exception {
-            mockMvc.perform(get("/users/me")
-                            .header("Authorization", "Bearer " + token))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.username").value(registeredUser.username()))
-                    .andExpect(jsonPath("$.email").value(registeredUser.email()));
-        }
-    }
-
-    @Nested
-    class GetUserByUsernameTests {
-
-        @Test
-        void testGetUserByUsername() throws Exception {
-            mockMvc.perform(get("/users/" + registeredUser.username())
-                            .header("Authorization", "Bearer " + token)
-                            .contentType(APPLICATION_JSON))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.username").value(registeredUser.username()));
-        }
-    }
-
-    @Nested
-    class PatchCurrentUserTests {
-
-        @Test
-        void testUpdateCurrentUserProfile() throws Exception {
-            UserUpdateDTO patchDTO = new UserUpdateDTO(null, null, null, null,"newLastName", null);
-
-            mockMvc.perform(patch("/users/me")
-                            .header("Authorization", "Bearer " + token)
-                            .contentType(APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(patchDTO)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.lastName").value("newLastName"));
-        }
-    }
-
-    @Nested
-    class DeleteCurrentUserTests {
-
-        @Test
-        void testDeleteCurrentUser() throws Exception {
-            mockMvc.perform(delete("/users/me")
-                            .header("Authorization", "Bearer " + token))
-                    .andExpect(status().isNoContent());
-
-            mockMvc.perform(get("/users/me")
-                            .header("Authorization", "Bearer " + token))
-                    .andExpect(status().isUnauthorized()); // or 404 depending on behavior
-        }
+        // Confirm soft deletion
+        Optional<User> deletedUser = userRepository.findByUsername(registerDTO.username());
+        assertThat(deletedUser).isPresent();
+        assertThat(deletedUser.get().isDeleted()).isTrue();
     }
 }

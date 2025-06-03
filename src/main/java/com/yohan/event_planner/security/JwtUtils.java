@@ -1,5 +1,6 @@
 package com.yohan.event_planner.security;
 
+import com.yohan.event_planner.exception.UnauthorizedException;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
@@ -17,14 +18,19 @@ import javax.crypto.SecretKey;
 import java.security.Key;
 import java.util.Date;
 
+import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
+
 /**
  * Utility class for handling JWT-related operations such as generation, validation,
- * and parsing. This class is configured as a Spring component and reads its configuration
- * from application properties.
+ * and parsing. Reads its configuration from Spring application properties.
  *
  * <p>
- * Uses the JJWT library and a cached HMAC-SHA secret key. Tokens include a subject
- * (username), issued-at timestamp, and expiration timestamp.
+ * Uses the JJWT library and a cached HMAC-SHA key for signing and verifying tokens.
+ * Tokens include the user ID as the subject, an issued-at timestamp, and an expiration timestamp.
+ * </p>
+ *
+ * <p>
+ * This class throws {@link UnauthorizedException} when tokens are missing or invalid.
  * </p>
  */
 @Component
@@ -41,8 +47,8 @@ public class JwtUtils {
     private SecretKey secretKey;
 
     /**
-     * Initializes and caches the HMAC secret key after dependency injection.
-     * This method is invoked automatically by Spring via {@link PostConstruct}.
+     * Initializes the HMAC signing key after dependency injection.
+     * Called automatically by Spring after all properties are injected.
      */
     @PostConstruct
     private void init() {
@@ -60,11 +66,11 @@ public class JwtUtils {
     }
 
     /**
-     * Extracts the JWT token string from the Authorization header of an HTTP request.
-     * Expects the token to be in the form: {@code Authorization: Bearer <token>}
+     * Extracts the JWT token from the {@code Authorization} header of the provided request.
+     * Expected format: {@code Authorization: Bearer <token>}.
      *
      * @param request the HTTP request containing the Authorization header
-     * @return the JWT token string, or null if not present or improperly formatted
+     * @return the JWT token string if present and properly formatted; {@code null} otherwise
      */
     public String getJwtFromHeader(HttpServletRequest request) {
         String bearerToken = request.getHeader("Authorization");
@@ -76,15 +82,16 @@ public class JwtUtils {
     }
 
     /**
-     * Generates a new JWT for the given authenticated user.
+     * Generates a signed JWT for the specified authenticated user.
+     * The token includes the user's ID as the subject, and has both issued-at and expiration timestamps.
      *
-     * @param customUserDetails the authenticated user for whom the token is generated
+     * @param customUserDetails the authenticated user
      * @return a signed JWT token string
      */
     public String generateToken(CustomUserDetails customUserDetails) {
-        String username = customUserDetails.getUsername();
+        Long userId = customUserDetails.getUserId();
         return Jwts.builder()
-                .subject(username)
+                .subject(String.valueOf(userId))
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + jwtExpirationMs))
                 .signWith(key())
@@ -92,36 +99,28 @@ public class JwtUtils {
     }
 
     /**
-     * Extracts the username (subject) from the given JWT token.
+     * Extracts the user ID from a valid JWT token.
+     * This method validates the token and throws {@link UnauthorizedException} if the token is
+     * missing, invalid, malformed, expired, or otherwise unusable.
      *
      * @param token the JWT token string
-     * @return the username contained in the token
-     * @throws io.jsonwebtoken.JwtException if the token is invalid or signature fails
+     * @return the user ID embedded in the token's subject
+     * @throws UnauthorizedException if the token is invalid or cannot be parsed
      */
-    public String getUserNameFromJwtToken(String token) {
-        return Jwts.parser()
-                .verifyWith((SecretKey) key())
-                .build()
-                .parseSignedClaims(token)
-                .getPayload()
-                .getSubject();
-    }
-
-    /**
-     * Validates the integrity and expiration of the given JWT token.
-     * Logs specific error messages if the token is malformed, expired, unsupported, or empty.
-     *
-     * @param authToken the JWT token to validate
-     * @return true if the token is valid; false otherwise
-     */
-    public boolean validateJwtToken(String authToken) {
+    public Long getUserIdFromJwtToken(String token) {
+        if (token == null || token.isBlank()) {
+            logger.error("JWT token is missing or blank.");
+            throw new UnauthorizedException(UNAUTHORIZED_ACCESS);
+        }
         try {
-            logger.debug("Validating JWT token...");
-            Jwts.parser()
-                    .verifyWith((SecretKey) key())
+            String subject = Jwts.parser()
+                    .verifyWith(secretKey)
                     .build()
-                    .parseSignedClaims(authToken);
-            return true;
+                    .parseSignedClaims(token)
+                    .getPayload()
+                    .getSubject();
+
+            return Long.valueOf(subject);
         } catch (MalformedJwtException ex) {
             logger.error("Invalid JWT token: {}", ex.getMessage());
         } catch (ExpiredJwtException ex) {
@@ -131,6 +130,6 @@ public class JwtUtils {
         } catch (IllegalArgumentException ex) {
             logger.error("JWT claims string is empty: {}", ex.getMessage());
         }
-        return false;
+        throw new UnauthorizedException(UNAUTHORIZED_ACCESS);
     }
 }

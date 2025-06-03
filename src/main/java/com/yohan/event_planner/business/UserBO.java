@@ -59,8 +59,8 @@ public interface UserBO {
     /**
      * Retrieves all user records in the system.
      * <p>
-     * Excludes soft-deleted users. May return a large dataset; typically reserved
-     * for administrative or diagnostic workflows.
+     * Excludes soft-deleted users. Intended primarily for administrative or diagnostic workflows.
+     * May return a large dataset; use with caution in performance-sensitive operations.
      * </p>
      *
      * @return a list of all active {@link User} entities
@@ -90,16 +90,15 @@ public interface UserBO {
     User updateUser(User user);
 
     /**
-     * Soft-deletes a user by marking them as deleted and inactive.
+     * Performs a logical deletion by marking the user as deleted and inactive.
      * <p>
-     * This is a logical deletion used for deactivation and audit trails.
-     * Assumes the user has already been retrieved and validated by the service layer.
+     * Does not remove the record from the database. Assumes the user has already
+     * been retrieved and validated by the service layer.
      * </p>
      *
      * @param user the user entity to mark as deleted and inactive
      */
     void deleteUser(User user);
-
 
     /**
      * Checks if a user exists with the given username.

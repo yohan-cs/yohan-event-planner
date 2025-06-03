@@ -1,7 +1,6 @@
 package com.yohan.event_planner.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.yohan.event_planner.exception.ErrorCode;
 import com.yohan.event_planner.exception.ErrorResponse;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,52 +15,40 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.time.Instant;
 
+import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
+
 /**
- * Handles unauthorized access attempts by customizing the response returned to the client.
- * Implements the {@link AuthenticationEntryPoint} interface to provide a custom error message and HTTP status
- * when authentication is required but not provided.
+ * Custom authentication entry point that handles cases where a user tries to access
+ * a secured resource without proper authentication (e.g., missing or invalid JWT).
  *
  * <p>
- * When an unauthenticated user attempts to access a protected resource, this component returns a 401 Unauthorized
- * status along with a JSON body describing the error, including the error message, the HTTP status, and the
- * requested path.
+ * Returns a structured JSON response containing an {@link ErrorResponse}
+ * with a 401 Unauthorized status and a standardized error code.
  * </p>
- *
- * @see AuthenticationEntryPoint
- * @see AuthenticationException
  */
 @Component
 public class AuthEntryPointJwt implements AuthenticationEntryPoint {
 
     private static final Logger logger = LoggerFactory.getLogger(AuthEntryPointJwt.class);
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
-    /**
-     * Handles an unauthorized access attempt by sending a custom error response.
-     *
-     * @param request the {@link HttpServletRequest} object containing the request information
-     * @param response the {@link HttpServletResponse} object to send the error response
-     * @param authException the {@link AuthenticationException} that triggered the error
-     * @throws IOException if an I/O error occurs during response writing
-     * @throws ServletException if a servlet error occurs
-     */
     @Override
-    public void commence(HttpServletRequest request, HttpServletResponse response, AuthenticationException authException)
+    public void commence(HttpServletRequest request,
+                         HttpServletResponse response,
+                         AuthenticationException authException)
             throws IOException, ServletException {
 
-        logger.error("Unauthorized error: {}", authException.getMessage());
-        System.out.println(authException);
-
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        logger.warn("Unauthorized request - {}", authException.getMessage());
 
         ErrorResponse errorResponse = new ErrorResponse(
                 HttpServletResponse.SC_UNAUTHORIZED,
-                authException.getMessage(),
-                ErrorCode.UNAUTHORIZED_ACCESS.name(),
+                "User not authenticated",
+                UNAUTHORIZED_ACCESS.name(),
                 Instant.now().toEpochMilli()
         );
 
-        final ObjectMapper mapper = new ObjectMapper();
-        mapper.writeValue(response.getOutputStream(), errorResponse);
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        objectMapper.writeValue(response.getOutputStream(), errorResponse);
     }
 }

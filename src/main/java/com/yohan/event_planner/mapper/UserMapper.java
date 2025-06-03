@@ -95,5 +95,11 @@ public interface UserMapper {
      * @param user the source entity
      * @return the user response DTO
      */
+    @Mapping(target = "username", source = "username")
+    @Mapping(target = "email", source = "email")
+    @Mapping(target = "firstName", source = "firstName")
+    @Mapping(target = "lastName", source = "lastName")
+    @Mapping(target = "timezone", source = "timezone")
     UserResponseDTO toResponseDTO(User user);
 }
+

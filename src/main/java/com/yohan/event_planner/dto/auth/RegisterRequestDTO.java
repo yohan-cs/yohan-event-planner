@@ -6,42 +6,46 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
- * DTO representing the registration request payload for creating a new user account.
+ * Request DTO for creating a new user account via public registration.
  *
  * <p>
- * This class is used exclusively in the public authentication API layer (e.g., POST /auth/register).
- * It contains the essential user input fields needed for account creation, along with validation constraints
- * to ensure proper formatting and completeness of the data submitted by the client.
+ * Used by the authentication API (e.g., {@code POST /auth/register}) to accept user-submitted
+ * registration data. All fields are validated and required for successful account creation.
  * </p>
  *
  * <p>
- * While this DTO may resemble {@code UserCreateDTO}, it is intentionally separated to clearly define
- * the boundary between external request formats and internal service logic. This allows for flexibility
- * in how registration data is handled (e.g., stricter validation, additional fields like TOS agreement, etc.).
+ * This DTO exists separately from internal creation models to allow for strict validation and
+ * API boundary clarity (e.g., additional terms fields, invitation tokens, etc.).
  * </p>
  */
 public record RegisterRequestDTO(
 
+        /** Desired username for the new account. Must be unique and 3–30 characters long. */
         @NotBlank(message = "Username is required")
         @Size(min = 3, max = 30)
         String username,
 
+        /** Plaintext password for the new account. Must be 8–72 characters long. */
         @NotBlank(message = "Password is required")
         @Size(min = 8, max = 72)
         String password,
 
+        /** Email address for the user. Must be a valid email format. */
         @NotBlank(message = "Email is required")
         @Email(message = "Invalid email format")
         String email,
 
+        /** User's first name. */
         @NotBlank(message = "First name is required")
         @Size(min = 1, max = 50)
         String firstName,
 
+        /** User's last name. */
         @NotBlank(message = "Last name is required")
         @Size(min = 1, max = 50)
         String lastName,
 
+        /** Preferred time zone of the user (e.g., "America/New_York"). */
         @NotBlank(message = "Timezone is required")
         @ValidZoneId(message = "Invalid timezone provided")
         String timezone

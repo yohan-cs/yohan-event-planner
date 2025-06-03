@@ -87,7 +87,7 @@ public class User {
      */
     public User(String username, String hashedPassword, String email, String firstName, String lastName, String timezone) {
         this.username = username;
-        this.hashedPassword = hashedPassword;  // Set hashed password here
+        this.hashedPassword = hashedPassword;
         this.email = email;
         this.firstName = firstName;
         this.lastName = lastName;

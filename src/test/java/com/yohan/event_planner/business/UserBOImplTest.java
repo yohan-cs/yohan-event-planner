@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Optional;
 
+import static com.yohan.event_planner.util.TestConstants.USER_ID;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -49,18 +50,15 @@ public class UserBOImplTest {
 
         @Test
         void testGetUserById_userNotFound_returnsEmptyOptional() {
-            // Arrange
-            Long userId = 123L;
-
             // Mocks
-            when(userRepository.findById(userId)).thenReturn(Optional.empty());
+            when(userRepository.findById(USER_ID)).thenReturn(Optional.empty());
 
             // Act
-            Optional<User> result = userBO.getUserById(userId);
+            Optional<User> result = userBO.getUserById(USER_ID);
 
             // Assert
             assertTrue(result.isEmpty());
-            verify(userRepository).findById(userId);
+            verify(userRepository).findById(USER_ID);
         }
     }
 

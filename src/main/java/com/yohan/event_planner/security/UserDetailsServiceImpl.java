@@ -1,9 +1,11 @@
 package com.yohan.event_planner.security;
 
 import com.yohan.event_planner.business.UserBO;
+import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.exception.UserNotFoundException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
 /**
@@ -30,17 +32,29 @@ public class UserDetailsServiceImpl implements UserDetailsService {
     }
 
     /**
-     * Loads a user by their username and converts the domain user into Spring Security's
+     * Loads a user by their username and converts the domain {@link User} into Spring Security's
      * {@link UserDetails} representation.
+     * <p>
+     * This method is used by Spring Security during the authentication process.
+     * If the user is not found, it throws a {@link UsernameNotFoundException}, which is the
+     * standard exception expected by Spring Security to indicate authentication failure.
+     * </p>
      *
      * @param username the username identifying the user
      * @return a {@link CustomUserDetails} wrapping the domain user
-     * @throws UserNotFoundException if no user with the given username exists
+     * @throws UsernameNotFoundException if no user with the given username exists
      */
     @Override
-    public UserDetails loadUserByUsername(String username) {
-        return userBO.getUserByUsername(username)
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+        User user = userBO.getUserByUsername(username)
+                .orElseThrow(() -> new UsernameNotFoundException("User with username " + username + " not found"));
+        return new CustomUserDetails(user);
+    }
+
+
+    public UserDetails loadUserByUserId(Long userId) {
+        return userBO.getUserById(userId)
                 .map(CustomUserDetails::new)
-                .orElseThrow(() -> new UserNotFoundException(username));
+                .orElseThrow(() -> new UserNotFoundException(userId));
     }
 }

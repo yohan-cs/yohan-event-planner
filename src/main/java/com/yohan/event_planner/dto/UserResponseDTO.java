@@ -1,6 +1,5 @@
 package com.yohan.event_planner.dto;
 
-
 import com.yohan.event_planner.domain.User;
 
 /**
@@ -11,20 +10,24 @@ import com.yohan.event_planner.domain.User;
  * Includes only non-sensitive fields and omits internal or security-related data.
  * </p>
  *
- * <p><strong>Included fields:</strong></p>
- * <ul>
- *   <li><code>firstName</code>: user's first name</li>
- *   <li><code>lastName</code>: user's last name</li>
- *   <li><code>username</code>: public-facing username</li>
- *   <li><code>email</code>: user's email address</li>
- *   <li><code>timezone</code>: preferred timezone (e.g., "America/New_York")</li>
- * </ul>
+ * <p>
+ * All fields are non-null and represent user-facing properties.
+ * </p>
  */
 public record UserResponseDTO(
-        String firstName,
-        String lastName,
+
+        /** Public-facing username. */
         String username,
+
+        /** User's email address. */
         String email,
+
+        /** User's first name. */
+        String firstName,
+
+        /** User's last name. */
+        String lastName,
+
+        /** Preferred time zone (e.g., "America/New_York"). */
         String timezone
 ) {}
-

@@ -1,118 +1,126 @@
 package com.yohan.event_planner.security;
 
-import com.yohan.event_planner.util.TestConstants;
-import com.yohan.event_planner.util.TestUtils;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.security.Keys;
+import com.yohan.event_planner.exception.UnauthorizedException;
+
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-import javax.crypto.SecretKey;
+
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.Base64;
-import java.util.Date;
 
+import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
-public class JwtUtilsTest {
+@ExtendWith(MockitoExtension.class)
+class JwtUtilsTest {
 
     private JwtUtils jwtUtils;
-    private CustomUserDetails dummyUserDetails;
+
+    @Mock
+    private HttpServletRequest request;
+
+    private final String jwtSecret = Base64.getEncoder().encodeToString("my-super-secret-key-1234567890".getBytes());
+    private final long jwtExpirationMs = 3600000L; // 1 hour
 
     @BeforeEach
     void setUp() throws Exception {
         jwtUtils = new JwtUtils();
 
-        // Inject private fields via reflection
+        // Use a 32-byte string (256 bits) to meet minimum key length
+        String secureKey = Base64.getEncoder().encodeToString("01234567890123456789012345678901".getBytes());
+
+        // Inject fields via reflection
         Field secretField = JwtUtils.class.getDeclaredField("jwtSecret");
         secretField.setAccessible(true);
-        secretField.set(jwtUtils, TestConstants.BASE64_TEST_SECRET);
+        secretField.set(jwtUtils, secureKey);
 
         Field expirationField = JwtUtils.class.getDeclaredField("jwtExpirationMs");
         expirationField.setAccessible(true);
         expirationField.set(jwtUtils, 3600000L); // 1 hour
 
-        // Trigger @PostConstruct manually
-        var initMethod = JwtUtils.class.getDeclaredMethod("init");
+        // Call init() manually
+        Method initMethod = JwtUtils.class.getDeclaredMethod("init");
         initMethod.setAccessible(true);
         initMethod.invoke(jwtUtils);
-
-        // Set up a dummy user
-        dummyUserDetails = TestUtils.createCustomUserDetails();
     }
 
-    @Nested
-    class GenerateTokenTests {
+    @Test
+    void testGetJwtFromHeader_validBearerToken_returnsToken() {
+        // Arrange
+        String token = "abc.def.ghi";
+        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
 
-        @Test
-        void testGenerateTokenAndParseUsername() {
-            // Arrange
-            String username = dummyUserDetails.getUsername();
+        // Act
+        String result = jwtUtils.getJwtFromHeader(request);
 
-            // Act
-            String token = jwtUtils.generateToken(dummyUserDetails);
-            String extractedUsername = jwtUtils.getUserNameFromJwtToken(token);
-
-            // Assert
-            assertNotNull(token, "Generated token should not be null");
-            assertEquals(username, extractedUsername, "Extracted username should match the original");
-        }
+        // Assert
+        assertEquals(token, result);
     }
 
-    @Nested
-    class ValidateJwtTokenTests {
+    @Test
+    void testGetJwtFromHeader_invalidHeader_returnsNull() {
+        // Arrange
+        when(request.getHeader("Authorization")).thenReturn("InvalidFormat");
 
-        @Test
-        void testValidateValidToken() {
-            // Arrange
-            String token = jwtUtils.generateToken(dummyUserDetails);
+        // Act
+        String result = jwtUtils.getJwtFromHeader(request);
 
-            // Act
-            boolean isValid = jwtUtils.validateJwtToken(token);
+        // Assert
+        assertNull(result);
+    }
 
-            // Assert
-            assertTrue(isValid, "Valid JWT token should be considered valid");
-        }
+    @Test
+    void testGetJwtFromHeader_missingHeader_returnsNull() {
+        // Arrange
+        when(request.getHeader("Authorization")).thenReturn(null);
 
-        @Test
-        void testValidateExpiredToken() {
-            // Arrange
-            long now = System.currentTimeMillis();
-            SecretKey key = Keys.hmacShaKeyFor(Base64.getDecoder().decode(TestConstants.BASE64_TEST_SECRET));
-            String expiredToken = Jwts.builder()
-                    .subject(dummyUserDetails.getUsername())
-                    .issuedAt(new Date(now - 3600000L)) // issued 1 hour ago
-                    .expiration(new Date(now - 1800000L)) // expired 30 mins ago
-                    .signWith(key)
-                    .compact();
+        // Act
+        String result = jwtUtils.getJwtFromHeader(request);
 
-            // Act
-            boolean isValid = jwtUtils.validateJwtToken(expiredToken);
+        // Assert
+        assertNull(result);
+    }
 
-            // Assert
-            assertFalse(isValid, "Expired JWT token should be considered invalid");
-        }
+    @Test
+    void testGenerateAndValidateToken_success() {
+        // Arrange
+        Long userId = 42L;
+        CustomUserDetails userDetails = mock(CustomUserDetails.class);
+        when(userDetails.getUserId()).thenReturn(userId);
 
-        @Test
-        void testValidateMalformedToken() {
-            // Act + Assert
-            boolean isValid = jwtUtils.validateJwtToken("this.is.not.a.jwt");
-            assertFalse(isValid, "Malformed token should be considered invalid");
-        }
+        // Act
+        String token = jwtUtils.generateToken(userDetails);
+        Long parsedUserId = jwtUtils.getUserIdFromJwtToken(token);
 
-        @Test
-        void testValidateEmptyToken() {
-            // Act + Assert
-            boolean isValid = jwtUtils.validateJwtToken("");
-            assertFalse(isValid, "Empty token should be considered invalid");
-        }
+        // Assert
+        assertEquals(userId, parsedUserId);
+    }
 
-        @Test
-        void testValidateNullToken() {
-            // Act + Assert
-            boolean isValid = jwtUtils.validateJwtToken(null);
-            assertFalse(isValid, "Null token should be considered invalid");
-        }
+    @Test
+    void testGetUserIdFromJwtToken_nullToken_throwsUnauthorizedException() {
+        // Act + Assert
+        UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken(null));
+        assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
+    }
+
+    @Test
+    void testGetUserIdFromJwtToken_blankToken_throwsUnauthorizedException() {
+        // Act + Assert
+        UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken(" "));
+        assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
+    }
+
+    @Test
+    void testGetUserIdFromJwtToken_malformedToken_throwsUnauthorizedException() {
+        // Act + Assert
+        UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken("not.a.jwt"));
+        assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
     }
 }

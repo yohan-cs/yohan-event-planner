@@ -36,7 +36,7 @@ public class AuthTokenFilter extends OncePerRequestFilter {
      * and user details service.
      *
      * @param jwtUtils            utility class for handling JWT operations
-     * @param userDetailsService  service to load user details by username
+     * @param userDetailsService  service to load user details by user ID
      */
     public AuthTokenFilter(JwtUtils jwtUtils,
                            UserDetailsServiceImpl userDetailsService) {
@@ -66,14 +66,17 @@ public class AuthTokenFilter extends OncePerRequestFilter {
         logger.debug("AuthTokenFilter called for URI: {}", request.getRequestURI());
 
         try {
-            // Extract JWT token from header
-            String jwt = parseJwt(request);
+            String jwt = jwtUtils.getJwtFromHeader(request);
 
-            // Validate token and authenticate user
-            if (jwt != null && jwtUtils.validateJwtToken(jwt)) {
-                String username = jwtUtils.getUserNameFromJwtToken(jwt);
+            if (jwt != null) {
+                logger.debug("Authorization header: {}", request.getHeader("Authorization"));
+                logger.debug("Extracted JWT: {}", jwt);
 
-                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+                Long userId = jwtUtils.getUserIdFromJwtToken(jwt); // this now includes validation
+                logger.debug("Extracted user ID from JWT: {}", userId);
+
+                UserDetails userDetails = userDetailsService.loadUserByUserId(userId);
+                logger.debug("Loaded UserDetails for ID {}: {}", userId, userDetails.getUsername());
 
                 UsernamePasswordAuthenticationToken authentication =
                         new UsernamePasswordAuthenticationToken(
@@ -81,32 +84,17 @@ public class AuthTokenFilter extends OncePerRequestFilter {
                                 null,
                                 userDetails.getAuthorities());
 
-                logger.debug("Roles from JWT: {}", userDetails.getAuthorities());
-
                 authentication.setDetails(
                         new WebAuthenticationDetailsSource().buildDetails(request));
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);
+                logger.debug("User authenticated and security context set for: {}", userDetails.getUsername());
             }
 
         } catch (Exception ex) {
-            logger.error("Cannot set user authentication: {}", ex.toString());
+            logger.error("Error during JWT authentication: {}", ex.getMessage());
         }
 
-        // Continue with the filter chain
         filterChain.doFilter(request, response);
-    }
-
-    /**
-     * Extracts the JWT token from the Authorization header of the request.
-     * Delegates to {@link JwtUtils#getJwtFromHeader(HttpServletRequest)}.
-     *
-     * @param request the HTTP request
-     * @return the JWT token if present; {@code null} otherwise
-     */
-    private String parseJwt(HttpServletRequest request) {
-        String jwt = jwtUtils.getJwtFromHeader(request);
-        logger.debug("AuthTokenFilter.java: {}", jwt);
-        return jwt;
     }
 }
