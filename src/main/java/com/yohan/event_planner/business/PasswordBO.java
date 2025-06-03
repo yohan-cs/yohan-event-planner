@@ -1,6 +1,7 @@
 package com.yohan.event_planner.business;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
 
 /**
  * The PasswordBO class handles password encryption and comparison.
@@ -11,6 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
  * ensuring that passwords are securely hashed before storage and compared
  * securely during authentication.</p>
  */
+@Service
 public class PasswordBO {
 
     private final PasswordEncoder passwordEncoder;

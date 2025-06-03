@@ -1,5 +1,6 @@
 package com.yohan.event_planner.business;
 
+import com.yohan.event_planner.util.TestConstants;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -9,6 +10,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import static org.junit.jupiter.api.Assertions.*;
 
 public class PasswordBOTest {
+
     private PasswordBO passwordBO;
     private PasswordEncoder passwordEncoder;
 
@@ -25,7 +27,7 @@ public class PasswordBOTest {
         @Test
         void testEncryptPassword() {
             // Arrange
-            String rawPassword = "userPassword123";
+            String rawPassword = TestConstants.VALID_PASSWORD;
 
             // Act
             String hashedPassword = passwordBO.encryptPassword(rawPassword);
@@ -41,18 +43,28 @@ public class PasswordBOTest {
 
         @Test
         void testIsMatchSuccess() {
-            String rawPassword = "userPassword123";
+            // Arrange
+            String rawPassword = TestConstants.VALID_PASSWORD;
             String hashedPassword = passwordBO.encryptPassword(rawPassword);
+
+            // Act
             boolean result = passwordBO.isMatch(rawPassword, hashedPassword);
+
+            // Assert
             assertTrue(result, "The password should match the hashed password.");
         }
 
         @Test
         void testIsMatchFailure() {
-            String rawPassword = "userPassword123";
+            // Arrange
+            String rawPassword = TestConstants.VALID_PASSWORD;
             String wrongPassword = "wrongPassword123";
             String hashedPassword = passwordBO.encryptPassword(rawPassword);
+
+            // Act
             boolean result = passwordBO.isMatch(wrongPassword, hashedPassword);
+
+            // Assert
             assertFalse(result, "The password should not match the incorrect hashed password.");
         }
     }

@@ -25,6 +25,19 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    /** Unique, case-insensitive username used for login and identification. */
+    @Column(nullable = false, unique = true, length = 50)
+    private String username;
+
+    /** The hashed password. */
+    @Column(nullable = false)
+    private String hashedPassword;
+
+    /** Unique, valid email address used for communication and login. */
+    @Email
+    @Column(nullable = false, unique = true)
+    private String email;
+
     /** User’s first name. */
     @Column(nullable = false, length = 50)
     private String firstName;
@@ -33,18 +46,9 @@ public class User {
     @Column(nullable = false, length = 50)
     private String lastName;
 
-    /** Unique, case-insensitive username used for login and identification. */
-    @Column(nullable = false, unique = true, length = 50)
-    private String username;
-
-    /** Unique, valid email address used for communication and login. */
-    @Email
-    @Column(nullable = false, unique = true)
-    private String email;
-
-    /** The hashed password. */
+    /** Timezone ID associated with the user, used for event scheduling and notifications. */
     @Column(nullable = false)
-    private String hashedPassword;
+    private String timezone;
 
     /**
      * Role-based access control.
@@ -65,9 +69,6 @@ public class User {
     @Column(nullable = false)
     private boolean deleted = false;
 
-    /** Timezone ID associated with the user, used for event scheduling and notifications. */
-    @Column(nullable = false)
-    private String timezone;
 
     /** Default constructor required by JPA. */
     protected User() {
@@ -77,24 +78,24 @@ public class User {
     /**
      * Constructs a new user instance with mandatory fields.
      *
+     * @param username  unique username
+     * @param hashedPassword  hashed password
+     * @param email     unique email address
      * @param firstName user's first name
      * @param lastName  user's last name
-     * @param username  unique username
-     * @param email     unique email address
-     * @param hashedPassword  hashed password
      * @param timezone  user's timezone ID
      */
-    public User(String firstName, String lastName, String username, String email, String hashedPassword, String timezone) {
+    public User(String username, String hashedPassword, String email, String firstName, String lastName, String timezone) {
+        this.username = username;
+        this.hashedPassword = hashedPassword;  // Set hashed password here
+        this.email = email;
         this.firstName = firstName;
         this.lastName = lastName;
-        this.username = username;
-        this.email = email;
-        this.hashedPassword = hashedPassword;  // Set hashed password here
         this.timezone = timezone;
-        this.roles = new HashSet<>(Set.of(Role.USER));  // Default role is USER
+        addRole(Role.USER);  // Default role is USER
     }
 
-    // --- Getters & Setters ---
+    // --- Getters ---
 
     /**
      * Returns the unique identifier for the user.
@@ -106,55 +107,12 @@ public class User {
     }
 
     /**
-     * Returns the user's first name.
-     *
-     * @return the first name of the user
-     */
-    public String getFirstName() {
-        return firstName;
-    }
-
-    public void setFirstName(String firstName) {
-        this.firstName = firstName;
-    }
-
-    /**
-     * Returns the user's last name.
-     *
-     * @return the last name of the user
-     */
-    public String getLastName() {
-        return lastName;
-    }
-
-    public void setLastName(String lastName) {
-        this.lastName = lastName;
-    }
-
-    /**
      * Returns the unique username for the user.
      *
      * @return the username of the user
      */
     public String getUsername() {
         return username;
-    }
-
-    public void setUsername(String username) {
-        this.username = username;
-    }
-
-    /**
-     * Returns the user's email address.
-     *
-     * @return the email address of the user
-     */
-    public String getEmail() {
-        return email;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
     }
 
     /**
@@ -166,47 +124,31 @@ public class User {
         return hashedPassword;
     }
 
-    public void setHashedPassword(String hashedPassword) {
-        this.hashedPassword = hashedPassword;
+    /**
+     * Returns the user's email address.
+     *
+     * @return the email address of the user
+     */
+    public String getEmail() {
+        return email;
     }
 
     /**
-     * Returns the roles assigned to the user.
+     * Returns the user's first name.
      *
-     * @return a set of roles assigned to the user
+     * @return the first name of the user
      */
-    public Set<Role> getRoles() {
-        return Set.copyOf(roles);
-    }
-
-    public void setRoles(Set<Role> roles) {
-        this.roles = roles;
+    public String getFirstName() {
+        return firstName;
     }
 
     /**
-     * Returns whether the user's account is active.
+     * Returns the user's last name.
      *
-     * @return true if the user account is active, false if banned
+     * @return the last name of the user
      */
-    public boolean isActive() {
-        return active;
-    }
-
-    public void setActive(boolean active) {
-        this.active = active;
-    }
-
-    /**
-     * Returns whether the user's account has been soft-deleted.
-     *
-     * @return true if the account has been deleted, false otherwise
-     */
-    public boolean isDeleted() {
-        return deleted;
-    }
-
-    public void setDeleted(boolean deleted) {
-        this.deleted = deleted;
+    public String getLastName() {
+        return lastName;
     }
 
     /**
@@ -218,8 +160,72 @@ public class User {
         return timezone;
     }
 
+    /**
+     * Returns the roles assigned to the user.
+     *
+     * @return a set of roles assigned to the user
+     */
+    public Set<Role> getRoles() {
+        return Set.copyOf(roles);
+    }
+
+    /**
+     * Returns whether the user's account is active.
+     *
+     * @return true if the user account is active, false if banned
+     */
+    public boolean isActive() {
+        return active;
+    }
+
+    /**
+     * Returns whether the user's account has been soft-deleted.
+     *
+     * @return true if the account has been deleted, false otherwise
+     */
+    public boolean isDeleted() {
+        return deleted;
+    }
+
+    // --- Setters ---
+
+    public void setUsername(String username) {
+        this.username = username;
+    }
+
+    public void setHashedPassword(String hashedPassword) {
+        this.hashedPassword = hashedPassword;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public void setFirstName(String firstName) {
+        this.firstName = firstName;
+    }
+
+    public void setLastName(String lastName) {
+        this.lastName = lastName;
+    }
+
     public void setTimezone(String timezone) {
         this.timezone = timezone;
+    }
+    public void addRole(Role role) {
+        this.roles.add(role);
+    }
+
+    public void removeRole(Role role) {
+        this.roles.remove(role);
+    }
+
+    public void setActive(boolean active) {
+        this.active = active;
+    }
+
+    public void setDeleted(boolean deleted) {
+        this.deleted = deleted;
     }
 
     // --- Equality & Hashing ---
