@@ -30,7 +30,7 @@ public class User {
     private String username;
 
     /** The hashed password. */
-    @Column(nullable = false)
+    @Column(name = "hashedpassword", nullable = false)  // Updated to match database column
     private String hashedPassword;
 
     /** Unique, valid email address used for communication and login. */
@@ -39,11 +39,11 @@ public class User {
     private String email;
 
     /** User’s first name. */
-    @Column(nullable = false, length = 50)
+    @Column(name = "firstname", nullable = false, length = 50)  // Updated to match database column
     private String firstName;
 
     /** User’s last name. */
-    @Column(nullable = false, length = 50)
+    @Column(name = "lastname", nullable = false, length = 50)  // Updated to match database column
     private String lastName;
 
     /** Timezone ID associated with the user, used for event scheduling and notifications. */
@@ -68,7 +68,6 @@ public class User {
     /** Indicates whether the account has been soft-deleted. Deleted users are excluded from active interactions. */
     @Column(nullable = false)
     private boolean deleted = false;
-
 
     /** Default constructor required by JPA. */
     protected User() {
@@ -96,140 +95,30 @@ public class User {
     }
 
     // --- Getters ---
-
-    /**
-     * Returns the unique identifier for the user.
-     *
-     * @return the user ID
-     */
-    public Long getId() {
-        return id;
-    }
-
-    /**
-     * Returns the unique username for the user.
-     *
-     * @return the username of the user
-     */
-    public String getUsername() {
-        return username;
-    }
-
-    /**
-     * Returns the user's hashed password.
-     *
-     * @return the hashed password of the user
-     */
-    public String getHashedPassword() {
-        return hashedPassword;
-    }
-
-    /**
-     * Returns the user's email address.
-     *
-     * @return the email address of the user
-     */
-    public String getEmail() {
-        return email;
-    }
-
-    /**
-     * Returns the user's first name.
-     *
-     * @return the first name of the user
-     */
-    public String getFirstName() {
-        return firstName;
-    }
-
-    /**
-     * Returns the user's last name.
-     *
-     * @return the last name of the user
-     */
-    public String getLastName() {
-        return lastName;
-    }
-
-    /**
-     * Returns the user's timezone ID.
-     *
-     * @return the timezone ID of the user
-     */
-    public String getTimezone() {
-        return timezone;
-    }
-
-    /**
-     * Returns the roles assigned to the user.
-     *
-     * @return a set of roles assigned to the user
-     */
-    public Set<Role> getRoles() {
-        return Set.copyOf(roles);
-    }
-
-    /**
-     * Returns whether the user's account is active.
-     *
-     * @return true if the user account is active, false if banned
-     */
-    public boolean isActive() {
-        return active;
-    }
-
-    /**
-     * Returns whether the user's account has been soft-deleted.
-     *
-     * @return true if the account has been deleted, false otherwise
-     */
-    public boolean isDeleted() {
-        return deleted;
-    }
+    public Long getId() { return id; }
+    public String getUsername() { return username; }
+    public String getHashedPassword() { return hashedPassword; }
+    public String getEmail() { return email; }
+    public String getFirstName() { return firstName; }
+    public String getLastName() { return lastName; }
+    public String getTimezone() { return timezone; }
+    public Set<Role> getRoles() { return Set.copyOf(roles); }
+    public boolean isActive() { return active; }
+    public boolean isDeleted() { return deleted; }
 
     // --- Setters ---
-
-    public void setUsername(String username) {
-        this.username = username;
-    }
-
-    public void setHashedPassword(String hashedPassword) {
-        this.hashedPassword = hashedPassword;
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-    }
-
-    public void setFirstName(String firstName) {
-        this.firstName = firstName;
-    }
-
-    public void setLastName(String lastName) {
-        this.lastName = lastName;
-    }
-
-    public void setTimezone(String timezone) {
-        this.timezone = timezone;
-    }
-    public void addRole(Role role) {
-        this.roles.add(role);
-    }
-
-    public void removeRole(Role role) {
-        this.roles.remove(role);
-    }
-
-    public void setActive(boolean active) {
-        this.active = active;
-    }
-
-    public void setDeleted(boolean deleted) {
-        this.deleted = deleted;
-    }
+    public void setUsername(String username) { this.username = username; }
+    public void setHashedPassword(String hashedPassword) { this.hashedPassword = hashedPassword; }
+    public void setEmail(String email) { this.email = email; }
+    public void setFirstName(String firstName) { this.firstName = firstName; }
+    public void setLastName(String lastName) { this.lastName = lastName; }
+    public void setTimezone(String timezone) { this.timezone = timezone; }
+    public void addRole(Role role) { this.roles.add(role); }
+    public void removeRole(Role role) { this.roles.remove(role); }
+    public void setActive(boolean active) { this.active = active; }
+    public void setDeleted(boolean deleted) { this.deleted = deleted; }
 
     // --- Equality & Hashing ---
-
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;

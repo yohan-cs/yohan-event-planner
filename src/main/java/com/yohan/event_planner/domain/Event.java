@@ -40,19 +40,19 @@ public class Event {
     private final User creator;
 
     /** The start time of the event, stored in UTC. */
-    @Column(nullable = false)
+    @Column(name = "starttime", nullable = false)  // Updated to match database column
     private ZonedDateTime startTime;
 
     /** The end time of the event, stored in UTC. */
-    @Column(nullable = false)
+    @Column(name = "endtime", nullable = false)  // Updated to match database column
     private ZonedDateTime endTime;
 
     /** Time zone ID used for the original start time. */
-    @Column(nullable = false, length = 50)
+    @Column(name = "starttimezone", nullable = false, length = 50)  // Updated to match database column
     private String startTimezone;
 
     /** Time zone ID used for the original end time. */
-    @Column(nullable = false, length = 50)
+    @Column(name = "endtimezone", nullable = false, length = 50)  // Updated to match database column
     private String endTimezone;
 
     /** Optional description of the event. */
