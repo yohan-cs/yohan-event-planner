@@ -1,0 +1,18 @@
+# Ignore Maven build output
+target/
+
+# Ignore environment config
+.env
+
+# Ignore version control
+.git
+.gitignore
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
