@@ -7,6 +7,10 @@ import com.yohan.event_planner.exception.ConflictException;
 import com.yohan.event_planner.exception.EventNotFoundException;
 import com.yohan.event_planner.exception.UnauthorizedException;
 import com.yohan.event_planner.service.EventService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -30,6 +34,7 @@ import java.util.List;
  */
 @RestController
 @RequestMapping("/events")
+@SecurityRequirement(name = "Bearer Authentication")
 public class EventController {
 
     private final EventService eventService;
@@ -45,6 +50,11 @@ public class EventController {
      * @return the corresponding {@link EventResponseDTO}
      * @throws EventNotFoundException if the event with the given ID doesn't exist
      */
+    @Operation(summary = "Retrieve an event by ID")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Event found"),
+            @ApiResponse(responseCode = "404", description = "Event not found")
+    })
     @GetMapping("/{eventId}")
     public EventResponseDTO getEventById(@PathVariable Long eventId) {
         return eventService.getEventById(eventId);
@@ -57,6 +67,11 @@ public class EventController {
      * @return a list of {@link EventResponseDTO}
      * @throws EventNotFoundException if no events are found for the given user
      */
+    @Operation(summary = "Retrieve all events created by a specific user")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Events retrieved"),
+            @ApiResponse(responseCode = "404", description = "No events found for user")
+    })
     @GetMapping("/users/{userId}")
     public List<EventResponseDTO> getEventsByUser(@PathVariable Long userId) {
         return eventService.getEventsByUser(userId);
@@ -71,6 +86,12 @@ public class EventController {
      * @return a list of {@link EventResponseDTO} created by the specified user within the given range
      * @throws EventNotFoundException if no events are found for the given user within the range
      */
+    @Operation(summary = "Retrieve events by user and date range")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Events retrieved"),
+            @ApiResponse(responseCode = "400", description = "Invalid date/time format in request parameters"),
+            @ApiResponse(responseCode = "404", description = "No events found in date range")
+    })
     @GetMapping(value = "/users/{userId}", params = {"start", "end"})
     public List<EventResponseDTO> getEventsByUserAndDateRange(
             @PathVariable Long userId,
@@ -87,6 +108,11 @@ public class EventController {
      * @return a list of {@link EventResponseDTO} belonging to the current user
      * @throws UnauthorizedException if the user is not authenticated
      */
+    @Operation(summary = "Retrieve events created by the current user")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Events retrieved"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized")
+    })
     @GetMapping("/me")
     public List<EventResponseDTO> getMyEvents() {
         return eventService.getEventsByCurrentUser();
@@ -101,6 +127,12 @@ public class EventController {
      * @return a list of {@link EventResponseDTO} in the given date range
      * @throws UnauthorizedException if the user is not authenticated
      */
+    @Operation(summary = "Retrieve current user's events within a date range")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Events retrieved"),
+            @ApiResponse(responseCode = "400", description = "Invalid date/time format in request parameters"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized")
+    })
     @GetMapping(value = "/me", params = {"start", "end"})
     public List<EventResponseDTO> getMyEventsByDateRange(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) ZonedDateTime start,
@@ -118,6 +150,13 @@ public class EventController {
      * @throws UnauthorizedException if the user is not authenticated
      * @throws ConflictException if there is a conflict with the event's time or schedule
      */
+    @Operation(summary = "Create a new event")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Event created successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid input data (validation failure)"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "409", description = "Conflict with existing event")
+    })
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public EventResponseDTO createEvent(@Valid @RequestBody EventCreateDTO dto) {
@@ -136,6 +175,14 @@ public class EventController {
      * @throws EventNotFoundException if the event with the given ID does not exist
      * @throws ConflictException if there is a conflict with the event's time or schedule
      */
+    @Operation(summary = "Update an existing event")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Event updated successfully"),
+            @ApiResponse(responseCode = "400", description = "Invalid input data (validation failure)"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "404", description = "Event not found"),
+            @ApiResponse(responseCode = "409", description = "Conflict with existing event")
+    })
     @PatchMapping("/{id}")
     public EventResponseDTO updateEvent(
             @PathVariable Long id,
@@ -152,6 +199,12 @@ public class EventController {
      * @throws UnauthorizedException if the user is not authorized to delete the event
      * @throws EventNotFoundException if the event with the given ID does not exist
      */
+    @Operation(summary = "Delete an event")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Event deleted successfully"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "404", description = "Event not found")
+    })
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteEvent(@PathVariable Long id) {
