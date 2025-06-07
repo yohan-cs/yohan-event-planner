@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import java.time.ZonedDateTime;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -22,7 +23,7 @@ public class EventPatchHandlerTest {
     void setUp() {
         eventPatchHandler = new EventPatchHandler();
         user = TestUtils.createUserEntityWithId();
-        baseEvent = TestUtils.createEventEntityWithId(100L, user);
+        baseEvent = TestUtils.createTimedEventEntityWithId(100L, user);
     }
 
     @Nested
@@ -82,41 +83,32 @@ public class EventPatchHandlerTest {
 
         @Test
         void testPatchEndTimeSuccess() {
-            // Arrange
             ZonedDateTime newEnd = baseEvent.getEndTime().plusHours(1);
-            EventUpdateDTO dto = new EventUpdateDTO(null, null, newEnd, null);
+            EventUpdateDTO dto = new EventUpdateDTO(null, null, Optional.of(newEnd), Optional.empty());
 
-            // Act
             boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
 
-            // Assert
             assertTrue(changed);
             assertEquals(newEnd, baseEvent.getEndTime());
         }
 
         @Test
         void testPatchEndTimeNoOp() {
-            // Arrange
-            EventUpdateDTO dto = new EventUpdateDTO(null, null, baseEvent.getEndTime(), null);
+            EventUpdateDTO dto = new EventUpdateDTO(null, null, Optional.ofNullable(baseEvent.getEndTime()), null);
 
-            // Act
             boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
 
-            // Assert
             assertFalse(changed);
         }
 
         @Test
         void testPatchStartAndEndTimeSuccess() {
-            // Arrange
             ZonedDateTime newStart = baseEvent.getStartTime().plusDays(1);
             ZonedDateTime newEnd = baseEvent.getEndTime().plusDays(1);
-            EventUpdateDTO dto = new EventUpdateDTO(null, newStart, newEnd, null);
+            EventUpdateDTO dto = new EventUpdateDTO(null, newStart, Optional.of(newEnd), null);
 
-            // Act
             boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
 
-            // Assert
             assertTrue(changed);
             assertEquals(newStart, baseEvent.getStartTime());
             assertEquals(newEnd, baseEvent.getEndTime());
@@ -124,40 +116,116 @@ public class EventPatchHandlerTest {
 
         @Test
         void testPatchStartAndEndTimeNoOp() {
-            // Arrange
-            EventUpdateDTO dto = new EventUpdateDTO(null, baseEvent.getStartTime(), baseEvent.getEndTime(), null);
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    null,
+                    baseEvent.getStartTime(),
+                    Optional.ofNullable(baseEvent.getEndTime()),
+                    null
+            );
 
-            // Act
             boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
 
-            // Assert
             assertFalse(changed);
         }
 
         @Test
         void testPatchDescriptionSuccess() {
-            // Arrange
-            EventUpdateDTO dto = new EventUpdateDTO(null, null, null, "Updated description");
+            EventUpdateDTO dto = new EventUpdateDTO(null, null, null, Optional.of("Updated description"));
 
-            // Act
             boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
 
-            // Assert
             assertTrue(changed);
             assertEquals("Updated description", baseEvent.getDescription());
         }
 
         @Test
         void testPatchDescriptionNoOp() {
-            // Arrange
-            EventUpdateDTO dto = new EventUpdateDTO(null, null, null, baseEvent.getDescription());
+            EventUpdateDTO dto = new EventUpdateDTO(null, null, null, Optional.ofNullable(baseEvent.getDescription()));
 
-            // Act
             boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
 
-            // Assert
             assertFalse(changed);
         }
 
     }
+
+    @Test
+    void testPatchFromUntimedToTimed_setsEndTimeAndDuration() {
+        // Arrange
+        baseEvent = TestUtils.createUntimedEventEntityWithId(200L, user);
+        ZonedDateTime newEnd = baseEvent.getStartTime().plusHours(2);
+        EventUpdateDTO dto = new EventUpdateDTO(null, null, Optional.of(newEnd), Optional.empty());
+
+        // Act
+        boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
+
+        // Assert
+        assertTrue(changed);
+        assertEquals(newEnd, baseEvent.getEndTime());
+        assertEquals(120, baseEvent.getDurationMinutes());
+    }
+
+    @Test
+    void testPatchFromTimedToUntimed_removesEndTimeAndDuration() {
+        // Arrange
+        baseEvent = TestUtils.createTimedEventEntityWithId(201L, user);
+        EventUpdateDTO dto = new EventUpdateDTO(null, null, Optional.empty(), Optional.empty());
+
+        // Act
+        boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
+
+        // Assert
+        assertTrue(changed);
+        assertNull(baseEvent.getEndTime());
+        assertNull(baseEvent.getDurationMinutes());
+    }
+
+    @Test
+    void testPatchFromUntimedToUntimedNoOp_returnsFalse() {
+        // Arrange
+        baseEvent = TestUtils.createUntimedEventEntityWithId(202L, user);
+        EventUpdateDTO dto = new EventUpdateDTO(null, null, Optional.empty(), Optional.empty());
+
+        // Act
+        boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
+
+        // Assert
+        assertFalse(changed);
+        assertNull(baseEvent.getEndTime());
+        assertNull(baseEvent.getDurationMinutes());
+    }
+
+    @Test
+    void testPatchStartTimeOnUntimedEvent_success() {
+        // Arrange
+        baseEvent = TestUtils.createUntimedEventEntityWithId(203L, user);
+        ZonedDateTime newStart = baseEvent.getStartTime().plusDays(1);
+        EventUpdateDTO dto = new EventUpdateDTO(null, newStart, Optional.empty(), Optional.empty());
+
+        // Act
+        boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
+
+        // Assert
+        assertTrue(changed);
+        assertEquals(newStart, baseEvent.getStartTime());
+        assertNull(baseEvent.getEndTime());
+        assertNull(baseEvent.getDurationMinutes());
+    }
+
+    @Test
+    void testPatchStartTimeOnUntimedEvent_noOp() {
+        // Arrange
+        baseEvent = TestUtils.createUntimedEventEntityWithId(204L, user);
+        EventUpdateDTO dto = new EventUpdateDTO(null, baseEvent.getStartTime(), Optional.empty(), Optional.empty());
+
+        // Act
+        boolean changed = eventPatchHandler.applyPatch(baseEvent, dto, user);
+
+        // Assert
+        assertFalse(changed);
+        assertEquals(baseEvent.getStartTime(), baseEvent.getStartTime());
+        assertNull(baseEvent.getEndTime());
+        assertNull(baseEvent.getDurationMinutes());
+    }
+
 }

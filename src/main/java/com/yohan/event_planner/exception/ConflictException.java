@@ -1,6 +1,5 @@
 package com.yohan.event_planner.exception;
 
-
 import com.yohan.event_planner.domain.Event;
 
 import java.time.ZonedDateTime;
@@ -8,11 +7,15 @@ import java.time.format.DateTimeFormatter;
 
 /**
  * Exception thrown when a new or updated event conflicts with an existing event's time range.
+ *
  * <p>
  * This exception includes details about the conflicting event, such as its ID, name,
  * and the start and end times, to aid in debugging and user feedback.
+ * </p>
+ *
  * <p>
  * Implements {@link HasErrorCode} to provide a standardized error code.
+ * </p>
  */
 public class ConflictException extends RuntimeException implements HasErrorCode {
 
@@ -42,6 +45,7 @@ public class ConflictException extends RuntimeException implements HasErrorCode 
 
     /**
      * Builds a detailed error message including event ID, name, and time range.
+     * If start or end time is missing (null), it will display "N/A".
      *
      * @param existingEvent the conflicting event
      * @return a human-readable error message
@@ -53,7 +57,15 @@ public class ConflictException extends RuntimeException implements HasErrorCode 
                 formatDateTime(existingEvent.getEndTime()) + ")";
     }
 
+    /**
+     * Formats the given ZonedDateTime or returns "N/A" if null.
+     *
+     * @param dateTime the ZonedDateTime to format
+     * @return the formatted date string or "N/A"
+     */
     private static String formatDateTime(ZonedDateTime dateTime) {
-        return dateTime.format(FORMATTER);
+        return dateTime != null
+                ? dateTime.format(FORMATTER)
+                : "N/A";
     }
 }

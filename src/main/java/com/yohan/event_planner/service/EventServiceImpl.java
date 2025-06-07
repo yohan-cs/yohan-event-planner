@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -27,14 +28,23 @@ import java.util.stream.Collectors;
  * domain logic to {@link EventBO}.
  * </p>
  *
- * <p>
- * All returned {@link EventResponseDTO} objects are time zone–aware and adjusted to the
- * authenticated user's profile time zone. The times are assumed to be stored in UTC and
- * adjusted based on the viewer's time zone.
- * </p>
+ * <h2>Time Handling</h2>
+ * <ul>
+ *     <li>All start and end times are stored internally in UTC.</li>
+ *     <li>Original time zone IDs are stored separately to support accurate local time display.</li>
+ *     <li>Time zone adjustments for response objects are based on the viewer's profile time zone.</li>
+ * </ul>
+ *
+ * <h2>Duration Handling</h2>
+ * <ul>
+ *     <li>{@code durationMinutes} is calculated during event creation if {@code endTime} is provided.</li>
+ *     <li>During update operations, {@code durationMinutes} is updated or cleared via the patch handler.</li>
+ *     <li>Duration is expressed in whole minutes and stored explicitly in the {@link Event} entity.</li>
+ * </ul>
  *
  * <p>
  * This class is not responsible for persistence or direct repository access.
+ * It delegates those concerns to the {@link EventBO}.
  * </p>
  */
 @Service
@@ -129,10 +139,19 @@ public class EventServiceImpl implements EventService {
         Event event = new Event(
                 dto.name(),
                 dto.startTime(),
-                dto.endTime(),
                 creator
         );
+        event.setEndTime(dto.endTime());
         event.setDescription(dto.description());
+
+        if (dto.endTime() != null) {
+            long duration = java.time.Duration.between(
+                    dto.startTime().withZoneSameInstant(ZoneOffset.UTC),
+                    dto.endTime().withZoneSameInstant(ZoneOffset.UTC)
+            ).toMinutes();
+            event.setDurationMinutes((int) duration);
+        }
+
         Event created = eventBO.createEvent(event);
         return buildEventResponseDTO(created, creator);
     }
@@ -185,6 +204,7 @@ public class EventServiceImpl implements EventService {
 
         ZonedDateTime startTimeUtc = event.getStartTime();
         ZonedDateTime endTimeUtc = event.getEndTime();
+        Integer durationMinutes = event.getDurationMinutes();
 
         String startTimeZone = !creatorZone.equals(startZone) ? startZone : null;
         String endTimeZone = !creatorZone.equals(endZone) ? endZone : null;
@@ -194,6 +214,7 @@ public class EventServiceImpl implements EventService {
                 event.getName(),
                 startTimeUtc,
                 endTimeUtc,
+                durationMinutes,
                 startTimeZone,
                 endTimeZone,
                 event.getDescription(),

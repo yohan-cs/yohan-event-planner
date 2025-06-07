@@ -18,9 +18,17 @@ import java.time.ZonedDateTime;
  * and description. Fields are only updated if:
  * <ul>
  *   <li>The field in the DTO is non-null</li>
- *   <li>The new value differs from the current value</li>
+ *   <li>The new value differs from the current value, or is explicitly cleared (e.g. {@code Optional.empty()})</li>
  * </ul>
  * </p>
+ *
+ * <h2>Time and Duration Handling</h2>
+ * <ul>
+ *     <li>If either the start or end time is updated, both are reassigned to maintain consistency.</li>
+ *     <li>If {@code endTime} is explicitly cleared (via {@code Optional.empty()}), the event is made open-ended.</li>
+ *     <li>{@code durationMinutes} is automatically recalculated or cleared based on {@code endTime} changes.</li>
+ *     <li>All time values are normalized to UTC when stored.</li>
+ * </ul>
  *
  * <p>
  * This component performs <strong>mutation only</strong>; it does <em>not</em> perform validation,
@@ -48,7 +56,9 @@ public class EventPatchHandler {
      * to the target {@link Event} instance.
      *
      * <p>
-     * If either the start or end time is updated, both are reassigned to maintain consistency.
+     * If either {@code startTime} or {@code endTime} is updated (or explicitly cleared),
+     * the event's time range is reassigned. If {@code endTime} is present, the duration
+     * is recalculated in whole minutes. If it is cleared, {@code durationMinutes} is also removed.
      * </p>
      *
      * @param existingEvent the existing event entity to be modified
@@ -65,28 +75,65 @@ public class EventPatchHandler {
             updated = true;
         }
 
-        boolean startChanged = dto.startTime() != null && !dto.startTime().equals(existingEvent.getStartTime());
-        boolean endChanged = dto.endTime() != null && !dto.endTime().equals(existingEvent.getEndTime());
+        boolean startChanged = dto.startTime() != null &&
+                !dto.startTime().equals(existingEvent.getStartTime());
+
+        boolean endChanged = dto.endTime() != null && (
+                (dto.endTime().isEmpty() && existingEvent.getEndTime() != null) ||
+                        (dto.endTime().isPresent() && !dto.endTime().get().equals(existingEvent.getEndTime()))
+        );
 
         if (startChanged || endChanged) {
-            ZonedDateTime newStart = dto.startTime() != null ? dto.startTime() : existingEvent.getStartTime();
-            ZonedDateTime newEnd = dto.endTime() != null ? dto.endTime() : existingEvent.getEndTime();
+            ZonedDateTime newStart = dto.startTime() != null
+                    ? dto.startTime()
+                    : existingEvent.getStartTime();
 
             logger.info("Patching event time: [{} - {}] → [{} - {}]",
-                    existingEvent.getStartTime(), existingEvent.getEndTime(),
-                    newStart, newEnd);
+                    existingEvent.getStartTime(),
+                    existingEvent.getEndTime(),
+                    newStart,
+                    (dto.endTime() != null && dto.endTime().isPresent()) ? dto.endTime().get() : null
+            );
 
-            existingEvent.setStartTime(newStart);
-            existingEvent.setEndTime(newEnd);
+            if (dto.endTime() != null && dto.endTime().isPresent()) {
+                ZonedDateTime newEnd = dto.endTime().get();
+                existingEvent.setStartTime(newStart);
+                existingEvent.setEndTime(newEnd);
+
+                long minutes = java.time.Duration.between(
+                        newStart.withZoneSameInstant(java.time.ZoneOffset.UTC),
+                        newEnd.withZoneSameInstant(java.time.ZoneOffset.UTC)
+                ).toMinutes();
+                existingEvent.setDurationMinutes((int) minutes);
+
+            } else if (dto.endTime() != null && dto.endTime().isEmpty()) {
+                existingEvent.setStartTime(newStart);
+                existingEvent.setEndTime(null); // also clears durationMinutes via setter
+            } else {
+                existingEvent.setStartTime(newStart);
+            }
+
             updated = true;
         }
 
-        if (dto.description() != null && !dto.description().equals(existingEvent.getDescription())) {
-            logger.info("Patching event description.");
-            existingEvent.setDescription(dto.description());
-            updated = true;
+        if (dto.description() != null) {
+            if (dto.description().isEmpty()) {
+                if (existingEvent.getDescription() != null) {
+                    logger.info("Clearing event description.");
+                    existingEvent.setDescription(null);
+                    updated = true;
+                }
+            } else {
+                String newDescription = dto.description().get();
+                if (!newDescription.equals(existingEvent.getDescription())) {
+                    logger.info("Patching event description.");
+                    existingEvent.setDescription(newDescription);
+                    updated = true;
+                }
+            }
         }
 
         return updated;
     }
+
 }

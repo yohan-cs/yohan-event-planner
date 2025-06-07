@@ -16,6 +16,7 @@ public class TestConstants {
 
     public static final Long EVENT_ID = 100L;
     public static final String VALID_EVENT_TITLE = "Walk Acorn";
+    public static final int VALID_EVENT_DURATION_MINUTES = 60;
     public static final String VALID_EVENT_DESCRIPTION = "Make sure he doesn't overheat.";
 
     public static final ZonedDateTime VALID_EVENT_START =

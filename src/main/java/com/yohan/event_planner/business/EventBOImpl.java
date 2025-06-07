@@ -127,38 +127,81 @@ public class EventBOImpl implements EventBO {
      * @throws InvalidTimeException if {@code start} is equal to or after {@code end}
      */
     private void validateStartBeforeEnd(ZonedDateTime start, ZonedDateTime end) {
+        if (end == null) return;
         if (!start.isBefore(end)) {
-            throw new InvalidTimeException(start, end); // Custom exception with specific details
+            throw new InvalidTimeException(start, end);
         }
     }
 
     /**
      * Checks whether a proposed time range overlaps with existing events for the same creator.
+     * <p>
+     * If the event has an end time, it checks for standard overlaps.
+     * If the event has no end time (i.e., open-ended), it checks whether the start time overlaps
+     * with the end of any other events.
      *
      * @param creatorId      the user ID of the event creator
      * @param excludeEventId (nullable) ID of the event to exclude from the conflict check (used during update)
-     * @param newStart       the start time of the event being validated
-     * @param newEnd         the end time of the event being validated
-     * @throws ConflictException if an overlapping event is found (custom exception for better conflict handling)
+     * @param newStart       the start time of the event being validated (must not be null)
+     * @param newEnd         the end time of the event being validated (may be null for open-ended events)
+     * @throws ConflictException if an overlapping event is found
      */
     private void validateNoConflicts(Long creatorId, Long excludeEventId, ZonedDateTime newStart, ZonedDateTime newEnd) {
-        Optional<Event> conflict;
-
-        if (excludeEventId == null) {
-            conflict = eventRepository
-                    .findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(creatorId, newEnd, newStart);
-        } else {
-            conflict = eventRepository
-                    .findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
-                            creatorId, newEnd, newStart, excludeEventId
-                    );
-        }
+        Optional<Event> conflict = findConflict(creatorId, excludeEventId, newStart, newEnd);
 
         conflict.ifPresent(conflictingEvent -> {
             logger.warn("Conflict detected with event ID {} for user ID {}", conflictingEvent.getId(), creatorId);
-            throw new ConflictException(conflictingEvent); // Custom exception for conflict detection
+            throw new ConflictException(conflictingEvent);
         });
     }
 
-    // endregion
+    /**
+     * Searches for a conflicting event by the same creator.
+     *
+     * <p>
+     * Conflict rules:
+     * <ul>
+     *     <li><b>Timed Event:</b> Conflicts with any existing event that overlaps the given time range
+     *         (<code>startTime &lt; newEnd</code> AND <code>endTime &gt; newStart</code>).</li>
+     *     <li><b>Untimed Event:</b> Can conflict with:
+     *         <ul>
+     *             <li>A timed event that ends after <code>newStart</code>.</li>
+     *             <li>Another untimed event that starts at the exact same <code>newStart</code>.</li>
+     *         </ul>
+     *     </li>
+     * </ul>
+     * If <code>excludeEventId</code> is provided, that event will be ignored (used for updates).
+     * </p>
+     *
+     * @param creatorId      ID of the event's creator
+     * @param excludeEventId ID of the event to exclude from conflict checking (can be null)
+     * @param newStart       Proposed start time of the event
+     * @param newEnd         Proposed end time (null for untimed events)
+     * @return Optional containing the first conflicting event found, if any
+     */
+    private Optional<Event> findConflict(Long creatorId, Long excludeEventId, ZonedDateTime newStart, ZonedDateTime newEnd) {
+        if (newEnd != null) {
+            // Timed event: check for overlapping timed events
+            return excludeEventId == null
+                    ? eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
+                    creatorId, newEnd, newStart)
+                    : eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
+                    creatorId, newEnd, newStart, excludeEventId);
+        } else {
+            // Untimed event: check for timed conflicts first
+            Optional<Event> conflict = excludeEventId == null
+                    ? eventRepository.findFirstByCreatorIdAndEndTimeGreaterThan(creatorId, newStart)
+                    : eventRepository.findFirstByCreatorIdAndEndTimeGreaterThanAndIdNot(creatorId, newStart, excludeEventId);
+
+            if (conflict.isPresent()) {
+                return conflict;
+            }
+
+            // Then check for untimed conflicts with same start time
+            return excludeEventId == null
+                    ? eventRepository.findFirstByCreatorIdAndEndTimeIsNullAndStartTimeEquals(creatorId, newStart)
+                    : eventRepository.findFirstByCreatorIdAndEndTimeIsNullAndStartTimeEqualsAndIdNot(creatorId, newStart, excludeEventId);
+        }
+    }
+
 }

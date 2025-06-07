@@ -4,6 +4,7 @@ import com.yohan.event_planner.domain.Event;
 import jakarta.validation.constraints.Size;
 
 import java.time.ZonedDateTime;
+import java.util.Optional;
 
 /**
  * Request DTO for partially updating an existing {@link Event}.
@@ -20,17 +21,13 @@ import java.time.ZonedDateTime;
  */
 public record EventUpdateDTO(
 
-        /** Optional new event name. Must be 1–100 characters if present. */
         @Size(min = 1, max = 100, message = "Event name must be between 1 and 100 characters")
         String name,
 
-        /** Optional new start time with time zone. */
         ZonedDateTime startTime,
 
-        /** Optional new end time with time zone. */
-        ZonedDateTime endTime,
+        Optional<ZonedDateTime> endTime,
 
-        /** Optional new event description. Max 500 characters if present. */
-        @Size(max = 500, message = "Description must not exceed 500 characters")
-        String description
+        /** Optional new event description. Use {@code Optional.empty()} to clear it. */
+        Optional<@Size(max = 500, message = "Description must not exceed 500 characters") String> description
 ) {}

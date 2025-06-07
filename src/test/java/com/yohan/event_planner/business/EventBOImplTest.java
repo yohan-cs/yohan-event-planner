@@ -20,6 +20,7 @@ import java.util.Optional;
 
 import static com.yohan.event_planner.util.TestConstants.EVENT_ID;
 
+import static com.yohan.event_planner.util.TestConstants.VALID_EVENT_END;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -43,7 +44,7 @@ public class EventBOImplTest {
         void testGetEventById_eventExists_returnsEvent() {
             // Arrange
             User creator = TestUtils.createUserEntityWithId();
-            Event expectedEvent = TestUtils.createEventEntityWithId(creator);
+            Event expectedEvent = TestUtils.createTimedEventEntity(creator);
 
             // Mocks
             when(eventRepository.findById(EVENT_ID)).thenReturn(Optional.of(expectedEvent));
@@ -77,8 +78,8 @@ public class EventBOImplTest {
         void testGetEventsByUser_userHasEvents_returnsListOfEvents() {
             // Arrange
             User user = TestUtils.createUserEntityWithId();
-            Event event1 = TestUtils.createEventEntityWithId(101L, user);
-            Event event2 = TestUtils.createEventEntityWithId(102L, user);
+            Event event1 = TestUtils.createTimedEventEntityWithId(101L, user);
+            Event event2 = TestUtils.createTimedEventEntityWithId(102L, user);
             List<Event> expectedEvents = List.of(event1, event2);
 
             // Mocks
@@ -123,8 +124,8 @@ public class EventBOImplTest {
             ZonedDateTime rangeStart = ZonedDateTime.of(2024, 1, 1, 0, 0, 0, 0, ZoneId.of("America/New_York"));
             ZonedDateTime rangeEnd   = ZonedDateTime.of(2024, 1, 2, 0, 0, 0, 0, ZoneId.of("America/New_York"));
 
-            Event event1 = TestUtils.createEventEntityWithId(201L, user); // Assume it's within range
-            Event event2 = TestUtils.createEventEntityWithId(202L, user); // Assume also within range
+            Event event1 = TestUtils.createTimedEventEntityWithId(201L, user); // Assume it's within range
+            Event event2 = TestUtils.createTimedEventEntityWithId(202L, user); // Assume also within range
 
             List<Event> expectedEvents = List.of(event1, event2);
 
@@ -159,6 +160,55 @@ public class EventBOImplTest {
             assertTrue(result.isEmpty());
             verify(eventRepository).findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd);
         }
+
+        @Test
+        void testGetEventByUserAndDateRange_untimedEventInRange_returnsEvent() {
+            // Arrange
+            User user = TestUtils.createUserEntityWithId();
+
+            ZonedDateTime rangeStart = ZonedDateTime.of(2024, 1, 1, 0, 0, 0, 0, ZoneId.of("America/New_York"));
+            ZonedDateTime rangeEnd   = ZonedDateTime.of(2024, 1, 10, 0, 0, 0, 0, ZoneId.of("America/New_York"));
+
+            Event untimedEvent = TestUtils.createUntimedEventEntityWithId(301L, user);
+            untimedEvent.setStartTime(ZonedDateTime.of(2024, 1, 5, 12, 0, 0, 0, ZoneId.of("America/New_York")));
+
+            List<Event> expectedEvents = List.of(untimedEvent);
+
+            // Mocks
+            when(eventRepository.findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd))
+                    .thenReturn(expectedEvents);
+
+            // Act
+            List<Event> result = eventBO.getEventsByUserAndDateRange(user.getId(), rangeStart, rangeEnd);
+
+            // Assert
+            assertEquals(1, result.size());
+            assertTrue(result.contains(untimedEvent));
+            verify(eventRepository).findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd);
+        }
+
+        @Test
+        void testGetEventByUserAndDateRange_untimedEventOutOfRange_returnsEmptyList() {
+            // Arrange
+            User user = TestUtils.createUserEntityWithId();
+
+            ZonedDateTime rangeStart = ZonedDateTime.of(2024, 1, 1, 0, 0, 0, 0, ZoneId.of("America/New_York"));
+            ZonedDateTime rangeEnd   = ZonedDateTime.of(2024, 1, 2, 0, 0, 0, 0, ZoneId.of("America/New_York"));
+
+            Event untimedEvent = TestUtils.createUntimedEventEntityWithId(302L, user);
+            untimedEvent.setStartTime(ZonedDateTime.of(2024, 1, 10, 12, 0, 0, 0, ZoneId.of("America/New_York")));
+
+            // Mocks
+            when(eventRepository.findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd))
+                    .thenReturn(Collections.emptyList());
+
+            // Act
+            List<Event> result = eventBO.getEventsByUserAndDateRange(user.getId(), rangeStart, rangeEnd);
+
+            // Assert
+            assertTrue(result.isEmpty());
+            verify(eventRepository).findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd);
+        }
     }
 
     @Nested
@@ -168,8 +218,8 @@ public class EventBOImplTest {
         void testCreateEvent_validEvent_savesAndReturnsEventWithId() {
             // Arrange
             User user = TestUtils.createUserEntityWithId();
-            Event inputEvent = TestUtils.createEventEntityWithoutId(user);
-            Event savedEvent = TestUtils.createEventEntityWithId(301L, user);
+            Event inputEvent = TestUtils.createTimedEventEntity(user);
+            Event savedEvent = TestUtils.createTimedEventEntityWithId(301L, user);
 
             // Mocks
             when(eventRepository.save(inputEvent)).thenReturn(savedEvent);
@@ -189,10 +239,10 @@ public class EventBOImplTest {
             User user = TestUtils.createUserEntityWithId();
             Event invalidEvent = new Event(
                     "Invalid Event",
-                    TestConstants.VALID_EVENT_END,
-                    TestConstants.VALID_EVENT_END,
+                    VALID_EVENT_END,
                     user
             );
+            invalidEvent.setEndTime(VALID_EVENT_END);
 
             // Act + Assert
             assertThrows(InvalidTimeException.class, () -> eventBO.createEvent(invalidEvent));
@@ -203,8 +253,8 @@ public class EventBOImplTest {
         void testCreateEvent_conflictingEventExists_throwsConflictException() {
             // Arrange
             User user = TestUtils.createUserEntityWithId();
-            Event newEvent = TestUtils.createEventEntityWithoutId(user);
-            Event conflictingEvent = TestUtils.createEventEntityWithId(999L, user);
+            Event newEvent = TestUtils.createTimedEventEntity(user);
+            Event conflictingEvent = TestUtils.createTimedEventEntityWithId(999L, user);
 
             // Mocks
             when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
@@ -217,6 +267,25 @@ public class EventBOImplTest {
             assertThrows(ConflictException.class, () -> eventBO.createEvent(newEvent));
             verify(eventRepository, never()).save(any(Event.class));
         }
+
+        @Test
+        void testCreateEvent_validUntimedEvent_savesAndReturnsEventWithId() {
+            // Arrange
+            User user = TestUtils.createUserEntityWithId();
+            Event inputEvent = TestUtils.createUntimedEventEntity(user);
+            Event savedEvent = TestUtils.createUntimedEventEntityWithId(302L, user);
+
+            // Mocks
+            when(eventRepository.save(inputEvent)).thenReturn(savedEvent);
+
+            // Act
+            Event result = eventBO.createEvent(inputEvent);
+
+            // Assert
+            assertNotNull(result.getId());
+            assertEquals(savedEvent.getName(), result.getName());
+            verify(eventRepository).save(inputEvent);
+        }
     }
 
     @Nested
@@ -226,8 +295,8 @@ public class EventBOImplTest {
         void testUpdateEvent_validInput_savesAndReturnsEvent() {
             // Arrange
             User user = TestUtils.createUserEntityWithId();
-            Event inputEvent = TestUtils.createEventEntityWithId(103L, user);
-            Event savedEvent = TestUtils.createEventEntityWithId(103L, user); // Same but persisted
+            Event inputEvent = TestUtils.createTimedEventEntityWithId(103L, user);
+            Event savedEvent = TestUtils.createTimedEventEntityWithId(103L, user); // Same but persisted
 
             // Mocks
             when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
@@ -248,9 +317,9 @@ public class EventBOImplTest {
         void testUpdateEvent_invalidTimes_throwsInvalidTimeException() {
             // Arrange
             User user = TestUtils.createUserEntityWithId();
-            Event invalidEvent = TestUtils.createEventEntityWithId(101L, user);
-            invalidEvent.setStartTime(TestConstants.VALID_EVENT_END);   // Start == End
-            invalidEvent.setEndTime(TestConstants.VALID_EVENT_END);
+            Event invalidEvent = TestUtils.createTimedEventEntityWithId(101L, user);
+            invalidEvent.setStartTime(VALID_EVENT_END);   // Start == End
+            invalidEvent.setEndTime(VALID_EVENT_END);
 
             // Act + Assert
             assertThrows(InvalidTimeException.class, () -> eventBO.updateEvent(invalidEvent));
@@ -261,9 +330,9 @@ public class EventBOImplTest {
         void testUpdateEvent_conflictingEvent_throwsConflictException() {
             // Arrange
             User user = TestUtils.createUserEntityWithId();
-            Event eventToUpdate = TestUtils.createEventEntityWithId(102L, user);
+            Event eventToUpdate = TestUtils.createTimedEventEntityWithId(102L, user);
 
-            Event conflict = TestUtils.createEventEntityWithId(999L, user);
+            Event conflict = TestUtils.createTimedEventEntityWithId(999L, user);
 
             // Mocks
             when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
@@ -274,6 +343,62 @@ public class EventBOImplTest {
             assertThrows(ConflictException.class, () -> eventBO.updateEvent(eventToUpdate));
             verify(eventRepository, never()).save(any());
         }
+
+        @Test
+        void testUpdateEvent_addsEndTime_savesUpdatedEvent() {
+            // Arrange
+            User user = TestUtils.createUserEntityWithId();
+            Event inputEvent = TestUtils.createUntimedEventEntityWithId(104L, user);
+            inputEvent.setEndTime(VALID_EVENT_END);
+
+            // Recalculate duration manually
+            long minutes = java.time.Duration.between(
+                    inputEvent.getStartTime().withZoneSameInstant(java.time.ZoneOffset.UTC),
+                    VALID_EVENT_END.withZoneSameInstant(java.time.ZoneOffset.UTC)
+            ).toMinutes();
+            inputEvent.setDurationMinutes((int) minutes);
+
+            Event savedEvent = TestUtils.createTimedEventEntityWithId(104L, user);
+
+            // Mocks
+            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
+                    eq(user.getId()), any(), any(), eq(inputEvent.getId())))
+                    .thenReturn(Optional.empty());
+            when(eventRepository.save(inputEvent)).thenReturn(savedEvent);
+
+            // Act
+            Event result = eventBO.updateEvent(inputEvent);
+
+            // Assert
+            assertNotNull(result);
+            assertEquals(savedEvent.getEndTime(), result.getEndTime());
+            verify(eventRepository).save(inputEvent);
+        }
+
+        @Test
+        void testUpdateEvent_removesEndTime_savesUpdatedEvent() {
+            // Arrange
+            User user = TestUtils.createUserEntityWithId();
+            Event inputEvent = TestUtils.createTimedEventEntityWithId(105L, user);
+            inputEvent.setEndTime(null);
+            inputEvent.setDurationMinutes(null);
+
+            Event savedEvent = TestUtils.createUntimedEventEntityWithId(105L, user);
+
+            // Mocks
+            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
+                    eq(user.getId()), any(), any(), eq(inputEvent.getId())))
+                    .thenReturn(Optional.empty());
+            when(eventRepository.save(inputEvent)).thenReturn(savedEvent);
+
+            // Act
+            Event result = eventBO.updateEvent(inputEvent);
+
+            // Assert
+            assertNotNull(result);
+            assertNull(result.getEndTime());
+            verify(eventRepository).save(inputEvent);
+        }
     }
 
     @Nested
@@ -283,7 +408,7 @@ public class EventBOImplTest {
         void testDeleteEvent_existingEvent_deletesSuccessfully() {
             // Arrange
             Long eventId = 201L;
-            Event event = TestUtils.createEventEntityWithId(eventId, TestUtils.createUserEntityWithId());
+            Event event = TestUtils.createTimedEventEntityWithId(eventId, TestUtils.createUserEntityWithId());
 
             // Mocks
             when(eventRepository.findById(eventId)).thenReturn(Optional.of(event));
@@ -302,12 +427,14 @@ public class EventBOImplTest {
         @Test
         void testValidateEventTimes_validTimes_doesNotThrow() {
             // Arrange
+            ZonedDateTime validStart = ZonedDateTime.parse("2025-01-01T10:00:00Z");
+            ZonedDateTime validEnd = ZonedDateTime.parse("2025-01-01T12:00:00Z");
             Event event = new Event(
                     "Valid Event",
-                    ZonedDateTime.parse("2025-01-01T10:00:00Z"),
-                    ZonedDateTime.parse("2025-01-01T12:00:00Z"),
+                    validStart,
                     TestUtils.createUserEntityWithId()
             );
+            event.setEndTime(validEnd);
 
             // Act & Assert
             assertDoesNotThrow(() -> eventBO.validateEventTimes(event));
@@ -316,15 +443,33 @@ public class EventBOImplTest {
         @Test
         void testValidateEventTimes_invalidTimes_throwsInvalidTimeException() {
             // Arrange
+            ZonedDateTime invalidStart = ZonedDateTime.parse("2025-01-01T12:00:00Z");
+            ZonedDateTime invalidEnd = ZonedDateTime.parse("2025-01-01T10:00:00Z");
+
             Event event = new Event(
                     "Invalid Event",
-                    ZonedDateTime.parse("2025-01-01T12:00:00Z"),
-                    ZonedDateTime.parse("2025-01-01T10:00:00Z"),
+                    invalidStart,
                     TestUtils.createUserEntityWithId()
             );
+            event.setEndTime(invalidEnd);
 
             // Act & Assert
             assertThrows(InvalidTimeException.class, () -> eventBO.validateEventTimes(event));
+        }
+
+        @Test
+        void testValidateEventTimes_noEndTime_doesNotThrow() {
+            // Arrange
+            ZonedDateTime start = ZonedDateTime.parse("2025-01-01T08:00:00Z");
+            Event event = new Event(
+                    "Open-Ended Event",
+                    start,
+                    TestUtils.createUserEntityWithId()
+            );
+            // No end time is set
+
+            // Act & Assert
+            assertDoesNotThrow(() -> eventBO.validateEventTimes(event));
         }
     }
 
@@ -335,7 +480,7 @@ public class EventBOImplTest {
         void testCheckForConflicts_noConflict_doesNotThrow() {
             // Arrange
             User user = TestUtils.createUserEntityWithId();
-            Event event = TestUtils.createEventEntityWithId(user);
+            Event event = TestUtils.createTimedEventEntity(user);
 
             when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
                     user.getId(), event.getEndTime(), event.getStartTime()))
@@ -349,8 +494,8 @@ public class EventBOImplTest {
         void testCheckForConflicts_conflictExists_throwsConflictException() {
             // Arrange
             User user = TestUtils.createUserEntityWithId();
-            Event event = TestUtils.createEventEntityWithoutId(user); // No ID = new event
-            Event conflicting = TestUtils.createEventEntityWithId(999L, user);
+            Event event = TestUtils.createTimedEventEntity(user); // No ID = new event
+            Event conflicting = TestUtils.createTimedEventEntityWithId(999L, user);
 
             // Mocks
             when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
@@ -364,8 +509,8 @@ public class EventBOImplTest {
         void testCheckForConflicts_adjacentEvents_noConflict() {
             // Arrange
             User user = TestUtils.createUserEntityWithId();
-            Event event = TestUtils.createEventEntityWithoutId(user); // No ID = new event
-            Event adjacentEvent = TestUtils.createEventEntityWithId(999L, user);
+            Event event = TestUtils.createTimedEventEntity(user); // No ID = new event
+            Event adjacentEvent = TestUtils.createTimedEventEntityWithId(999L, user);
 
             // Set the start and end time of the event to be adjacent
             event.setStartTime(ZonedDateTime.parse("2025-06-05T10:00:00Z"));
@@ -384,5 +529,50 @@ public class EventBOImplTest {
             assertDoesNotThrow(() -> eventBO.checkForConflicts(event));
         }
 
+        @Test
+        void testCheckForConflicts_untimedEvent_noConflict_doesNotThrow() {
+            // Arrange
+            User user = TestUtils.createUserEntityWithId();
+            Event untimedEvent = TestUtils.createUntimedEventEntity(user);
+
+            // Mocks
+            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
+                    any(), any(), any())).thenReturn(Optional.empty());
+
+            // Act & Assert
+            assertDoesNotThrow(() -> eventBO.checkForConflicts(untimedEvent));
+        }
+
+        @Test
+        void testCheckForConflicts_untimedEvent_conflictExists_throwsConflictException() {
+            // Arrange
+            User user = TestUtils.createUserEntityWithId();
+            Event untimedEvent = TestUtils.createUntimedEventEntity(user);
+            Event conflictingEvent = TestUtils.createUntimedEventEntityWithId(999L, user);
+
+            // Mocks
+            when(eventRepository.findFirstByCreatorIdAndEndTimeIsNullAndStartTimeEquals(
+                    user.getId(), untimedEvent.getStartTime()))
+                    .thenReturn(Optional.of(conflictingEvent));
+
+            // Act & Assert
+            assertThrows(ConflictException.class, () -> eventBO.checkForConflicts(untimedEvent));
+        }
+
+        @Test
+        void testCheckForConflicts_multipleUntimedEvents_sameStartTime_throwsConflictException() {
+            // Arrange
+            User user = TestUtils.createUserEntityWithId();
+            Event newUntimedEvent = TestUtils.createUntimedEventEntity(user);
+            Event existingUntimedEvent = TestUtils.createUntimedEventEntityWithId(888L, user); // Same start time
+
+            // Mocks
+            when(eventRepository.findFirstByCreatorIdAndEndTimeIsNullAndStartTimeEquals(
+                    user.getId(), newUntimedEvent.getStartTime()))
+                    .thenReturn(Optional.of(existingUntimedEvent));
+
+            // Act & Assert
+            assertThrows(ConflictException.class, () -> eventBO.checkForConflicts(newUntimedEvent));
+        }
     }
 }

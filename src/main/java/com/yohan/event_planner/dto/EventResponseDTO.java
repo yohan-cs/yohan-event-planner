@@ -22,8 +22,11 @@ public record EventResponseDTO(
         /** Event start time in UTC. */
         ZonedDateTime startTimeUtc,
 
-        /** Event end time in UTC. */
+        /** Event end time in UTC. May be {@code null} for open-ended events. */
         ZonedDateTime endTimeUtc,
+
+        /** Duration of the event in whole minutes. {@code null} if end time is not provided. */
+        Integer durationMinutes,
 
         /**
          * Original time zone ID used for the event's start time, if different

@@ -26,8 +26,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_EVENT_ACCESS;
-import static com.yohan.event_planner.util.TestConstants.VALID_EVENT_END;
-import static com.yohan.event_planner.util.TestConstants.VALID_EVENT_START;
+import static com.yohan.event_planner.util.TestConstants.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
@@ -58,7 +57,7 @@ public class EventServiceImplTest {
             User creator = TestUtils.createUserEntityWithId(1L);
             creator.setTimezone("UTC");
 
-            Event event = TestUtils.createEventEntityWithId(100L, creator);
+            Event event = TestUtils.createTimedEventEntityWithId(100L, creator);
             event.setDescription(TestConstants.VALID_EVENT_DESCRIPTION);
 
             EventResponseDTO expectedDto = TestUtils.createEventResponseDTO(event);
@@ -116,9 +115,9 @@ public class EventServiceImplTest {
             User viewer = TestUtils.createUserEntityWithId(userId);
             viewer.setTimezone("UTC");
 
-            Event event1 = TestUtils.createEventEntityWithId(100L, viewer);
+            Event event1 = TestUtils.createTimedEventEntityWithId(100L, viewer);
             event1.setDescription(TestConstants.VALID_EVENT_DESCRIPTION);
-            Event event2 = TestUtils.createEventEntityWithId(101L, viewer);
+            Event event2 = TestUtils.createTimedEventEntityWithId(101L, viewer);
             event2.setDescription("Another event");
 
             List<Event> eventList = List.of(event1, event2);
@@ -173,10 +172,10 @@ public class EventServiceImplTest {
             ZonedDateTime start = VALID_EVENT_START.minusHours(1);
             ZonedDateTime end = VALID_EVENT_END.plusHours(2);
 
-            Event event1 = TestUtils.createEventEntityWithId(200L, viewer);
+            Event event1 = TestUtils.createTimedEventEntityWithId(200L, viewer);
             event1.setDescription(TestConstants.VALID_EVENT_DESCRIPTION);
 
-            Event event2 = TestUtils.createEventEntityWithId(201L, viewer);
+            Event event2 = TestUtils.createTimedEventEntityWithId(201L, viewer);
             event2.setDescription("Another event in range");
 
             List<Event> eventList = List.of(event1, event2);
@@ -194,6 +193,34 @@ public class EventServiceImplTest {
             assertEquals(expected, result);
             verify(eventBO).getEventsByUserAndDateRange(userId, start, end);
             verify(authenticatedUserProvider).getCurrentUser();
+        }
+
+        @Test
+        void testGetEventsByUserAndDateRange_includesUntimedEvent() {
+            // Arrange
+            Long userId = 1L;
+            User viewer = TestUtils.createUserEntityWithId(userId);
+            viewer.setTimezone("UTC");
+
+            ZonedDateTime start = VALID_EVENT_START.minusHours(1);
+            ZonedDateTime end = VALID_EVENT_START.plusHours(1);
+
+            Event untimedEvent = TestUtils.createUntimedEventEntityWithId(200L, viewer);
+            untimedEvent.setDescription("Untimed Event");
+
+            List<Event> eventList = List.of(untimedEvent);
+            List<EventResponseDTO> expected = eventList.stream()
+                    .map(TestUtils::createEventResponseDTO)
+                    .toList();
+
+            when(eventBO.getEventsByUserAndDateRange(userId, start, end)).thenReturn(eventList);
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+
+            // Act
+            List<EventResponseDTO> result = eventService.getEventsByUserAndDateRange(userId, start, end);
+
+            // Assert
+            assertEquals(expected, result);
         }
     }
 
@@ -223,9 +250,9 @@ public class EventServiceImplTest {
             User currentUser = TestUtils.createUserEntityWithId(1L);
             currentUser.setTimezone("UTC");
 
-            Event e1 = TestUtils.createEventEntityWithId(100L, currentUser);
+            Event e1 = TestUtils.createTimedEventEntityWithId(100L, currentUser);
             e1.setDescription("Desc A");
-            Event e2 = TestUtils.createEventEntityWithId(101L, currentUser);
+            Event e2 = TestUtils.createTimedEventEntityWithId(101L, currentUser);
             e2.setDescription("Desc B");
 
             List<Event> events = List.of(e1, e2);
@@ -277,9 +304,9 @@ public class EventServiceImplTest {
             ZonedDateTime start = VALID_EVENT_START;
             ZonedDateTime end = VALID_EVENT_END;
 
-            Event e1 = TestUtils.createEventEntityWithId(200L, user);
+            Event e1 = TestUtils.createTimedEventEntityWithId(200L, user);
             e1.setDescription("Event A");
-            Event e2 = TestUtils.createEventEntityWithId(201L, user);
+            Event e2 = TestUtils.createTimedEventEntityWithId(201L, user);
             e2.setDescription("Event B");
 
             List<Event> events = List.of(e1, e2);
@@ -298,6 +325,34 @@ public class EventServiceImplTest {
             verify(authenticatedUserProvider).getCurrentUser();
             verify(eventBO).getEventsByUserAndDateRange(user.getId(), start, end);
         }
+
+        @Test
+        void testGetEventsByCurrentUserAndDateRange_includesUntimedEvent() {
+            // Arrange
+            User user = TestUtils.createUserEntityWithId(1L);
+            user.setTimezone("UTC");
+
+            ZonedDateTime start = VALID_EVENT_START.minusHours(1);
+            ZonedDateTime end = VALID_EVENT_START.plusHours(1);
+
+            Event untimedEvent = TestUtils.createUntimedEventEntityWithId(300L, user);
+            untimedEvent.setDescription("Untimed Event");
+
+            List<Event> events = List.of(untimedEvent);
+            List<EventResponseDTO> expected = events.stream()
+                    .map(TestUtils::createEventResponseDTO)
+                    .toList();
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+            when(eventBO.getEventsByUserAndDateRange(user.getId(), start, end)).thenReturn(events);
+
+            // Act
+            List<EventResponseDTO> result = eventService.getEventsByCurrentUserAndDateRange(start, end);
+
+            // Assert
+            assertEquals(expected, result);
+        }
+
     }
 
     @Nested
@@ -309,17 +364,17 @@ public class EventServiceImplTest {
             User creator = TestUtils.createUserEntityWithId(1L);
             creator.setTimezone("UTC");
 
-            EventCreateDTO dto = TestUtils.createValidEventCreateDTO();
+            EventCreateDTO dto = TestUtils.createTimedEventCreateDTO();
 
             Event eventToCreate = new Event(
                     dto.name(),
                     dto.startTime(),
-                    dto.endTime(),
                     creator
             );
+            eventToCreate.setEndTime(dto.endTime());
             eventToCreate.setDescription(dto.description());
 
-            Event createdEvent = TestUtils.createEventEntityWithId(100L, creator);
+            Event createdEvent = TestUtils.createTimedEventEntityWithId(100L, creator);
             createdEvent.setName(dto.name());
             createdEvent.setStartTime(VALID_EVENT_START);
             createdEvent.setEndTime(VALID_EVENT_END);
@@ -351,13 +406,14 @@ public class EventServiceImplTest {
             User creator = TestUtils.createUserEntityWithId(1L);
             creator.setTimezone("America/New_York"); // Creator's profile timezone
 
-            EventCreateDTO dto = TestUtils.createValidEventCreateDTO();
+            EventCreateDTO dto = TestUtils.createTimedEventCreateDTO();
 
             // Use times in UTC zone (which differs from creator's zone)
             ZonedDateTime utcStart = ZonedDateTime.of(2024, 1, 1, 7, 0, 0, 0, ZoneId.of("UTC"));
             ZonedDateTime utcEnd = ZonedDateTime.of(2024, 1, 1, 8, 0, 0, 0, ZoneId.of("UTC"));
+            int duration = (int) java.time.Duration.between(utcStart, utcEnd).toMinutes();
 
-            Event createdEvent = TestUtils.createEventEntityWithId(100L, creator);
+            Event createdEvent = TestUtils.createTimedEventEntityWithId(100L, creator);
             createdEvent.setName(dto.name());
             createdEvent.setDescription(dto.description());
 
@@ -371,8 +427,9 @@ public class EventServiceImplTest {
                     createdEvent.getName(),
                     createdEvent.getStartTime(),
                     createdEvent.getEndTime(),
-                    "UTC", // startTimeZone included because ≠ creator timezone
-                    "UTC", // endTimeZone included because ≠ creator timezone
+                    duration,
+                    utcStart.getZone().getId(),// startTimeZone included because ≠ creator timezone
+                    utcEnd.getZone().getId(), // endTimeZone included because ≠ creator timezone
                     createdEvent.getDescription(),
                     creator.getId(),
                     creator.getUsername(),
@@ -391,6 +448,35 @@ public class EventServiceImplTest {
             verify(authenticatedUserProvider).getCurrentUser();
             verify(eventBO).createEvent(any(Event.class));
         }
+
+        @Test
+        void testCreateEvent_untimedEvent_success() {
+            // Arrange
+            User creator = TestUtils.createUserEntityWithId(1L);
+            creator.setTimezone("UTC");
+
+            EventCreateDTO dto = TestUtils.createUntimedEventCreateDTO();
+
+            Event eventToCreate = new Event(dto.name(), dto.startTime(), creator);
+            eventToCreate.setDescription(dto.description());
+
+            Event createdEvent = TestUtils.createUntimedEventEntityWithId(101L, creator);
+            createdEvent.setName(dto.name());
+            createdEvent.setStartTime(dto.startTime());
+            createdEvent.setEndTime(null);
+            createdEvent.setDescription(dto.description());
+
+            EventResponseDTO expected = TestUtils.createEventResponseDTO(createdEvent);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(creator);
+            when(eventBO.createEvent(any(Event.class))).thenReturn(createdEvent);
+
+            // Act
+            EventResponseDTO result = eventService.createEvent(dto);
+
+            // Assert
+            EventResponseDTOAssertions.assertEventResponseDTOEquals(expected, result);
+        }
     }
 
 
@@ -404,21 +490,25 @@ public class EventServiceImplTest {
             User user = TestUtils.createUserEntityWithId(1L);
             user.setTimezone("UTC");
 
-            Event originalEvent = TestUtils.createEventEntityWithId(eventId, user);
+            Event originalEvent = TestUtils.createTimedEventEntityWithId(eventId, user);
             originalEvent.setDescription("Old description");
+
+            ZonedDateTime newStart = VALID_EVENT_START.plusHours(1);
+            ZonedDateTime newEnd = VALID_EVENT_END.plusHours(1);
+            String newDescription = "New description";
 
             EventUpdateDTO updateDTO = new EventUpdateDTO(
                     "Updated Name",
-                    VALID_EVENT_START.plusHours(1),
-                    VALID_EVENT_END.plusHours(1),
-                    "Updated description"
+                    newStart,
+                    Optional.of(newEnd),
+                    Optional.of(newDescription)
             );
 
-            Event updatedEvent = TestUtils.createEventEntityWithId(eventId, user);
+            Event updatedEvent = TestUtils.createTimedEventEntityWithId(eventId, user);
             updatedEvent.setName(updateDTO.name());
             updatedEvent.setStartTime(updateDTO.startTime());
-            updatedEvent.setEndTime(updateDTO.endTime());
-            updatedEvent.setDescription(updateDTO.description());
+            updatedEvent.setEndTime(newEnd);
+            updatedEvent.setDescription(newDescription);
 
             EventResponseDTO expected = TestUtils.createEventResponseDTO(updatedEvent);
 
@@ -429,8 +519,8 @@ public class EventServiceImplTest {
             when(eventPatchHandler.applyPatch(originalEvent, updateDTO, user)).then(invocation -> {
                 originalEvent.setName(updateDTO.name());
                 originalEvent.setStartTime(updateDTO.startTime());
-                originalEvent.setEndTime(updateDTO.endTime());
-                originalEvent.setDescription(updateDTO.description());
+                originalEvent.setEndTime(updateDTO.endTime().orElse(null));
+                originalEvent.setDescription(updateDTO.description().orElse(null));
                 return true;
             });
             when(eventBO.updateEvent(originalEvent)).thenReturn(updatedEvent);
@@ -451,7 +541,12 @@ public class EventServiceImplTest {
         void testUpdateEvent_eventNotFound_throwsException() {
             // Arrange
             Long eventId = 999L;
-            EventUpdateDTO dto = new EventUpdateDTO("Name", VALID_EVENT_START, VALID_EVENT_END, "Desc");
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    "Name",
+                    VALID_EVENT_START,
+                    Optional.of(VALID_EVENT_END),
+                    Optional.of("Desc")
+            );
 
             // Mocks
             when(eventBO.getEventById(eventId)).thenReturn(Optional.empty());
@@ -468,8 +563,13 @@ public class EventServiceImplTest {
             // Arrange
             Long eventId = 100L;
             User user = TestUtils.createUserEntityWithId(1L);
-            EventUpdateDTO dto = new EventUpdateDTO("Name", VALID_EVENT_START, VALID_EVENT_END, "Desc");
-            Event event = TestUtils.createEventEntityWithId(eventId, TestUtils.createUserEntityWithId(2L)); // different creator
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    "Name",
+                    VALID_EVENT_START,
+                    Optional.of(VALID_EVENT_END),
+                    Optional.of("Desc")
+            );
+            Event event = TestUtils.createTimedEventEntityWithId(eventId, TestUtils.createUserEntityWithId(2L)); // different creator
 
             // Mocks
             when(eventBO.getEventById(eventId)).thenReturn(Optional.of(event));
@@ -493,7 +593,7 @@ public class EventServiceImplTest {
             User user = TestUtils.createUserEntityWithId(1L);
             user.setTimezone("UTC");
 
-            Event event = TestUtils.createEventEntityWithId(eventId, user);
+            Event event = TestUtils.createTimedEventEntityWithId(eventId, user);
             event.setDescription("Unchanged description");
 
             EventUpdateDTO dto = new EventUpdateDTO(null, null, null, null);
@@ -516,6 +616,85 @@ public class EventServiceImplTest {
             verify(eventPatchHandler).applyPatch(event, dto, user);
             verifyNoMoreInteractions(eventBO);
         }
+
+        @Test
+        void testUpdateEvent_noEndTimeToHasEndTime_success() {
+            Long eventId = 200L;
+            User user = TestUtils.createUserEntityWithId(1L);
+            user.setTimezone("UTC");
+
+            Event original = TestUtils.createUntimedEventEntityWithId(eventId, user);
+            ZonedDateTime newEnd = VALID_EVENT_END;
+
+            EventUpdateDTO dto = new EventUpdateDTO(null, null, Optional.of(newEnd), Optional.empty());
+
+            Event updated = TestUtils.createUntimedEventEntityWithId(eventId, user);
+            updated.setEndTime(newEnd);
+
+            EventResponseDTO expected = TestUtils.createEventResponseDTO(updated);
+
+            when(eventBO.getEventById(eventId)).thenReturn(Optional.of(original));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+            doNothing().when(ownershipValidator).validateEventOwnership(user.getId(), original);
+            when(eventPatchHandler.applyPatch(original, dto, user)).then(invocation -> {
+                original.setEndTime(newEnd);
+                return true;
+            });
+            when(eventBO.updateEvent(original)).thenReturn(updated);
+
+            EventResponseDTO result = eventService.updateEvent(eventId, dto);
+
+            EventResponseDTOAssertions.assertEventResponseDTOEquals(expected, result);
+        }
+
+        @Test
+        void testUpdateEvent_hasEndTimeToNoEndTime_success() {
+            Long eventId = 201L;
+            User user = TestUtils.createUserEntityWithId(1L);
+            user.setTimezone("UTC");
+
+            Event original = TestUtils.createTimedEventEntityWithId(eventId, user);
+
+            EventUpdateDTO dto = new EventUpdateDTO(null, null, Optional.empty(), Optional.empty());
+
+            Event updated = TestUtils.createUntimedEventEntityWithId(eventId, user);
+
+            EventResponseDTO expected = TestUtils.createEventResponseDTO(updated);
+
+            when(eventBO.getEventById(eventId)).thenReturn(Optional.of(original));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+            doNothing().when(ownershipValidator).validateEventOwnership(user.getId(), original);
+            when(eventPatchHandler.applyPatch(original, dto, user)).then(invocation -> {
+                original.setEndTime(null);
+                return true;
+            });
+            when(eventBO.updateEvent(original)).thenReturn(updated);
+
+            EventResponseDTO result = eventService.updateEvent(eventId, dto);
+
+            EventResponseDTOAssertions.assertEventResponseDTOEquals(expected, result);
+        }
+
+        @Test
+        void testUpdateEvent_noEndTimeToNoEndTime_success_noChange() {
+            Long eventId = 202L;
+            User user = TestUtils.createUserEntityWithId(1L);
+            user.setTimezone("UTC");
+
+            Event original = TestUtils.createUntimedEventEntityWithId(eventId, user);
+            EventResponseDTO expected = TestUtils.createEventResponseDTO(original);
+            EventUpdateDTO dto = new EventUpdateDTO(null, null, Optional.empty(), Optional.empty());
+
+            when(eventBO.getEventById(eventId)).thenReturn(Optional.of(original));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+            doNothing().when(ownershipValidator).validateEventOwnership(user.getId(), original);
+            when(eventPatchHandler.applyPatch(original, dto, user)).thenReturn(false);
+
+            EventResponseDTO result = eventService.updateEvent(eventId, dto);
+
+            EventResponseDTOAssertions.assertEventResponseDTOEquals(expected, result);
+        }
+
     }
 
     @Nested
@@ -526,7 +705,7 @@ public class EventServiceImplTest {
             // Arrange
             Long eventId = 100L;
             User user = TestUtils.createUserEntityWithId(1L);
-            Event event = TestUtils.createEventEntityWithId(eventId, user);
+            Event event = TestUtils.createTimedEventEntityWithId(eventId, user);
 
             // Mocks
             when(eventBO.getEventById(eventId)).thenReturn(Optional.of(event));
@@ -548,7 +727,7 @@ public class EventServiceImplTest {
             // Arrange
             Long eventId = 100L;
             User user = TestUtils.createUserEntityWithId(1L);
-            Event event = TestUtils.createEventEntityWithId(eventId, user);
+            Event event = TestUtils.createTimedEventEntityWithId(eventId, user);
 
             when(eventBO.getEventById(eventId)).thenReturn(Optional.of(event));
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);

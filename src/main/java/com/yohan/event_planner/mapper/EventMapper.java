@@ -9,8 +9,11 @@ import org.mapstruct.MappingTarget;
 import org.mapstruct.NullValuePropertyMappingStrategy;
 import org.mapstruct.factory.Mappers;
 
+import java.time.ZonedDateTime;
+import java.util.Optional;
+
 /**
- * Mapper interface for converting between {@link Event} entities and Data Transfer Objects (DTOs).
+ * Mapper interface for converting between {@link Event} entities and Data Transfer Objects (DTOs}.
  *
  * <p>
  * Uses MapStruct to generate implementation for mapping:
@@ -31,32 +34,19 @@ import org.mapstruct.factory.Mappers;
 )
 public interface EventMapper {
 
-    /**
-     * Singleton instance for non-Spring usage.
-     */
     EventMapper INSTANCE = Mappers.getMapper(EventMapper.class);
 
-    /**
-     * Converts an {@link EventCreateDTO} to an {@link Event} entity.
-     * <p>
-     * This method assumes that the {@link EventCreateDTO} contains all necessary fields to create a new event.
-     * For example, the {@link EventCreateDTO} should contain the start and end times, and any relevant event details.
-     * </p>
-     *
-     * @param dto the DTO containing event creation data
-     * @return a new {@link Event} entity
-     */
     Event toEntity(EventCreateDTO dto);
 
-    /**
-     * Updates an existing {@link Event} entity using values from {@link EventUpdateDTO}.
-     * <p>
-     * Null values in the {@link EventUpdateDTO} are ignored, and only non-null fields will be applied to the existing {@link Event} entity.
-     * This method allows partial updates to an event.
-     * </p>
-     *
-     * @param dto    the DTO containing partial update data
-     * @param entity the existing {@link Event} entity to update
-     */
     void updateEntityFromDto(EventUpdateDTO dto, @MappingTarget Event entity);
+
+    // === Optional field adapters for MapStruct ===
+
+    default ZonedDateTime mapOptionalZonedDateTime(Optional<ZonedDateTime> optional) {
+        return optional != null ? optional.orElse(null) : null;
+    }
+
+    default String mapOptionalString(Optional<String> optional) {
+        return optional != null ? optional.orElse(null) : null;
+    }
 }

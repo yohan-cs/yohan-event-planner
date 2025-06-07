@@ -16,10 +16,11 @@ import static com.yohan.event_planner.util.TestConstants.*;
 
 /**
  * Utility class for generating reusable test data objects.
+ *
  * <p>
  * This class includes helper methods for creating valid DTOs and domain entities,
- * with or without assigned IDs. It uses reflection where necessary to set entity IDs
- * for unit and integration testing scenarios.
+ * with or without assigned IDs. It provides separate methods for timed and untimed
+ * (open-ended) event creation to support comprehensive test scenarios.
  * </p>
  */
 @Component
@@ -27,10 +28,6 @@ public class TestUtils {
 
     // region --- User Factories ---
 
-    /**
-     * Creates a valid UserCreateDTO using predefined constants.
-     * Intended for general-purpose unit or integration testing.
-     */
     public static UserCreateDTO createValidUserCreateDTO() {
         return new UserCreateDTO(
                 VALID_USERNAME,
@@ -42,10 +39,6 @@ public class TestUtils {
         );
     }
 
-    /**
-     * Creates a static valid registration payload using constants.
-     * Use this only when you are not concerned about uniqueness.
-     */
     public static RegisterRequestDTO createValidRegisterPayload() {
         return new RegisterRequestDTO(
                 VALID_USERNAME,
@@ -57,13 +50,6 @@ public class TestUtils {
         );
     }
 
-    /**
-     * Creates a valid registration payload with a unique suffix to prevent
-     * username/email conflicts in integration tests.
-     *
-     * @param suffix a string to append to username and email
-     * @return a new RegisterRequestDTO with unique credentials
-     */
     public static RegisterRequestDTO createValidRegisterPayload(String suffix) {
         return new RegisterRequestDTO(
                 "user" + suffix,
@@ -75,10 +61,6 @@ public class TestUtils {
         );
     }
 
-    /**
-     * Creates a valid User entity without setting an ID.
-     * Useful for scenarios where the persistence layer is expected to assign the ID.
-     */
     public static User createUserEntityWithoutId() {
         return new User(
                 VALID_USERNAME,
@@ -90,35 +72,20 @@ public class TestUtils {
         );
     }
 
-    /**
-     * Creates a valid User entity with a default test ID.
-     */
     public static User createUserEntityWithId() {
-        return createUserEntityWithId(TestConstants.USER_ID);
+        return createUserEntityWithId(USER_ID);
     }
 
-    /**
-     * Creates a valid User entity and assigns the given ID using reflection.
-     *
-     * @param id the ID to assign to the User
-     * @return a User entity with the specified ID
-     */
     public static User createUserEntityWithId(Long id) {
         User user = createUserEntityWithoutId();
         setUserId(user, id);
         return user;
     }
 
-    /**
-     * Creates a CustomUserDetails object wrapping a default test user.
-     */
     public static CustomUserDetails createCustomUserDetails() {
         return new CustomUserDetails(createUserEntityWithId());
     }
 
-    /**
-     * Creates a valid UserResponseDTO using predefined constants.
-     */
     public static UserResponseDTO createUserResponseDTO() {
         return new UserResponseDTO(
                 VALID_USERNAME,
@@ -129,9 +96,6 @@ public class TestUtils {
         );
     }
 
-    /**
-     * Uses reflection to manually assign an ID to a User entity for testing purposes.
-     */
     private static void setUserId(User user, Long id) {
         try {
             Field idField = User.class.getDeclaredField("id");
@@ -144,13 +108,48 @@ public class TestUtils {
 
     // endregion
 
-    // region --- Event Factories ---
+    // region --- Event Factories (Untimed/Open-Ended) ---
 
     /**
-     * Creates a valid EventCreateDTO using predefined constants.
-     * Includes all required fields and a non-null description.
+     * Creates a valid untimed (open-ended) EventCreateDTO.
      */
-    public static EventCreateDTO createValidEventCreateDTO() {
+    public static EventCreateDTO createUntimedEventCreateDTO() {
+        return new EventCreateDTO(
+                VALID_EVENT_TITLE,
+                VALID_EVENT_START,
+                null,
+                VALID_EVENT_DESCRIPTION
+        );
+    }
+
+    /**
+     * Creates a valid untimed Event entity without an ID.
+     */
+    public static Event createUntimedEventEntity(User creator) {
+        return new Event(
+                VALID_EVENT_TITLE,
+                VALID_EVENT_START,
+                creator
+        );
+    }
+
+    /**
+     * Creates a valid untimed Event entity with an assigned ID.
+     */
+    public static Event createUntimedEventEntityWithId(Long id, User creator) {
+        Event event = createUntimedEventEntity(creator);
+        setEventId(event, id);
+        return event;
+    }
+
+    // endregion
+
+    // region --- Event Factories (Timed) ---
+
+    /**
+     * Creates a valid timed EventCreateDTO with end time.
+     */
+    public static EventCreateDTO createTimedEventCreateDTO() {
         return new EventCreateDTO(
                 VALID_EVENT_TITLE,
                 VALID_EVENT_START,
@@ -160,61 +159,44 @@ public class TestUtils {
     }
 
     /**
-     * Creates a valid Event entity without setting an ID.
-     * Requires a non-null User as the event creator.
-     *
-     * @param creator the User who owns the event
-     * @return a new Event instance
+     * Creates a valid timed Event entity with endTime and duration.
      */
-    public static Event createEventEntityWithoutId(User creator) {
-        return new Event(
-                VALID_EVENT_TITLE,
-                VALID_EVENT_START,
-                VALID_EVENT_END,
-                creator
-        );
-    }
+    public static Event createTimedEventEntity(User creator) {
+        Event event = createUntimedEventEntity(creator);
+        event.setEndTime(VALID_EVENT_END);
 
-    /**
-     * Creates a valid Event entity with a default test ID.
-     *
-     * @param creator the User who owns the event
-     * @return an Event entity with an assigned ID
-     */
-    public static Event createEventEntityWithId(User creator) {
-        return createEventEntityWithId(EVENT_ID, creator);
-    }
+        long minutes = java.time.Duration.between(
+                VALID_EVENT_START.withZoneSameInstant(java.time.ZoneOffset.UTC),
+                VALID_EVENT_END.withZoneSameInstant(java.time.ZoneOffset.UTC)
+        ).toMinutes();
+        event.setDurationMinutes((int) minutes);
 
-    /**
-     * Creates a valid Event entity with the specified ID.
-     * Sets the ID via reflection.
-     *
-     * @param id the ID to assign
-     * @param creator the User who owns the event
-     * @return an Event entity with the given ID
-     */
-    public static Event createEventEntityWithId(Long id, User creator) {
-        Event event = createEventEntityWithoutId(creator);
-        setEventId(event, id);
         return event;
     }
 
     /**
-     * Creates a valid EventResponseDTO using predefined constants and the default test event ID.
-     *
-     * @return a fully populated EventResponseDTO for test assertions
+     * Creates a valid timed Event entity with an assigned ID.
      */
+    public static Event createTimedEventEntityWithId(Long id, User creator) {
+        Event event = createTimedEventEntity(creator);
+        setEventId(event, id);
+        return event;
+    }
+
+    // endregion
+
+    // region --- Event Response DTOs ---
+
     /**
-     * Creates a valid EventResponseDTO using predefined constants and the default test event ID.
-     *
-     * @return a fully populated EventResponseDTO for test assertions
+     * Creates a valid EventResponseDTO with timed values.
      */
-    public static EventResponseDTO createEventResponseDTO() {
+    public static EventResponseDTO createTimedEventResponseDTO() {
         return new EventResponseDTO(
                 EVENT_ID,
                 VALID_EVENT_TITLE,
                 VALID_EVENT_START,
                 VALID_EVENT_END,
+                VALID_EVENT_DURATION_MINUTES,
                 null,
                 null,
                 VALID_EVENT_DESCRIPTION,
@@ -225,29 +207,48 @@ public class TestUtils {
     }
 
     /**
-     * Creates a timezone-aware {@link EventResponseDTO} directly from the given {@link Event} entity.
-     * <p>
-     * This method mirrors the logic used in {@code EventServiceImpl#buildEventResponseDTO} and is
-     * intended for use in tests that assert DTO output correctness. It automatically includes
-     * start/end timezone fields only if they differ from the creator's timezone.
-     * </p>
-     *
-     * @param event the event to convert to a response DTO
-     * @return a fully populated {@link EventResponseDTO} matching service-layer output
+     * Creates a valid untimed EventResponseDTO using predefined constants.
+     */
+    public static EventResponseDTO createUntimedEventResponseDTO() {
+        return new EventResponseDTO(
+                EVENT_ID,
+                VALID_EVENT_TITLE,
+                VALID_EVENT_START,
+                null,
+                null,
+                null,
+                null,
+                VALID_EVENT_DESCRIPTION,
+                USER_ID,
+                VALID_USERNAME,
+                VALID_TIMEZONE
+        );
+    }
+
+    /**
+     * Creates an EventResponseDTO from a given Event entity.
+     * Handles both timed and untimed events.
+     * For timed events, includes start/end timezones only if they differ from the creator's timezone.
      */
     public static EventResponseDTO createEventResponseDTO(Event event) {
         String creatorZone = event.getCreator().getTimezone();
-        String startZone = event.getStartTimezone();
-        String endZone = event.getEndTimezone();
 
-        String startTimeZone = !creatorZone.equals(startZone) ? startZone : null;
-        String endTimeZone = !creatorZone.equals(endZone) ? endZone : null;
+        String startTimeZone = null;
+        String endTimeZone = null;
+
+        if (event.getEndTime() != null) {
+            String startZone = event.getStartTimezone();
+            String endZone = event.getEndTimezone();
+            startTimeZone = !creatorZone.equals(startZone) ? startZone : null;
+            endTimeZone = !creatorZone.equals(endZone) ? endZone : null;
+        }
 
         return new EventResponseDTO(
                 event.getId(),
                 event.getName(),
                 event.getStartTime(),
                 event.getEndTime(),
+                event.getDurationMinutes(),
                 startTimeZone,
                 endTimeZone,
                 event.getDescription(),
@@ -257,9 +258,8 @@ public class TestUtils {
         );
     }
 
-    /**
-     * Uses reflection to manually assign an ID to an Event entity for testing purposes.
-     */
+    // endregion
+
     private static void setEventId(Event event, Long id) {
         try {
             Field idField = Event.class.getDeclaredField("id");
@@ -269,6 +269,4 @@ public class TestUtils {
             throw new RuntimeException("Unable to set event ID in test", e);
         }
     }
-
-    // endregion
 }

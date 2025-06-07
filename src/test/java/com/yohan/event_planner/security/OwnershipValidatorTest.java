@@ -30,7 +30,7 @@ public class OwnershipValidatorTest {
             // Arrange
             Long userId = 1L;
             User user = TestUtils.createUserEntityWithId(userId);
-            Event event = TestUtils.createEventEntityWithId(100L, user);
+            Event event = TestUtils.createTimedEventEntityWithId(100L, user);
 
             // Act + Assert
             assertDoesNotThrow(() -> validator.validateEventOwnership(userId, event));
@@ -41,7 +41,7 @@ public class OwnershipValidatorTest {
             // Arrange
             Long userId = 1L;
             User eventCreator = TestUtils.createUserEntityWithId(2L);
-            Event event = TestUtils.createEventEntityWithId(100L, eventCreator);
+            Event event = TestUtils.createTimedEventEntityWithId(100L, eventCreator);
 
             // Act + Assert
             EventOwnershipException ex = assertThrows(EventOwnershipException.class,

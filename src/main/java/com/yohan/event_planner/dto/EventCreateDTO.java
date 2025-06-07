@@ -11,7 +11,7 @@ import java.time.ZonedDateTime;
  *
  * <p>
  * Used in the event creation API (e.g., {@code POST /events}) to submit new event details.
- * All fields are required except for the optional description.
+ * All fields are required except for the optional description and end time.
  * </p>
  *
  * <p>
@@ -29,8 +29,10 @@ public record EventCreateDTO(
         @NotNull(message = "Start time must be provided")
         ZonedDateTime startTime,
 
-        /** End time of the event, including time zone. Cannot be {@code null}. */
-        @NotNull(message = "End time must be provided")
+        /**
+         * Optional end time of the event, including time zone.
+         * May be {@code null} for open-ended events.
+         */
         ZonedDateTime endTime,
 
         /** Optional event description. May be {@code null}. */

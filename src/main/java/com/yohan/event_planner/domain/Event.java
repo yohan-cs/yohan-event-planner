@@ -18,6 +18,13 @@ import java.util.Objects;
  *     <li>Original time zone IDs are stored separately to support display in the user's local time zone.</li>
  * </ul>
  *
+ * <h2>Duration</h2>
+ * <ul>
+ *     <li>{@code durationMinutes} is automatically calculated when both start and end times are provided.</li>
+ *     <li>If {@code endTime} is removed or not provided, {@code durationMinutes} is set to {@code null}.</li>
+ *     <li>Duration is stored in whole minutes and must be managed in the service layer.</li>
+ * </ul>
+ *
  * <p>All input validation and business logic should be handled at the service or DTO layer.</p>
  */
 @Entity
@@ -40,20 +47,35 @@ public class Event {
     private final User creator;
 
     /** The start time of the event, stored in UTC. */
-    @Column(name = "starttime", nullable = false)  // Updated to match database column
+    @Column(name = "starttime", nullable = false)
     private ZonedDateTime startTime;
 
-    /** The end time of the event, stored in UTC. */
-    @Column(name = "endtime", nullable = false)  // Updated to match database column
+    /**
+     * The end time of the event, stored in UTC.
+     * May be {@code null} for open-ended events.
+     */
+    @Column(name = "endtime")
     private ZonedDateTime endTime;
 
     /** Time zone ID used for the original start time. */
-    @Column(name = "starttimezone", nullable = false, length = 50)  // Updated to match database column
+    @Column(name = "starttimezone", nullable = false, length = 50)
     private String startTimezone;
 
-    /** Time zone ID used for the original end time. */
-    @Column(name = "endtimezone", nullable = false, length = 50)  // Updated to match database column
+    /**
+     * Time zone ID used for the original end time.
+     * May be {@code null} if {@code endTime} is not provided.
+     */
+    @Column(name = "endtimezone", length = 50)
     private String endTimezone;
+
+    /**
+     * Duration of the event in whole minutes, calculated from start to end time.
+     *
+     * <p>This field is set only when {@code endTime} is present. It is cleared if
+     * {@code endTime} is removed. Calculation is handled externally (e.g., in the service layer).</p>
+     */
+    @Column(name = "durationminutes")
+    private Integer durationMinutes;
 
     /** Optional description of the event. */
     @Column(length = 255)
@@ -76,126 +98,78 @@ public class Event {
      *
      * @param name      the name of the event
      * @param startTime the local start time including zone (converted and stored in UTC)
-     * @param endTime   the local end time including zone (converted and stored in UTC)
      * @param creator   the user creating the event
      */
-    public Event(String name, ZonedDateTime startTime, ZonedDateTime endTime, User creator) {
+    public Event(String name, ZonedDateTime startTime, User creator) {
         this.name = name;
         this.creator = creator;
         setStartTime(startTime);
-        setEndTime(endTime);
     }
 
     // --- Getters ---
 
-    /**
-     * Returns the unique identifier of the event.
-     *
-     * @return the event ID
-     */
     public Long getId() {
         return id;
     }
 
-    /**
-     * Returns the name of the event.
-     *
-     * @return the event name
-     */
     public String getName() {
         return name;
     }
 
-    /**
-     * Returns the user who created the event.
-     *
-     * @return the event creator
-     */
     public User getCreator() {
         return creator;
     }
 
-    /**
-     * Returns the start time of the event in UTC.
-     *
-     * @return the UTC start time
-     */
     public ZonedDateTime getStartTime() {
         return startTime;
     }
 
-    /**
-     * Returns the end time of the event in UTC.
-     *
-     * @return the UTC end time
-     */
     public ZonedDateTime getEndTime() {
         return endTime;
     }
 
-    /**
-     * Returns the original time zone ID for the start time.
-     *
-     * @return the start time zone ID
-     */
     public String getStartTimezone() {
         return startTimezone;
     }
 
-    /**
-     * Returns the original time zone ID for the end time.
-     *
-     * @return the end time zone ID
-     */
     public String getEndTimezone() {
         return endTimezone;
     }
 
-    /**
-     * Returns the optional event description.
-     *
-     * @return the event description, or {@code null} if not provided
-     */
+    public Integer getDurationMinutes() {
+        return durationMinutes;
+    }
+
     public String getDescription() {
         return description;
     }
 
     // --- Setters ---
 
-    /**
-     * Sets the name of the event.
-     *
-     * @param name the new event name
-     */
     public void setName(String name) {
         this.name = name;
     }
 
-    /**
-     * Sets the start time and updates the stored UTC time and time zone ID.
-     *
-     * @param startTime the new start time including zone
-     */
     public void setStartTime(ZonedDateTime startTime) {
         this.startTimezone = startTime.getZone().getId();
         this.startTime = startTime.withZoneSameInstant(ZoneOffset.UTC);
     }
 
-    /**
-     * Sets the end time and updates the stored UTC time and time zone ID.
-     *
-     * @param endTime the new end time including zone
-     */
     public void setEndTime(ZonedDateTime endTime) {
-        this.endTimezone = endTime.getZone().getId();
-        this.endTime = endTime.withZoneSameInstant(ZoneOffset.UTC);
+        if (endTime != null) {
+            this.endTimezone = endTime.getZone().getId();
+            this.endTime = endTime.withZoneSameInstant(ZoneOffset.UTC);
+        } else {
+            this.endTimezone = null;
+            this.endTime = null;
+            this.durationMinutes = null;
+        }
     }
 
-    /**
-     * Sets the optional description of the event.
-     *
-     * @param description the new event description
-     */
+    public void setDurationMinutes(Integer durationMinutes) {
+        this.durationMinutes = durationMinutes;
+    }
+
     public void setDescription(String description) {
         this.description = description;
     }
