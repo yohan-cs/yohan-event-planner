@@ -146,4 +146,15 @@ public interface EventRepository extends JpaRepository<Event, Long> {
     @Modifying
     @Query("DELETE FROM Event e WHERE e.creator.id = :userId AND e.unconfirmed = true")
     void deleteAllUnconfirmedEventsByUser(@Param("userId") Long userId);
+
+    @Query("""
+    SELECT e FROM Event e
+    WHERE e.recurringEvent.id = :recurringEventId
+    AND e.startTime > :currentTime
+    ORDER BY e.startTime ASC
+    """)
+    List<Event> findFutureEventsByRecurringEventId(
+            @Param("recurringEventId") Long recurringEventId,
+            @Param("currentTime") ZonedDateTime currentTime
+    );
 }

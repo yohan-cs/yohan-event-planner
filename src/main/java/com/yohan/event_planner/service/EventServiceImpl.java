@@ -2,13 +2,16 @@ package com.yohan.event_planner.service;
 
 import com.blazebit.persistence.PagedList;
 import com.yohan.event_planner.business.EventBO;
+import com.yohan.event_planner.business.RecurringEventBO;
 import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.business.handler.EventPatchHandler;
 import com.yohan.event_planner.dao.EventDAO;
 import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.Label;
+import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.TimeFilter;
+import com.yohan.event_planner.repository.EventRepository;
 import com.yohan.event_planner.dto.DayViewDTO;
 import com.yohan.event_planner.dto.EventCreateDTO;
 import com.yohan.event_planner.dto.EventFilterDTO;
@@ -41,6 +44,8 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -78,9 +83,10 @@ public class EventServiceImpl implements EventService {
 
     private final EventBO eventBO;
     private final UserBO userBO;
-    private final RecurringEventService recurringEventService;
+    private final RecurringEventBO recurringEventBO;
     private final LabelService labelService;
     private final EventDAO eventDAO;
+    private final EventRepository eventRepository;
     private final EventPatchHandler eventPatchHandler;
     private final EventResponseDTOFactory eventResponseDTOFactory;
     private final OwnershipValidator ownershipValidator;
@@ -90,9 +96,10 @@ public class EventServiceImpl implements EventService {
     public EventServiceImpl(
             EventBO eventBO,
             UserBO userBO,
-            RecurringEventService recurringEventService,
+            RecurringEventBO recurringEventBO,
             LabelService labelService,
             EventDAO eventDAO,
+            EventRepository eventRepository,
             EventPatchHandler eventPatchHandler,
             EventResponseDTOFactory eventResponseDTOFactory,
             OwnershipValidator ownershipValidator,
@@ -101,9 +108,10 @@ public class EventServiceImpl implements EventService {
     ) {
         this.eventBO = eventBO;
         this.userBO = userBO;
-        this.recurringEventService = recurringEventService;
+        this.recurringEventBO = recurringEventBO;
         this.labelService = labelService;
         this.eventDAO = eventDAO;
+        this.eventRepository = eventRepository;
         this.eventPatchHandler = eventPatchHandler;
         this.eventResponseDTOFactory = eventResponseDTOFactory;
         this.ownershipValidator = ownershipValidator;
@@ -242,7 +250,7 @@ public class EventServiceImpl implements EventService {
         if (!selectedDate.isBefore(today)) {
             ZonedDateTime virtualsStartWindow = selectedDate.isEqual(today) ? nowInUtc : startOfDay;
             virtualEvents.addAll(
-                    recurringEventService.generateVirtuals(viewer.getId(), virtualsStartWindow, endOfDay, userZoneId)
+                    recurringEventBO.generateVirtuals(viewer.getId(), virtualsStartWindow, endOfDay, userZoneId)
             );
         }
 
@@ -294,7 +302,7 @@ public class EventServiceImpl implements EventService {
                     : nowInUtc;
 
             virtualEvents.addAll(
-                    recurringEventService.generateVirtuals(viewer.getId(), virtualsStartWindow, weekEndTime, userZoneId)
+                    recurringEventBO.generateVirtuals(viewer.getId(), virtualsStartWindow, weekEndTime, userZoneId)
             );
         }
 
@@ -453,5 +461,11 @@ public class EventServiceImpl implements EventService {
                 event.isCompleted(),
                 false
         );
+    }
+
+    @Override
+    @Transactional
+    public int updateFutureEventsFromRecurringEvent(RecurringEvent recurringEvent, Set<String> changedFields, ZoneId userZoneId) {
+        return eventBO.updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId);
     }
 }

@@ -84,6 +84,4 @@ public interface RecurringEventService {
 
     RecurringEventResponseDTO addSkipDays(Long recurringEventId, Set<LocalDate> skipDaysToAdd);
     RecurringEventResponseDTO removeSkipDays(Long recurringEventId, Set<LocalDate> skipDaysToRemove);
-
-    List<EventResponseDTO> generateVirtuals(Long userId, ZonedDateTime startTime, ZonedDateTime endTime, ZoneId userZoneId);
 }

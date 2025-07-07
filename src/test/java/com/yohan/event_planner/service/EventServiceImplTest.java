@@ -2,6 +2,7 @@ package com.yohan.event_planner.service;
 
 import com.blazebit.persistence.PagedList;
 import com.yohan.event_planner.business.EventBO;
+import com.yohan.event_planner.business.RecurringEventBO;
 import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.business.handler.EventPatchHandler;
 import com.yohan.event_planner.dao.EventDAO;
@@ -21,6 +22,7 @@ import com.yohan.event_planner.exception.EventAlreadyConfirmedException;
 import com.yohan.event_planner.exception.EventNotFoundException;
 import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.exception.UserOwnershipException;
+import com.yohan.event_planner.repository.EventRepository;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
 import com.yohan.event_planner.time.ClockProvider;
@@ -74,7 +76,7 @@ public class EventServiceImplTest {
 
     private EventBO eventBO;
     private UserBO userBO;
-    private RecurringEventService recurringEventService;
+    private RecurringEventBO recurringEventBO;
     private LabelService labelService;
     private EventDAO eventDAO;
     private EventPatchHandler eventPatchHandler;
@@ -95,7 +97,7 @@ public class EventServiceImplTest {
         // Mocks for the services
         eventBO = mock(EventBO.class);
         userBO = mock(UserBO.class);
-        recurringEventService = mock(RecurringEventService.class);
+        recurringEventBO = mock(RecurringEventBO.class);
         labelService = mock(LabelService.class);
         eventDAO = mock(EventDAO.class);
         eventPatchHandler = mock(EventPatchHandler.class);
@@ -115,7 +117,8 @@ public class EventServiceImplTest {
 
         // Initialize the service
         eventService = new EventServiceImpl(
-                eventBO, userBO, recurringEventService, labelService, eventDAO, eventPatchHandler,
+                eventBO, userBO, recurringEventBO, labelService, eventDAO, 
+                mock(EventRepository.class), eventPatchHandler,
                 eventResponseDTOFactory, ownershipValidator,
                 authenticatedUserProvider, clockProvider
         );
@@ -455,7 +458,7 @@ public class EventServiceImplTest {
                     .thenReturn(List.of());
 
             // Mock generateVirtuals to return the virtualDto
-            when(recurringEventService.generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId))
                     .thenReturn(List.of(virtualDto));
 
             // Mock the EventBO method that creates the DayViewDTO
@@ -468,7 +471,7 @@ public class EventServiceImplTest {
             DayViewDTO dayViewDTO = eventService.generateDayView(today);
 
             // Verify generateVirtuals was called correctly
-            verify(recurringEventService).generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId);
 
             // Assert: The list of events should contain only the virtual events
             assertNotNull(dayViewDTO, "DayViewDTO should not be null.");
@@ -497,7 +500,7 @@ public class EventServiceImplTest {
 
             // Mock virtual event
             EventResponseDTO virtualEventDTO = TestUtils.createValidScheduledEventResponseDTO(fixedClock);
-            when(recurringEventService.generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId))
                     .thenReturn(Collections.singletonList(virtualEventDTO));
 
             // Mock the EventBO method that creates the DayViewDTO
@@ -519,7 +522,7 @@ public class EventServiceImplTest {
 
             // Verify calls
             verify(eventBO).getConfirmedEventsForUserInRange(user.getId(), startOfDay, endOfDay);
-            verify(recurringEventService).generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId);
             verify(eventResponseDTOFactory).createFromEvent(solidifiedEvent);
         }
 
@@ -601,7 +604,7 @@ public class EventServiceImplTest {
 
             // Mock virtual event
             EventResponseDTO virtualEventDTO = TestUtils.createValidScheduledEventResponseDTO(fixedClock);
-            when(recurringEventService.generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId))
                     .thenReturn(Collections.singletonList(virtualEventDTO));
 
             // Mock the EventBO method that creates the DayViewDTO
@@ -624,7 +627,7 @@ public class EventServiceImplTest {
             // Verify interactions
             verify(eventBO).getConfirmedEventsForUserInRange(user.getId(), startOfDay, endOfDay);
             verify(eventResponseDTOFactory).createFromEvent(solidifiedEvent);
-            verify(recurringEventService).generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId);
         }
 
         @Test
@@ -645,7 +648,7 @@ public class EventServiceImplTest {
             when(eventBO.getConfirmedEventsForUserInRange(user.getId(), startOfDay, endOfDay))
                     .thenReturn(Collections.emptyList());
 
-            when(recurringEventService.generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId))
                     .thenReturn(Arrays.asList(virtualEventDTO1, virtualEventDTO2));
 
             // Mock the EventBO method that creates the DayViewDTO
@@ -665,7 +668,7 @@ public class EventServiceImplTest {
 
             // Verify interactions
             verify(eventBO).getConfirmedEventsForUserInRange(user.getId(), startOfDay, endOfDay);
-            verify(recurringEventService).generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId);
         }
 
         @Test
@@ -711,7 +714,7 @@ public class EventServiceImplTest {
             verify(eventBO).solidifyRecurrences(user.getId(), startOfDay, endOfDay, userZoneId);
 
             // Verify virtuals were not generated for past dates
-            verifyNoInteractions(recurringEventService);
+            verifyNoInteractions(recurringEventBO);
         }
 
         @Test
@@ -730,7 +733,7 @@ public class EventServiceImplTest {
                     .thenReturn(Collections.emptyList());
 
             // Mock virtuals generation returning empty list
-            when(recurringEventService.generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId))
                     .thenReturn(Collections.emptyList());
 
             // Mock the EventBO method that creates the DayViewDTO
@@ -747,7 +750,7 @@ public class EventServiceImplTest {
 
             // Verify interactions
             verify(eventBO).getConfirmedEventsForUserInRange(user.getId(), startOfDay, endOfDay);
-            verify(recurringEventService).generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), startOfDay, endOfDay, userZoneId);
             verify(eventBO, never()).solidifyRecurrences(anyLong(), any(), any(), any());
         }
 
@@ -768,7 +771,7 @@ public class EventServiceImplTest {
                     .thenReturn(Collections.emptyList());
 
             // Mock virtuals generation to return an empty list (no virtuals in scope for test)
-            when(recurringEventService.generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId))
                     .thenReturn(Collections.emptyList());
 
             // Mock the EventBO method that creates the DayViewDTO
@@ -787,7 +790,7 @@ public class EventServiceImplTest {
             verify(eventBO).solidifyRecurrences(user.getId(), startOfDay, nowInUtc, userZoneId);
 
             // Verify virtuals generation was called with correct parameters
-            verify(recurringEventService).generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId);
         }
 
         @Test
@@ -812,7 +815,7 @@ public class EventServiceImplTest {
 
             // Mock virtual event
             EventResponseDTO virtualEventDTO = TestUtils.createValidScheduledEventResponseDTO(fixedClock);
-            when(recurringEventService.generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId))
                     .thenReturn(Collections.singletonList(virtualEventDTO));
 
             // Mock the EventBO method that creates the DayViewDTO
@@ -850,7 +853,7 @@ public class EventServiceImplTest {
 
             when(eventBO.getConfirmedEventsForUserInRange(user.getId(), startOfDay, endOfDay))
                     .thenReturn(Collections.emptyList());
-            when(recurringEventService.generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId))
                     .thenReturn(Collections.emptyList());
 
             // Mock the EventBO method that creates the DayViewDTO
@@ -867,7 +870,7 @@ public class EventServiceImplTest {
 
             // Verify solidify
             verify(eventBO).solidifyRecurrences(user.getId(), startOfDay, nowInUtc, userZoneId);
-            verify(recurringEventService).generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), nowInUtc, endOfDay, userZoneId);
         }
 
     }
@@ -913,7 +916,7 @@ public class EventServiceImplTest {
             verify(eventBO).solidifyRecurrences(user.getId(), weekStartTime, weekEndTime, userZoneId);
 
             // Verify no virtuals generated for past week
-            verifyNoInteractions(recurringEventService);
+            verifyNoInteractions(recurringEventBO);
         }
 
         @Test
@@ -991,7 +994,7 @@ public class EventServiceImplTest {
             verify(eventBO).solidifyRecurrences(user.getId(), weekStartTime, weekEndTime, userZoneId);
 
             // Verify no virtuals generated for past week
-            verifyNoInteractions(recurringEventService);
+            verifyNoInteractions(recurringEventBO);
         }
 
         @Test
@@ -1025,7 +1028,7 @@ public class EventServiceImplTest {
             when(eventResponseDTOFactory.createFromEvent(eventTuesday)).thenReturn(eventTuesdayDTO);
 
             // Mock generateVirtuals to return empty
-            when(recurringEventService.generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId))
                     .thenReturn(Collections.emptyList());
 
             // Mock the EventBO method that creates the WeekViewDTO
@@ -1061,7 +1064,7 @@ public class EventServiceImplTest {
             verify(eventBO).solidifyRecurrences(user.getId(), weekStartTime, nowInUtc, userZoneId);
 
             // Verify virtuals generated with nowInUtc as start window
-            verify(recurringEventService).generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId);
         }
 
         @Test
@@ -1087,7 +1090,7 @@ public class EventServiceImplTest {
             // Mock virtual event DTO
             EventResponseDTO virtualEventDTO = TestUtils.createValidScheduledEventResponseDTO(fixedClock);
 
-            when(recurringEventService.generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId))
                     .thenReturn(Collections.singletonList(virtualEventDTO));
 
             // Mock the EventBO method that creates the WeekViewDTO
@@ -1122,7 +1125,7 @@ public class EventServiceImplTest {
             verify(eventBO).solidifyRecurrences(user.getId(), weekStartTime, nowInUtc, userZoneId);
 
             // Verify virtuals generated with nowInUtc as start window
-            verify(recurringEventService).generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId);
         }
 
         @Test
@@ -1158,7 +1161,7 @@ public class EventServiceImplTest {
             // Mock virtual event DTO
             EventResponseDTO virtualEventDTO = TestUtils.createValidScheduledEventResponseDTO(fixedClock);
 
-            when(recurringEventService.generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId))
                     .thenReturn(Collections.singletonList(virtualEventDTO));
 
             // Mock the EventBO method that creates the WeekViewDTO
@@ -1199,7 +1202,7 @@ public class EventServiceImplTest {
             verify(eventBO).solidifyRecurrences(user.getId(), weekStartTime, nowInUtc, userZoneId);
 
             // Verify virtuals generated with nowInUtc as start window
-            verify(recurringEventService).generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), nowInUtc, weekEndTime, userZoneId);
         }
 
         @Test
@@ -1222,7 +1225,7 @@ public class EventServiceImplTest {
                     .thenReturn(Collections.emptyList());
 
             // Mock generateVirtuals to return empty
-            when(recurringEventService.generateVirtuals(user.getId(), weekStartTime, weekEndTime, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), weekStartTime, weekEndTime, userZoneId))
                     .thenReturn(Collections.emptyList());
 
             // Mock the EventBO method that creates the WeekViewDTO
@@ -1251,7 +1254,7 @@ public class EventServiceImplTest {
             verify(eventBO, never()).solidifyRecurrences(anyLong(), any(), any(), any());
 
             // Verify virtuals generated with weekStartTime as start window
-            verify(recurringEventService).generateVirtuals(user.getId(), weekStartTime, weekEndTime, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), weekStartTime, weekEndTime, userZoneId);
         }
 
         @Test
@@ -1294,7 +1297,7 @@ public class EventServiceImplTest {
             );
 
             // Mock generateVirtuals to return the virtual event DTO
-            when(recurringEventService.generateVirtuals(user.getId(), weekStartTime, weekEndTime, userZoneId))
+            when(recurringEventBO.generateVirtuals(user.getId(), weekStartTime, weekEndTime, userZoneId))
                     .thenReturn(Collections.singletonList(virtualEventDTO));
 
             // Mock the EventBO method that creates the WeekViewDTO
@@ -1330,7 +1333,7 @@ public class EventServiceImplTest {
             verify(eventBO, never()).solidifyRecurrences(anyLong(), any(), any(), any());
 
             // Verify virtuals generated with weekStartTime as start window
-            verify(recurringEventService).generateVirtuals(user.getId(), weekStartTime, weekEndTime, userZoneId);
+            verify(recurringEventBO).generateVirtuals(user.getId(), weekStartTime, weekEndTime, userZoneId);
         }
 
         @Test
@@ -1412,7 +1415,7 @@ public class EventServiceImplTest {
             verify(eventBO).solidifyRecurrences(user.getId(), weekStartTime, weekEndTime, dstZoneId);
 
             // Verify virtuals were NOT called for past week
-            verifyNoInteractions(recurringEventService);
+            verifyNoInteractions(recurringEventBO);
         }
 
     }

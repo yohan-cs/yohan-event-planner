@@ -1,10 +1,12 @@
 package com.yohan.event_planner.business;
 
 import com.yohan.event_planner.domain.RecurringEvent;
+import com.yohan.event_planner.dto.EventResponseDTO;
 import com.yohan.event_planner.dto.RecurringEventResponseDTO;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -78,4 +80,16 @@ public interface RecurringEventBO {
     void deleteAllUnconfirmedRecurringEventsByUser(Long userId);
 
     void removeSkipDaysWithConflictValidation(RecurringEvent recurringEvent, Set<LocalDate> skipDaysToRemove);
+
+    /**
+     * Generates virtual events from confirmed recurring events within the specified time range.
+     * Virtual events represent future occurrences of recurring events that haven't been solidified yet.
+     *
+     * @param userId the ID of the user whose recurring events to process
+     * @param startTime the start of the time window (inclusive)
+     * @param endTime the end of the time window (exclusive)
+     * @param userZoneId the timezone for date calculations
+     * @return a list of virtual events within the time range
+     */
+    List<EventResponseDTO> generateVirtuals(Long userId, ZonedDateTime startTime, ZonedDateTime endTime, ZoneId userZoneId);
 }

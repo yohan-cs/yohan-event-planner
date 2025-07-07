@@ -2,10 +2,13 @@ package com.yohan.event_planner.business;
 
 import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.dto.EventResponseDTO;
+import com.yohan.event_planner.dto.EventResponseDTOFactory;
 import com.yohan.event_planner.exception.ConflictException;
 import com.yohan.event_planner.exception.InvalidEventStateException;
 import com.yohan.event_planner.repository.RecurringEventRepository;
 import com.yohan.event_planner.service.RecurrenceRuleService;
+import com.yohan.event_planner.time.ClockProvider;
 import com.yohan.event_planner.util.TestConstants;
 import com.yohan.event_planner.util.TestUtils;
 
@@ -19,6 +22,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -64,6 +68,8 @@ public class RecurringEventBOImplTest {
         recurringEventBO = new RecurringEventBOImpl(
                 recurringEventRepository,
                 recurrenceRuleService,
+                mock(EventResponseDTOFactory.class),
+                mock(ClockProvider.class),
                 conflictValidator
         );
     }
@@ -627,6 +633,256 @@ public class RecurringEventBOImplTest {
             assertTrue(event.getSkipDays().contains(futureDate));  // Skip day should still exist
             verify(conflictValidator).validateNoConflictsForSkipDays(any(RecurringEvent.class), any(Set.class)); // Conflict validator should be called
             verify(recurringEventRepository, never()).save(any());  // Event should not be saved
+        }
+
+    }
+
+    @Nested
+    class GenerateVirtualsTests {
+
+        @Test
+        void generatesVirtualEventsSuccessfully() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            ZoneId userZoneId = ZoneId.of(TestConstants.VALID_TIMEZONE);
+
+            ZonedDateTime startTime = TestConstants.getValidEventStartFuture(fixedClock);
+            ZonedDateTime endTime = startTime.plusDays(7);
+
+            LocalDate fromDate = startTime.withZoneSameInstant(userZoneId).toLocalDate();
+            LocalDate toDate = endTime.withZoneSameInstant(userZoneId).toLocalDate();
+
+            RecurringEvent recurringEvent = TestUtils.createValidRecurringEventWithId(
+                    TestUtils.createValidUserEntityWithId(), VALID_RECURRING_EVENT_ID, fixedClock
+            );
+
+            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate))
+                    .thenReturn(List.of(recurringEvent));
+
+            List<LocalDate> occurrenceDates = List.of(fromDate.plusDays(1), fromDate.plusDays(2));
+            when(recurrenceRuleService.expandRecurrence(any(), eq(fromDate), eq(toDate), any()))
+                    .thenReturn(occurrenceDates);
+
+            EventResponseDTO dto1 = mock(EventResponseDTO.class);
+            EventResponseDTO dto2 = mock(EventResponseDTO.class);
+            EventResponseDTOFactory eventResponseDTOFactory = mock(EventResponseDTOFactory.class);
+            when(eventResponseDTOFactory.createFromRecurringEvent(recurringEvent, occurrenceDates.get(0)))
+                    .thenReturn(dto1);
+            when(eventResponseDTOFactory.createFromRecurringEvent(recurringEvent, occurrenceDates.get(1)))
+                    .thenReturn(dto2);
+
+            ClockProvider clockProvider = mock(ClockProvider.class);
+            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
+
+            // Create BO with mocked dependencies
+            RecurringEventBOImpl boWithMocks = new RecurringEventBOImpl(
+                    recurringEventRepository,
+                    recurrenceRuleService,
+                    eventResponseDTOFactory,
+                    clockProvider,
+                    conflictValidator
+            );
+
+            // Act
+            List<EventResponseDTO> result = boWithMocks.generateVirtuals(userId, startTime, endTime, userZoneId);
+
+            // Assert
+            assertNotNull(result);
+            assertEquals(2, result.size());
+            assertTrue(result.contains(dto1));
+            assertTrue(result.contains(dto2));
+
+            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate);
+            verify(recurrenceRuleService).expandRecurrence(any(), eq(fromDate), eq(toDate), any());
+            verify(eventResponseDTOFactory).createFromRecurringEvent(recurringEvent, occurrenceDates.get(0));
+            verify(eventResponseDTOFactory).createFromRecurringEvent(recurringEvent, occurrenceDates.get(1));
+        }
+
+        @Test
+        void returnsEmptyListWhenNoRecurrences() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            ZonedDateTime startTime = TestConstants.getValidEventStartFuture(fixedClock);
+            ZonedDateTime endTime = startTime.plusDays(1);
+            ZoneId userZoneId = ZoneId.of(TestConstants.VALID_TIMEZONE);
+
+            ClockProvider clockProvider = mock(ClockProvider.class);
+            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
+            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(any(), any(), any()))
+                    .thenReturn(Collections.emptyList());
+
+            EventResponseDTOFactory eventResponseDTOFactory = mock(EventResponseDTOFactory.class);
+
+            // Create BO with mocked dependencies
+            RecurringEventBOImpl boWithMocks = new RecurringEventBOImpl(
+                    recurringEventRepository,
+                    recurrenceRuleService,
+                    eventResponseDTOFactory,
+                    clockProvider,
+                    conflictValidator
+            );
+
+            // Act
+            List<EventResponseDTO> result = boWithMocks.generateVirtuals(userId, startTime, endTime, userZoneId);
+
+            // Assert
+            assertNotNull(result);
+            assertTrue(result.isEmpty());
+
+            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(any(), any(), any());
+            verify(clockProvider).getClockForZone(userZoneId);
+            verifyNoInteractions(recurrenceRuleService, eventResponseDTOFactory);
+        }
+
+        @Test
+        void skipsEventsThatAreInThePast() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            ZoneId userZoneId = ZoneId.of(TestConstants.VALID_TIMEZONE);
+            ZonedDateTime startTime = TestConstants.getValidEventStartFuture(fixedClock);
+            ZonedDateTime endTime = startTime.plusDays(1);
+
+            LocalDate fromDate = startTime.withZoneSameInstant(userZoneId).toLocalDate();
+            LocalDate toDate = endTime.withZoneSameInstant(userZoneId).toLocalDate();
+
+            RecurringEvent recurringEvent = TestUtils.createValidRecurringEventWithId(
+                    TestUtils.createValidUserEntityWithId(), VALID_RECURRING_EVENT_ID, fixedClock
+            );
+
+            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate))
+                    .thenReturn(List.of(recurringEvent));
+
+            // Past date
+            List<LocalDate> occurrenceDates = List.of(LocalDate.now(fixedClock).minusDays(1));
+            when(recurrenceRuleService.expandRecurrence(any(), eq(fromDate), eq(toDate), any()))
+                    .thenReturn(occurrenceDates);
+
+            ClockProvider clockProvider = mock(ClockProvider.class);
+            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
+
+            EventResponseDTOFactory eventResponseDTOFactory = mock(EventResponseDTOFactory.class);
+
+            // Create BO with mocked dependencies
+            RecurringEventBOImpl boWithMocks = new RecurringEventBOImpl(
+                    recurringEventRepository,
+                    recurrenceRuleService,
+                    eventResponseDTOFactory,
+                    clockProvider,
+                    conflictValidator
+            );
+
+            // Act
+            List<EventResponseDTO> result = boWithMocks.generateVirtuals(userId, startTime, endTime, userZoneId);
+
+            // Assert
+            assertNotNull(result);
+            assertTrue(result.isEmpty());
+
+            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate);
+            verify(recurrenceRuleService).expandRecurrence(any(), eq(fromDate), eq(toDate), any());
+            verifyNoInteractions(eventResponseDTOFactory);
+        }
+
+        @Test
+        void doesNotIncludePastOccurrencesInVirtuals() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            ZonedDateTime startTime = TestConstants.getValidEventStartPast(fixedClock);
+            ZonedDateTime endTime = startTime.plusDays(1);
+            ZoneId userZoneId = ZoneId.of(TestConstants.VALID_TIMEZONE);
+
+            User creator = TestUtils.createValidUserEntityWithId();
+            RecurringEvent recurrence = TestUtils.createValidRecurringEventWithId(
+                    creator,
+                    VALID_RECURRING_EVENT_ID,
+                    fixedClock
+            );
+
+            // Set recurrence endTime to early morning to guarantee it's before 'now'
+            recurrence.setEndTime(LocalTime.of(1, 0)); // 1 AM
+
+            ClockProvider clockProvider = mock(ClockProvider.class);
+            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
+            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(any(), any(), any()))
+                    .thenReturn(List.of(recurrence));
+
+            // Mock occurrence date as yesterday relative to fixedClock
+            LocalDate yesterday = LocalDate.now(fixedClock).minusDays(1);
+            when(recurrenceRuleService.expandRecurrence(any(), any(), any(), any()))
+                    .thenReturn(List.of(yesterday));
+
+            EventResponseDTOFactory eventResponseDTOFactory = mock(EventResponseDTOFactory.class);
+
+            // Create BO with mocked dependencies
+            RecurringEventBOImpl boWithMocks = new RecurringEventBOImpl(
+                    recurringEventRepository,
+                    recurrenceRuleService,
+                    eventResponseDTOFactory,
+                    clockProvider,
+                    conflictValidator
+            );
+
+            // Act
+            List<EventResponseDTO> result = boWithMocks.generateVirtuals(userId, startTime, endTime, userZoneId);
+
+            // Assert
+            assertNotNull(result);
+            assertTrue(result.isEmpty(), "No virtuals should be generated for past occurrences.");
+
+            verify(recurrenceRuleService).expandRecurrence(any(), any(), any(), any());
+            verifyNoInteractions(eventResponseDTOFactory);
+        }
+
+        @Test
+        void returnsOnlyFutureOccurrencesWhenMixed() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            ZonedDateTime startTime = TestConstants.getValidEventStartPast(fixedClock);
+            ZonedDateTime endTime = TestConstants.getValidEventEndFuture(fixedClock);
+            ZoneId userZoneId = ZoneId.of(TestConstants.VALID_TIMEZONE);
+
+            User creator = TestUtils.createValidUserEntityWithId();
+            RecurringEvent recurrence = TestUtils.createValidRecurringEventWithId(creator, VALID_RECURRING_EVENT_ID, fixedClock);
+            recurrence.setEndTime(LocalTime.NOON);
+
+            // Mock clock to today at midnight
+            ZonedDateTime mockNow = LocalDate.now().atStartOfDay(userZoneId);
+            ClockProvider clockProvider = mock(ClockProvider.class);
+            when(clockProvider.getClockForZone(userZoneId)).thenReturn(
+                    Clock.fixed(mockNow.toInstant(), userZoneId)
+            );
+
+            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(any(), any(), any()))
+                    .thenReturn(List.of(recurrence));
+
+            LocalDate pastDate = LocalDate.now().minusDays(1);
+            LocalDate futureDate = LocalDate.now().plusDays(1);
+
+            when(recurrenceRuleService.expandRecurrence(any(), any(), any(), any()))
+                    .thenReturn(List.of(pastDate, futureDate));
+
+            EventResponseDTO futureVirtual = mock(EventResponseDTO.class);
+            EventResponseDTOFactory eventResponseDTOFactory = mock(EventResponseDTOFactory.class);
+            when(eventResponseDTOFactory.createFromRecurringEvent(recurrence, futureDate)).thenReturn(futureVirtual);
+
+            // Create BO with mocked dependencies
+            RecurringEventBOImpl boWithMocks = new RecurringEventBOImpl(
+                    recurringEventRepository,
+                    recurrenceRuleService,
+                    eventResponseDTOFactory,
+                    clockProvider,
+                    conflictValidator
+            );
+
+            // Act
+            List<EventResponseDTO> result = boWithMocks.generateVirtuals(userId, startTime, endTime, userZoneId);
+
+            // Assert
+            assertNotNull(result);
+            assertEquals(1, result.size(), "Should return only the future occurrence.");
+            assertTrue(result.contains(futureVirtual));
+
+            verify(eventResponseDTOFactory).createFromRecurringEvent(recurrence, futureDate);
         }
 
     }

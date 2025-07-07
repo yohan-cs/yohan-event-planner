@@ -17,6 +17,7 @@ import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Business Object (BO) interface for managing {@link Event} entities.
@@ -155,5 +156,16 @@ public interface EventBO {
      */
     WeekViewDTO generateWeekViewData(Long userId, LocalDate anchorDate, ZoneId userZoneId, 
                                    List<EventResponseDTO> confirmedEvents, List<EventResponseDTO> virtualEvents);
+
+    /**
+     * Updates future Event instances that were created from a RecurringEvent.
+     * Only updates events that have a start time in the future.
+     *
+     * @param recurringEvent the RecurringEvent containing the updated values
+     * @param changedFields the set of fields that changed (name, startTime, endTime, label)
+     * @param userZoneId the timezone to use for time calculations
+     * @return the number of events updated
+     */
+    int updateFutureEventsFromRecurringEvent(RecurringEvent recurringEvent, Set<String> changedFields, ZoneId userZoneId);
 
 }

@@ -1,6 +1,7 @@
 package com.yohan.event_planner.service;
 
 import com.blazebit.persistence.PagedList;
+import com.yohan.event_planner.business.EventBO;
 import com.yohan.event_planner.business.RecurringEventBO;
 import com.yohan.event_planner.business.handler.RecurringEventPatchHandler;
 import com.yohan.event_planner.dao.RecurringEventDAO;
@@ -25,6 +26,8 @@ import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
 import com.yohan.event_planner.time.ClockProvider;
 import com.yohan.event_planner.time.TimeUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -36,7 +39,9 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -46,7 +51,10 @@ import static com.yohan.event_planner.exception.ErrorCode.INVALID_SKIP_DAY_REMOV
 public class
 RecurringEventServiceImpl implements RecurringEventService {
 
+    private static final Logger logger = LoggerFactory.getLogger(RecurringEventServiceImpl.class);
+
     private final RecurringEventBO recurringEventBO;
+    private final EventBO eventBO;
     private final LabelService labelService;
     private final RecurringEventDAO recurringEventDAO;
     private final RecurringEventPatchHandler recurringEventPatchHandler;
@@ -58,6 +66,7 @@ RecurringEventServiceImpl implements RecurringEventService {
 
     public RecurringEventServiceImpl(
             RecurringEventBO recurringEventBO,
+            EventBO eventBO,
             LabelService labelService,
             RecurringEventDAO recurringEventDAO,
             RecurringEventPatchHandler recurringEventPatchHandler,
@@ -68,6 +77,7 @@ RecurringEventServiceImpl implements RecurringEventService {
             ClockProvider clockProvider
     ) {
         this.recurringEventBO = recurringEventBO;
+        this.eventBO = eventBO;
         this.labelService = labelService;
         this.recurringEventDAO = recurringEventDAO;
         this.recurringEventPatchHandler = recurringEventPatchHandler;
@@ -277,10 +287,63 @@ RecurringEventServiceImpl implements RecurringEventService {
 
         ownershipValidator.validateRecurringEventOwnership(viewer.getId(), recurringEvent);
 
-        boolean changed = recurringEventPatchHandler.applyPatch(recurringEvent, dto);
-        RecurringEvent updated = changed ? recurringEventBO.updateRecurringEvent(recurringEvent) : recurringEvent;
+        // Capture the original state to detect what changed
+        String originalName = recurringEvent.getName();
+        LocalTime originalStartTime = recurringEvent.getStartTime();
+        LocalTime originalEndTime = recurringEvent.getEndTime();
+        Long originalLabelId = recurringEvent.getLabel() != null ? recurringEvent.getLabel().getId() : null;
 
-        return toRecurringEventResponseDTO(updated);
+        boolean changed = recurringEventPatchHandler.applyPatch(recurringEvent, dto);
+        
+        if (changed) {
+            RecurringEvent updated = recurringEventBO.updateRecurringEvent(recurringEvent);
+            
+            // If this is a confirmed recurring event, propagate changes to future Event instances
+            if (!updated.isUnconfirmed()) {
+                Set<String> changedFields = detectChangedFields(
+                        originalName, originalStartTime, originalEndTime, originalLabelId, updated);
+                
+                if (!changedFields.isEmpty()) {
+                    ZoneId userZoneId = ZoneId.of(viewer.getTimezone());
+                    int updatedEventsCount = eventBO.updateFutureEventsFromRecurringEvent(
+                            updated, changedFields, userZoneId);
+                    
+                    if (updatedEventsCount > 0) {
+                        logger.info("Propagated changes from recurring event {} to {} future events", 
+                                updated.getId(), updatedEventsCount);
+                    }
+                }
+            }
+            
+            return toRecurringEventResponseDTO(updated);
+        }
+        
+        return toRecurringEventResponseDTO(recurringEvent);
+    }
+
+    private Set<String> detectChangedFields(String originalName, LocalTime originalStartTime, 
+                                          LocalTime originalEndTime, Long originalLabelId, 
+                                          RecurringEvent updated) {
+        Set<String> changedFields = new HashSet<>();
+        
+        if (!Objects.equals(originalName, updated.getName())) {
+            changedFields.add("name");
+        }
+        
+        if (!Objects.equals(originalStartTime, updated.getStartTime())) {
+            changedFields.add("startTime");
+        }
+        
+        if (!Objects.equals(originalEndTime, updated.getEndTime())) {
+            changedFields.add("endTime");
+        }
+        
+        Long currentLabelId = updated.getLabel() != null ? updated.getLabel().getId() : null;
+        if (!Objects.equals(originalLabelId, currentLabelId)) {
+            changedFields.add("label");
+        }
+        
+        return changedFields;
     }
 
     @Override
@@ -357,41 +420,6 @@ RecurringEventServiceImpl implements RecurringEventService {
 
 
 
-    @Override
-    public List<EventResponseDTO> generateVirtuals(Long userId, ZonedDateTime startTime, ZonedDateTime endTime, ZoneId userZoneId) {
-        List<EventResponseDTO> virtuals = new ArrayList<>();
-
-        // Convert start and end times to LocalDates in the user's timezone for recurrence expansion
-        LocalDate fromDate = startTime.withZoneSameInstant(userZoneId).toLocalDate();
-        LocalDate toDate = endTime.withZoneSameInstant(userZoneId).toLocalDate();
-
-        List<RecurringEvent> recurrences = recurringEventBO.getConfirmedRecurringEventsForUserInRange(
-                userId, fromDate, toDate
-        );
-
-        ZonedDateTime now = ZonedDateTime.now(clockProvider.getClockForZone(userZoneId));
-
-        for (RecurringEvent recurrence : recurrences) {
-            List<LocalDate> occurrenceDates = recurrenceRuleService.expandRecurrence(
-                    recurrence.getRecurrenceRule().getParsed(),
-                    fromDate,
-                    toDate,
-                    recurrence.getSkipDays()
-            );
-
-            for (LocalDate date : occurrenceDates) {
-                ZonedDateTime eventEndTime = ZonedDateTime.of(date, recurrence.getEndTime(), userZoneId);
-
-                // Only add virtual events that are in the future and non-null
-                if (eventEndTime.isAfter(now)) {
-                    EventResponseDTO virtualEventDTO = eventResponseDTOFactory.createFromRecurringEvent(recurrence, date);
-                    virtuals.add(virtualEventDTO);
-                }
-            }
-        }
-
-        return virtuals;
-    }
 
     /**
      * Private helper to map RecurringEvent entity to RecurringEventResponseDTO.

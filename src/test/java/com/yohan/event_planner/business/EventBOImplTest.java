@@ -1,6 +1,7 @@
 package com.yohan.event_planner.business;
 
 
+import com.yohan.event_planner.business.handler.EventPatchHandler;
 import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.Label;
 import com.yohan.event_planner.domain.RecurringEvent;
@@ -79,6 +80,7 @@ public class EventBOImplTest {
                 recurrenceRuleService,
                 labelTimeBucketService,
                 eventRepository,
+                mock(EventPatchHandler.class),
                 conflictValidator,
                 clockProvider
         );

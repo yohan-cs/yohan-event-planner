@@ -3,11 +3,14 @@ package com.yohan.event_planner.business;
 import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.RecurrenceRuleVO;
 import com.yohan.event_planner.domain.RecurringEvent;
+import com.yohan.event_planner.dto.EventResponseDTO;
+import com.yohan.event_planner.dto.EventResponseDTOFactory;
 import com.yohan.event_planner.exception.InvalidEventStateException;
 import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.repository.RecurringEventRepository;
 import com.yohan.event_planner.service.ParsedRecurrenceInput;
 import com.yohan.event_planner.service.RecurrenceRuleService;
+import com.yohan.event_planner.time.ClockProvider;
 import com.yohan.event_planner.validation.ConflictValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +20,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -37,15 +43,21 @@ public class RecurringEventBOImpl implements RecurringEventBO {
 
     private final RecurringEventRepository recurringEventRepository;
     private final RecurrenceRuleService recurrenceRuleService;
+    private final EventResponseDTOFactory eventResponseDTOFactory;
+    private final ClockProvider clockProvider;
     private final ConflictValidator conflictValidator;
 
     public RecurringEventBOImpl(
             RecurringEventRepository recurringEventRepository,
             RecurrenceRuleService recurrenceRuleService,
+            EventResponseDTOFactory eventResponseDTOFactory,
+            ClockProvider clockProvider,
             ConflictValidator conflictValidator
     ) {
         this.recurringEventRepository = recurringEventRepository;
         this.recurrenceRuleService = recurrenceRuleService;
+        this.eventResponseDTOFactory = eventResponseDTOFactory;
+        this.clockProvider = clockProvider;
         this.conflictValidator = conflictValidator;
     }
 
@@ -214,5 +226,41 @@ public class RecurringEventBOImpl implements RecurringEventBO {
                     parsed, recurringEvent.getStartDate(), recurringEvent.getEndDate());
             recurringEvent.setRecurrenceRule(new RecurrenceRuleVO(summary, parsed));
         }
+    }
+
+    @Override
+    public List<EventResponseDTO> generateVirtuals(Long userId, ZonedDateTime startTime, ZonedDateTime endTime, ZoneId userZoneId) {
+        List<EventResponseDTO> virtuals = new ArrayList<>();
+
+        // Convert start and end times to LocalDates in the user's timezone for recurrence expansion
+        LocalDate fromDate = startTime.withZoneSameInstant(userZoneId).toLocalDate();
+        LocalDate toDate = endTime.withZoneSameInstant(userZoneId).toLocalDate();
+
+        List<RecurringEvent> recurrences = getConfirmedRecurringEventsForUserInRange(
+                userId, fromDate, toDate
+        );
+
+        ZonedDateTime now = ZonedDateTime.now(clockProvider.getClockForZone(userZoneId));
+
+        for (RecurringEvent recurrence : recurrences) {
+            List<LocalDate> occurrenceDates = recurrenceRuleService.expandRecurrence(
+                    recurrence.getRecurrenceRule().getParsed(),
+                    fromDate,
+                    toDate,
+                    recurrence.getSkipDays()
+            );
+
+            for (LocalDate date : occurrenceDates) {
+                ZonedDateTime eventEndTime = ZonedDateTime.of(date, recurrence.getEndTime(), userZoneId);
+
+                // Only add virtual events that are in the future and non-null
+                if (eventEndTime.isAfter(now)) {
+                    EventResponseDTO virtualEventDTO = eventResponseDTOFactory.createFromRecurringEvent(recurrence, date);
+                    virtuals.add(virtualEventDTO);
+                }
+            }
+        }
+
+        return virtuals;
     }
 }

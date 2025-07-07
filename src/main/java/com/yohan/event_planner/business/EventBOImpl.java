@@ -1,10 +1,12 @@
 package com.yohan.event_planner.business;
 
+import com.yohan.event_planner.business.handler.EventPatchHandler;
 import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.dto.DayViewDTO;
 import com.yohan.event_planner.dto.EventChangeContextDTO;
 import com.yohan.event_planner.dto.EventResponseDTO;
+import com.yohan.event_planner.dto.EventUpdateDTO;
 import com.yohan.event_planner.dto.WeekViewDTO;
 
 import com.yohan.event_planner.exception.InvalidEventStateException;
@@ -30,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.yohan.event_planner.exception.ErrorCode.EVENT_ALREADY_CONFIRMED;
 import static com.yohan.event_planner.exception.ErrorCode.INVALID_COMPLETION_STATUS;
@@ -61,6 +64,7 @@ public class EventBOImpl implements EventBO {
     private final RecurrenceRuleService recurrenceRuleService;
     private final LabelTimeBucketService labelTimeBucketService;
     private final EventRepository eventRepository;
+    private final EventPatchHandler eventPatchHandler;
     private final ConflictValidator conflictValidator;
     private final ClockProvider clockProvider;
 
@@ -69,6 +73,7 @@ public class EventBOImpl implements EventBO {
             RecurrenceRuleService recurrenceRuleService,
             LabelTimeBucketService labelTimeBucketService,
             EventRepository eventRepository,
+            EventPatchHandler eventPatchHandler,
             ConflictValidator conflictValidator,
             ClockProvider clockProvider)
     {
@@ -76,6 +81,7 @@ public class EventBOImpl implements EventBO {
         this.recurrenceRuleService = recurrenceRuleService;
         this.labelTimeBucketService = labelTimeBucketService;
         this.eventRepository = eventRepository;
+        this.eventPatchHandler = eventPatchHandler;
         this.conflictValidator = conflictValidator;
         this.clockProvider = clockProvider;
     }
@@ -419,5 +425,72 @@ public class EventBOImpl implements EventBO {
         }
 
         return dayMap;
+    }
+
+    @Override
+    @Transactional
+    public int updateFutureEventsFromRecurringEvent(RecurringEvent recurringEvent, Set<String> changedFields, ZoneId userZoneId) {
+        if (changedFields.isEmpty()) {
+            return 0;
+        }
+
+        logger.info("Updating future events for recurring event {} with changed fields: {}", 
+                    recurringEvent.getId(), changedFields);
+
+        ZonedDateTime currentTime = ZonedDateTime.now(clockProvider.getClockForZone(userZoneId));
+        List<Event> futureEvents = eventRepository.findFutureEventsByRecurringEventId(
+                recurringEvent.getId(), currentTime);
+
+        if (futureEvents.isEmpty()) {
+            logger.info("No future events found for recurring event {}", recurringEvent.getId());
+            return 0;
+        }
+
+        int updatedCount = 0;
+        for (Event event : futureEvents) {
+            LocalDate occurrenceDate = event.getStartTime().withZoneSameInstant(userZoneId).toLocalDate();
+            
+            // Create EventUpdateDTO with only the changed fields
+            EventUpdateDTO updateDTO = createEventUpdateDTOFromRecurringEvent(
+                    recurringEvent, changedFields, occurrenceDate, userZoneId);
+            
+            boolean wasUpdated = eventPatchHandler.applyPatch(event, updateDTO);
+            
+            if (wasUpdated) {
+                eventRepository.save(event);
+                updatedCount++;
+                logger.debug("Updated event {} from recurring event {}", event.getId(), recurringEvent.getId());
+            }
+        }
+
+        logger.info("Updated {} future events for recurring event {}", updatedCount, recurringEvent.getId());
+        return updatedCount;
+    }
+
+    private EventUpdateDTO createEventUpdateDTOFromRecurringEvent(
+            RecurringEvent recurringEvent, 
+            Set<String> changedFields, 
+            LocalDate occurrenceDate, 
+            ZoneId userZoneId) {
+        
+        Optional<String> name = changedFields.contains("name") 
+                ? Optional.of(recurringEvent.getName()) 
+                : null;
+        
+        Optional<ZonedDateTime> startTime = changedFields.contains("startTime")
+                ? Optional.of(ZonedDateTime.of(occurrenceDate, recurringEvent.getStartTime(), userZoneId)
+                        .withZoneSameInstant(ZoneId.of("UTC")))
+                : null;
+        
+        Optional<ZonedDateTime> endTime = changedFields.contains("endTime")
+                ? Optional.of(ZonedDateTime.of(occurrenceDate, recurringEvent.getEndTime(), userZoneId)
+                        .withZoneSameInstant(ZoneId.of("UTC")))
+                : null;
+        
+        Optional<Long> labelId = changedFields.contains("label")
+                ? Optional.of(recurringEvent.getLabel().getId())
+                : null;
+        
+        return new EventUpdateDTO(name, startTime, endTime, null, labelId, null);
     }
 }

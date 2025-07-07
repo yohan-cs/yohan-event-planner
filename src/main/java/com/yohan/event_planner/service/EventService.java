@@ -15,8 +15,10 @@ import com.yohan.event_planner.exception.InvalidTimeException;
 import org.springframework.data.domain.Page;
 
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Service interface for managing event-related operations.
@@ -131,5 +133,16 @@ public interface EventService {
     void deleteEvent(Long eventId);
 
     void deleteUnconfirmedEventsForCurrentUser();
+
+    /**
+     * Updates future Event instances that were created from a RecurringEvent.
+     * Only updates events that have a start time in the future.
+     *
+     * @param recurringEvent the RecurringEvent containing the updated values
+     * @param changedFields the set of fields that changed (name, startTime, endTime, label)
+     * @param userZoneId the timezone to use for time calculations
+     * @return the number of events updated
+     */
+    int updateFutureEventsFromRecurringEvent(RecurringEvent recurringEvent, Set<String> changedFields, ZoneId userZoneId);
 
 }
