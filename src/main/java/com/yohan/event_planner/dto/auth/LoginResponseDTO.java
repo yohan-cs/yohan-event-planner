@@ -4,7 +4,7 @@ package com.yohan.event_planner.dto.auth;
  * Response DTO returned upon successful login.
  *
  * <p>
- * Encapsulates the authentication token and basic user information.
+ * Encapsulates the authentication tokens and basic user information.
  * Used to initialize the client session and local user context.
  * </p>
  */
@@ -12,6 +12,9 @@ public record LoginResponseDTO(
 
         /** JWT access token. */
         String token,
+
+        /** Opaque refresh token. */
+        String refreshToken,
 
         /** Unique ID of the authenticated user. */
         Long userId,

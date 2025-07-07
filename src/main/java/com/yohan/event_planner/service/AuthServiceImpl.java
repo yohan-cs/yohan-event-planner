@@ -4,6 +4,9 @@ import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.dto.auth.LoginRequestDTO;
 import com.yohan.event_planner.dto.auth.LoginResponseDTO;
+import com.yohan.event_planner.dto.auth.LogoutRequestDTO;
+import com.yohan.event_planner.dto.auth.RefreshTokenRequestDTO;
+import com.yohan.event_planner.dto.auth.RefreshTokenResponseDTO;
 import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
 import com.yohan.event_planner.security.CustomUserDetails;
 import com.yohan.event_planner.security.JwtUtils;
@@ -33,6 +36,7 @@ public class AuthServiceImpl implements AuthService {
     private final AuthenticationManager authenticationManager;
     private final JwtUtils jwtUtils;
     private final UserService userService;
+    private final RefreshTokenService refreshTokenService;
 
     /**
      * Constructs a new {@code AuthServiceImpl} with the required dependencies.
@@ -40,20 +44,23 @@ public class AuthServiceImpl implements AuthService {
      * @param authenticationManager the authentication manager to verify credentials
      * @param jwtUtils              the utility class for generating JWT tokens
      * @param userService           the user service for managing registration logic
+     * @param refreshTokenService   the refresh token service for token management
      */
     public AuthServiceImpl(AuthenticationManager authenticationManager,
                            JwtUtils jwtUtils,
-                           UserService userService) {
+                           UserService userService,
+                           RefreshTokenService refreshTokenService) {
         this.authenticationManager = authenticationManager;
         this.jwtUtils = jwtUtils;
         this.userService = userService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     /**
-     * Authenticates a user and generates a signed JWT token.
+     * Authenticates a user and generates both access and refresh tokens.
      *
      * @param request the login request containing username and password
-     * @return a {@link LoginResponseDTO} containing the token and basic user info
+     * @return a {@link LoginResponseDTO} containing the tokens and basic user info
      * @throws org.springframework.security.core.AuthenticationException if credentials are invalid
      */
     @Override
@@ -63,11 +70,13 @@ public class AuthServiceImpl implements AuthService {
         );
 
         CustomUserDetails userDetails = (CustomUserDetails) authentication.getPrincipal();
-        String token = jwtUtils.generateToken(userDetails);
+        String accessToken = jwtUtils.generateToken(userDetails);
+        String refreshToken = refreshTokenService.createRefreshToken(userDetails.getUserId());
         User user = userDetails.getUser();
 
         return new LoginResponseDTO(
-                token,
+                accessToken,
+                refreshToken,
                 user.getId(),
                 user.getUsername(),
                 user.getEmail(),
@@ -97,5 +106,27 @@ public class AuthServiceImpl implements AuthService {
                 request.timezone()
         );
         userService.createUser(createDTO);
+    }
+
+    /**
+     * Refreshes tokens using a valid refresh token.
+     *
+     * @param request the refresh token request containing the refresh token
+     * @return a {@link RefreshTokenResponseDTO} containing new access and refresh tokens
+     * @throws com.yohan.event_planner.exception.UnauthorizedException if the refresh token is invalid
+     */
+    @Override
+    public RefreshTokenResponseDTO refreshToken(RefreshTokenRequestDTO request) {
+        return refreshTokenService.refreshTokens(request.refreshToken());
+    }
+
+    /**
+     * Logs out a user by revoking their refresh token.
+     *
+     * @param request the logout request containing the refresh token to revoke
+     */
+    @Override
+    public void logout(LogoutRequestDTO request) {
+        refreshTokenService.revokeRefreshToken(request.refreshToken());
     }
 }

@@ -44,22 +44,21 @@ public class TestAuthUtils {
 
     /**
      * Registers and logs in a new user using HTTP endpoints.
-     * Returns the JWT token for authenticated requests.
-     * Uses a default RegisterRequestDTO with a provided username suffix.
+     * Returns complete authentication information including refresh token.
      */
-    public String registerAndLoginUser(String usernameSuffix) throws Exception {
+    public AuthResult registerAndLoginUser(String usernameSuffix) throws Exception {
         RegisterRequestDTO registerDTO = createValidRegisterPayload(usernameSuffix);
         return registerAndLogin(registerDTO);
     }
 
     /**
      * Registers and logs in a new user using a custom RegisterRequestDTO.
-     * Allows full control over test user fields.
+     * Returns complete authentication information including refresh token.
      *
      * @param registerDTO the registration request
-     * @return JWT token
+     * @return AuthResult with JWT, refresh token, and user ID
      */
-    public String registerAndLogin(RegisterRequestDTO registerDTO) throws Exception {
+    public AuthResult registerAndLogin(RegisterRequestDTO registerDTO) throws Exception {
         mockMvc.perform(post("/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(registerDTO)))
@@ -75,9 +74,19 @@ public class TestAuthUtils {
 
         MockHttpServletResponse response = loginResult.getResponse();
         String json = response.getContentAsString();
-
-        return objectMapper.readTree(json).get("token").asText();
+        
+        var jsonNode = objectMapper.readTree(json);
+        String accessToken = jsonNode.get("token").asText();
+        String refreshToken = jsonNode.get("refreshToken").asText();
+        Long userId = jsonNode.get("userId").asLong();
+        
+        return new AuthResult(accessToken, refreshToken, null, userId);
     }
 
-    public record AuthResult(String jwt, User user) {}
+    public record AuthResult(String jwt, String refreshToken, User user, Long userId) {
+        // Constructor for cases where we only have auth tokens
+        public AuthResult(String jwt, String refreshToken, Long userId) {
+            this(jwt, refreshToken, null, userId);
+        }
+    }
 }

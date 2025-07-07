@@ -8,6 +8,7 @@ import com.yohan.event_planner.domain.LabelTimeBucket;
 import com.yohan.event_planner.domain.RecapMedia;
 import com.yohan.event_planner.domain.RecurrenceRuleVO;
 import com.yohan.event_planner.domain.RecurringEvent;
+import com.yohan.event_planner.domain.RefreshToken;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.RecapMediaType;
 import com.yohan.event_planner.domain.enums.RecurrenceFrequency;
@@ -36,6 +37,7 @@ import org.springframework.stereotype.Component;
 import java.lang.reflect.Field;
 import java.time.Clock;
 import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -1190,6 +1192,62 @@ public class TestUtils {
         LabelTimeBucket bucket = new LabelTimeBucket(userId, labelId, labelName, type, year, bucketValue);
         bucket.setDurationMinutes(minutes);
         return bucket;
+    }
+
+    // endregion
+
+    // region RefreshToken Test Helpers
+
+    /**
+     * Creates a valid RefreshToken entity for testing.
+     */
+    public static RefreshToken createValidRefreshToken(Long userId) {
+        RefreshToken token = new RefreshToken();
+        setId(token, 1L);
+        token.setUserId(userId);
+        token.setTokenHash("hashed-token-" + userId);
+        token.setExpiryDate(Instant.now().plusSeconds(3600)); // 1 hour from now
+        token.setRevoked(false);
+        return token;
+    }
+
+    /**
+     * Creates an expired RefreshToken entity for testing.
+     */
+    public static RefreshToken createExpiredRefreshToken(Long userId) {
+        RefreshToken token = new RefreshToken();
+        setId(token, 2L);
+        token.setUserId(userId);
+        token.setTokenHash("hashed-expired-token-" + userId);
+        token.setExpiryDate(Instant.now().minusSeconds(3600)); // 1 hour ago
+        token.setRevoked(false);
+        return token;
+    }
+
+    /**
+     * Creates a revoked RefreshToken entity for testing.
+     */
+    public static RefreshToken createRevokedRefreshToken(Long userId) {
+        RefreshToken token = new RefreshToken();
+        setId(token, 3L);
+        token.setUserId(userId);
+        token.setTokenHash("hashed-revoked-token-" + userId);
+        token.setExpiryDate(Instant.now().plusSeconds(3600)); // 1 hour from now
+        token.setRevoked(true);
+        return token;
+    }
+
+    /**
+     * Creates a RefreshToken entity with custom expiry for testing.
+     */
+    public static RefreshToken createRefreshTokenWithExpiry(Long userId, Instant expiryDate) {
+        RefreshToken token = new RefreshToken();
+        setId(token, 4L);
+        token.setUserId(userId);
+        token.setTokenHash("hashed-custom-token-" + userId);
+        token.setExpiryDate(expiryDate);
+        token.setRevoked(false);
+        return token;
     }
 
     // endregion

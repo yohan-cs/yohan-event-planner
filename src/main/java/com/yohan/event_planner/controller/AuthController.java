@@ -2,6 +2,9 @@ package com.yohan.event_planner.controller;
 
 import com.yohan.event_planner.dto.auth.LoginRequestDTO;
 import com.yohan.event_planner.dto.auth.LoginResponseDTO;
+import com.yohan.event_planner.dto.auth.LogoutRequestDTO;
+import com.yohan.event_planner.dto.auth.RefreshTokenRequestDTO;
+import com.yohan.event_planner.dto.auth.RefreshTokenResponseDTO;
 import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
 import com.yohan.event_planner.service.AuthService;
 
@@ -48,5 +51,28 @@ public class AuthController {
     public ResponseEntity<Void> register(@Valid @RequestBody RegisterRequestDTO request) {
         authService.register(request);
         return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
+    @Operation(summary = "Refresh access token using refresh token")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully refreshed tokens"),
+            @ApiResponse(responseCode = "400", description = "Invalid input data (validation failure)"),
+            @ApiResponse(responseCode = "401", description = "Invalid or expired refresh token")
+    })
+    @PostMapping("/refresh")
+    public ResponseEntity<RefreshTokenResponseDTO> refreshToken(@Valid @RequestBody RefreshTokenRequestDTO request) {
+        RefreshTokenResponseDTO response = authService.refreshToken(request);
+        return ResponseEntity.ok(response);
+    }
+
+    @Operation(summary = "Logout user and revoke refresh token")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Successfully logged out"),
+            @ApiResponse(responseCode = "400", description = "Invalid input data (validation failure)")
+    })
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@Valid @RequestBody LogoutRequestDTO request) {
+        authService.logout(request);
+        return ResponseEntity.ok().build();
     }
 }

@@ -65,10 +65,10 @@ public class TestDataHelper {
 
     // Helper method to register and login a user
     public TestAuthUtils.AuthResult registerAndLoginUserWithUser(String suffix) throws Exception {
-        String jwt = testAuthUtils.registerAndLoginUser(suffix);
+        TestAuthUtils.AuthResult authResult = testAuthUtils.registerAndLoginUser(suffix);
         User user = userRepository.findByUsername("user" + suffix)
                 .orElseThrow(() -> new IllegalStateException("User not found after registration"));
-        return new TestAuthUtils.AuthResult(jwt, user);
+        return new TestAuthUtils.AuthResult(authResult.jwt(), authResult.refreshToken(), user, authResult.userId());
     }
 
     // Helper method to create and persist a label

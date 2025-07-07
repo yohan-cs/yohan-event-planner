@@ -14,11 +14,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.security.Key;
+import java.security.SecureRandom;
 import java.util.Date;
+import java.util.UUID;
 
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
 
@@ -46,16 +49,21 @@ public class JwtUtils {
     @Value("${spring.app.jwtExpirationMs}")
     private long jwtExpirationMs;
 
+    @Value("${spring.app.refreshTokenExpirationMs}")
+    private long refreshTokenExpirationMs;
+
     private SecretKey secretKey;
+    private BCryptPasswordEncoder passwordEncoder;
 
     /**
-     * Initializes the HMAC signing key after dependency injection.
+     * Initializes the HMAC signing key and password encoder after dependency injection.
      * Called automatically by Spring after all properties are injected.
      */
     @PostConstruct
     private void init() {
         this.secretKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtSecret));
-        logger.debug("JWT secret key initialized and cached.");
+        this.passwordEncoder = new BCryptPasswordEncoder();
+        logger.debug("JWT secret key and password encoder initialized and cached.");
     }
 
     /**
@@ -133,5 +141,47 @@ public class JwtUtils {
             logger.error("JWT claims string is empty: {}", ex.getMessage());
         }
         throw new UnauthorizedException(UNAUTHORIZED_ACCESS);
+    }
+
+    /**
+     * Generates a secure opaque refresh token.
+     * Uses UUID v4 for cryptographically secure random token generation.
+     *
+     * @return a secure opaque refresh token string
+     */
+    public String generateRefreshToken() {
+        return UUID.randomUUID().toString();
+    }
+
+    /**
+     * Hashes the provided refresh token using BCrypt.
+     * Used for securely storing refresh tokens in the database.
+     *
+     * @param refreshToken the raw refresh token to hash
+     * @return the BCrypt hash of the refresh token
+     */
+    public String hashRefreshToken(String refreshToken) {
+        return passwordEncoder.encode(refreshToken);
+    }
+
+    /**
+     * Validates a refresh token against its stored hash.
+     * Uses BCrypt to compare the raw token with the stored hash.
+     *
+     * @param refreshToken the raw refresh token to validate
+     * @param hashedToken the stored hash to compare against
+     * @return true if the token matches the hash, false otherwise
+     */
+    public boolean validateRefreshToken(String refreshToken, String hashedToken) {
+        return passwordEncoder.matches(refreshToken, hashedToken);
+    }
+
+    /**
+     * Returns the configured refresh token expiration time in milliseconds.
+     *
+     * @return refresh token expiration time in milliseconds
+     */
+    public long getRefreshTokenExpirationMs() {
+        return refreshTokenExpirationMs;
     }
 }

@@ -26,6 +26,7 @@ class AuthServiceImplTest {
     private AuthenticationManager authenticationManager;
     private JwtUtils jwtUtils;
     private UserService userService;
+    private RefreshTokenService refreshTokenService;
     private AuthServiceImpl authService;
 
     @BeforeEach
@@ -33,7 +34,8 @@ class AuthServiceImplTest {
         authenticationManager = mock(AuthenticationManager.class);
         jwtUtils = mock(JwtUtils.class);
         userService = mock(UserService.class);
-        authService = new AuthServiceImpl(authenticationManager, jwtUtils, userService);
+        refreshTokenService = mock(RefreshTokenService.class);
+        authService = new AuthServiceImpl(authenticationManager, jwtUtils, userService, refreshTokenService);
     }
 
     @Nested
@@ -44,19 +46,22 @@ class AuthServiceImplTest {
             LoginRequestDTO loginDTO = new LoginRequestDTO("johnny", "password123");
             User user = TestUtils.createValidUserEntityWithId();
             CustomUserDetails userDetails = new CustomUserDetails(user);
-            String expectedToken = "mock-jwt-token";
+            String expectedAccessToken = "mock-jwt-token";
+            String expectedRefreshToken = "mock-refresh-token";
 
             Authentication auth = mock(Authentication.class);
             when(auth.getPrincipal()).thenReturn(userDetails);
             when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class))).thenReturn(auth);
-            when(jwtUtils.generateToken(userDetails)).thenReturn(expectedToken);
+            when(jwtUtils.generateToken(userDetails)).thenReturn(expectedAccessToken);
+            when(refreshTokenService.createRefreshToken(user.getId())).thenReturn(expectedRefreshToken);
 
             // Act
             LoginResponseDTO result = authService.login(loginDTO);
 
             // Assert
             assertNotNull(result);
-            assertEquals(expectedToken, result.token());
+            assertEquals(expectedAccessToken, result.token());
+            assertEquals(expectedRefreshToken, result.refreshToken());
             assertEquals(user.getId(), result.userId());
             assertEquals(user.getUsername(), result.username());
             assertEquals(user.getEmail(), result.email());
