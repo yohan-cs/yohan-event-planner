@@ -9,7 +9,6 @@ import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.Label;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.TimeFilter;
-import com.yohan.event_planner.dto.ConflictResolutionDTO;
 import com.yohan.event_planner.dto.DayViewDTO;
 import com.yohan.event_planner.dto.EventCreateDTO;
 import com.yohan.event_planner.dto.EventFilterDTO;
@@ -18,17 +17,14 @@ import com.yohan.event_planner.dto.EventResponseDTO;
 import com.yohan.event_planner.dto.EventResponseDTOFactory;
 import com.yohan.event_planner.dto.EventUpdateDTO;
 import com.yohan.event_planner.dto.WeekViewDTO;
-import com.yohan.event_planner.exception.ConflictException;
 import com.yohan.event_planner.exception.ErrorCode;
 import com.yohan.event_planner.exception.EventAlreadyConfirmedException;
 import com.yohan.event_planner.exception.EventNotFoundException;
-import com.yohan.event_planner.exception.EventOwnershipException;
 import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
 import com.yohan.event_planner.time.ClockProvider;
 import com.yohan.event_planner.time.TimeUtils;
-import com.yohan.event_planner.validation.ConflictValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -39,18 +35,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.DayOfWeek;
-import java.time.Duration;
-import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -159,6 +149,11 @@ public class EventServiceImpl implements EventService {
                 if (start == null) start = TimeUtils.FAR_PAST;
                 if (end == null) end = TimeUtils.FAR_FUTURE;
             }
+        }
+
+        // Validate that start time is not after end time for CUSTOM filter
+        if (filter.timeFilter() == TimeFilter.CUSTOM && start.isAfter(end)) {
+            throw new InvalidTimeException(ErrorCode.INVALID_TIME_RANGE, start, end);
         }
 
         EventFilterDTO sanitizedFilter = new EventFilterDTO(

@@ -128,6 +128,39 @@ public class TestDataHelper {
         return recurringEventRepository.saveAndFlush(recurringEvent);
     }
 
+    // Helper method to create and persist a confirmed recurring event (simplified)
+    public RecurringEvent createAndPersistConfirmedRecurringEvent(User user) {
+        return createAndPersistRecurringEvent(user, "Test Recurring Event");
+    }
+
+    // Helper method to create and persist a past recurring event
+    public RecurringEvent createAndPersistPastRecurringEvent(User user) {
+        var label = createAndPersistLabel(user, "Past Recurring Label");
+        var recurringEvent = TestUtils.createValidRecurringEvent(user, clock);
+        
+        // Set dates in the past (relative to fixed test clock: 2025-06-27)
+        recurringEvent.setStartDate(TestConstants.getFixedTodayUserZone(clock).minusDays(60)); // 2025-04-28
+        recurringEvent.setEndDate(TestConstants.getFixedTodayUserZone(clock).minusDays(30));   // 2025-05-28
+        
+        recurringEvent.setName("Past Recurring Event");
+        recurringEvent.setLabel(label);
+        return recurringEventRepository.saveAndFlush(recurringEvent);
+    }
+
+    // Helper method to create and persist a future recurring event
+    public RecurringEvent createAndPersistFutureRecurringEvent(User user) {
+        var label = createAndPersistLabel(user, "Future Recurring Label");
+        var recurringEvent = TestUtils.createValidRecurringEvent(user, clock);
+        
+        // Set dates in the future (relative to fixed test clock: 2025-06-27)
+        recurringEvent.setStartDate(TestConstants.getFixedTodayUserZone(clock).plusDays(10)); // 2025-07-07
+        recurringEvent.setEndDate(TestConstants.getFixedTodayUserZone(clock).plusDays(40));   // 2025-08-06
+        
+        recurringEvent.setName("Future Recurring Event");
+        recurringEvent.setLabel(label);
+        return recurringEventRepository.saveAndFlush(recurringEvent);
+    }
+
     // Helper method to create and persist a completed event with recap
     public Event createAndPersistCompletedEventWithRecap(User user, String eventName, String notes) {
         var event = createAndPersistCompletedEvent(user);

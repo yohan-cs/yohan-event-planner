@@ -4,26 +4,23 @@ import com.blazebit.persistence.PagedList;
 import com.yohan.event_planner.business.RecurringEventBO;
 import com.yohan.event_planner.business.handler.RecurringEventPatchHandler;
 import com.yohan.event_planner.dao.RecurringEventDAO;
-import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.Label;
 import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.RecurrenceRuleVO;
 import com.yohan.event_planner.domain.User;
-import com.yohan.event_planner.dto.EventChangeContextDTO;
+import com.yohan.event_planner.domain.enums.TimeFilter;
 import com.yohan.event_planner.dto.EventResponseDTO;
 import com.yohan.event_planner.dto.EventResponseDTOFactory;
 import com.yohan.event_planner.dto.LabelResponseDTO;
 import com.yohan.event_planner.dto.RecurringEventCreateDTO;
-import com.yohan.event_planner.dto.RecurringEventCreationResultDTO;
 import com.yohan.event_planner.dto.RecurringEventFilterDTO;
 import com.yohan.event_planner.dto.RecurringEventResponseDTO;
 import com.yohan.event_planner.dto.RecurringEventUpdateDTO;
-import com.yohan.event_planner.exception.ConflictException;
 import com.yohan.event_planner.exception.ErrorCode;
 import com.yohan.event_planner.exception.InvalidSkipDayException;
+import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.exception.RecurringEventAlreadyConfirmedException;
 import com.yohan.event_planner.exception.RecurringEventNotFoundException;
-import com.yohan.event_planner.exception.RecurringEventOwnershipException;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
 import com.yohan.event_planner.time.ClockProvider;
@@ -40,7 +37,6 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -101,13 +97,41 @@ RecurringEventServiceImpl implements RecurringEventService {
     @Transactional(readOnly = true)
     public Page<RecurringEventResponseDTO> getConfirmedRecurringEventsForCurrentUser(RecurringEventFilterDTO filter, int pageNumber, int pageSize) {
         User viewer = authenticatedUserProvider.getCurrentUser();
+        LocalDate today = LocalDate.now(clockProvider.getClockForUser(viewer));
+        
+        LocalDate startDate = filter.startDate();
+        LocalDate endDate = filter.endDate();
 
-        // Sanitize filter as needed. For now, pass as is since it's self-only.
+        switch (filter.timeFilter()) {
+            case ALL -> {
+                startDate = TimeUtils.FAR_PAST_DATE;
+                endDate = TimeUtils.FAR_FUTURE_DATE;
+            }
+            case PAST_ONLY -> {
+                startDate = TimeUtils.FAR_PAST_DATE;
+                endDate = today;
+            }
+            case FUTURE_ONLY -> {
+                startDate = today;
+                endDate = TimeUtils.FAR_FUTURE_DATE;
+            }
+            case CUSTOM -> {
+                if (startDate == null) startDate = TimeUtils.FAR_PAST_DATE;
+                if (endDate == null) endDate = TimeUtils.FAR_FUTURE_DATE;
+            }
+        }
+
+        // Validate that start date is not after end date for CUSTOM filter
+        if (filter.timeFilter() == TimeFilter.CUSTOM && startDate.isAfter(endDate)) {
+            throw new InvalidTimeException(ErrorCode.INVALID_TIME_RANGE, startDate, endDate);
+        }
+
+        // Pass resolved time range to DAO
         RecurringEventFilterDTO sanitizedFilter = new RecurringEventFilterDTO(
                 filter.labelId(),
-                filter.timeFilter(),
-                filter.startDate(),
-                filter.endDate(),
+                filter.timeFilter(), // Keep original for reference, but DAO will use resolved dates
+                startDate,
+                endDate,
                 filter.sortDescending()
         );
 

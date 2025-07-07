@@ -58,39 +58,24 @@ public class RecurringEventDAOImpl implements RecurringEventDAO {
     }
 
     private void applyTimeWindowFilter(RecurringEventFilterDTO filter, CriteriaBuilder<RecurringEvent> cb) {
-        LocalDate today = LocalDate.now();
-
-        TimeFilter timeFilter = filter.timeFilter();
-
-        switch (timeFilter) {
-            case ALL -> {
-                // no-op
-            }
-            case PAST_ONLY -> {
-                LocalDate end = filter.endDate() != null ? filter.endDate() : today;
-                cb.where("endDate").lt(end);
-            }
-            case FUTURE_ONLY -> {
-                LocalDate start = filter.startDate() != null ? filter.startDate() : today;
-                cb.where("startDate").ge(today);
-            }
-            case CUSTOM -> {
-                if (filter.startDate() == null && filter.endDate() == null) break;
-                LocalDate start = filter.startDate() != null ? filter.startDate() : FAR_PAST_DATE;
-                LocalDate end = filter.endDate() != null ? filter.endDate() : FAR_FUTURE_DATE;
-                cb.where("startDate").le(end);
-                cb.where("endDate").ge(start);
-            }
-        }
+        // Service layer has already resolved TimeFilter to actual dates
+        LocalDate startDate = filter.startDate();
+        LocalDate endDate = filter.endDate();
+        
+        // Filter for recurring events that overlap with the time window
+        cb.where("startDate").le(endDate);
+        cb.where("endDate").ge(startDate);
     }
 
     private void applySortOrder(RecurringEventFilterDTO filter, CriteriaBuilder<RecurringEvent> cb) {
         if (Boolean.TRUE.equals(filter.sortDescending())) {
             cb.orderByDesc("startDate")
-                    .orderByDesc("endDate");
+                    .orderByDesc("endDate")
+                    .orderByDesc("id");
         } else {
             cb.orderByAsc("startDate")
-                    .orderByAsc("endDate");
+                    .orderByAsc("endDate")
+                    .orderByAsc("id");
         }
     }
 }

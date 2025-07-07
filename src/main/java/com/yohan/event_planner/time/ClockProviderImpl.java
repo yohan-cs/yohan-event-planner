@@ -6,17 +6,20 @@ import java.time.ZoneId;
 
 public class ClockProviderImpl implements ClockProvider {
 
-    public ClockProviderImpl() {
+    private final Clock baseClock;
+
+    public ClockProviderImpl(Clock baseClock) {
+        this.baseClock = baseClock;
     }
 
     @Override
     public Clock getClockForZone(ZoneId zoneId) {
-        return Clock.system(zoneId);
+        return baseClock.withZone(zoneId);
     }
 
     @Override
     public Clock getClockForUser(User user) {
         ZoneId userZone = ZoneId.of(user.getTimezone());
-        return Clock.system(userZone);
+        return baseClock.withZone(userZone);
     }
 }

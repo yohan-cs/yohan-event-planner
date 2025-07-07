@@ -200,12 +200,22 @@ public class RecurringEventServiceImplTest {
             int pageSize = 10;
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(clockProvider.getClockForUser(viewer)).thenReturn(fixedClock);
 
             PagedList<RecurringEvent> pagedRecurringEvents = mock(PagedList.class);
             when(pagedRecurringEvents.stream()).thenReturn(Stream.of(recurringEvent));
             when(pagedRecurringEvents.getTotalSize()).thenReturn(1L);
 
-            when(recurringEventDAO.findConfirmedRecurringEvents(eq(viewer.getId()), eq(filter), eq(pageNumber), eq(pageSize)))
+            // Expect the resolved filter (TimeFilter.ALL resolves to FAR_PAST_DATE and FAR_FUTURE_DATE)
+            RecurringEventFilterDTO expectedResolvedFilter = new RecurringEventFilterDTO(
+                    filter.labelId(),
+                    filter.timeFilter(),
+                    com.yohan.event_planner.time.TimeUtils.FAR_PAST_DATE,
+                    com.yohan.event_planner.time.TimeUtils.FAR_FUTURE_DATE,
+                    filter.sortDescending()
+            );
+            
+            when(recurringEventDAO.findConfirmedRecurringEvents(eq(viewer.getId()), eq(expectedResolvedFilter), eq(pageNumber), eq(pageSize)))
                     .thenReturn(pagedRecurringEvents);
 
             // Act
@@ -235,12 +245,22 @@ public class RecurringEventServiceImplTest {
             int pageSize = 10;
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(clockProvider.getClockForUser(viewer)).thenReturn(fixedClock);
 
             PagedList<RecurringEvent> pagedRecurringEvents = mock(PagedList.class);
             when(pagedRecurringEvents.stream()).thenReturn(Stream.empty());
             when(pagedRecurringEvents.getTotalSize()).thenReturn(0L);
 
-            when(recurringEventDAO.findConfirmedRecurringEvents(eq(viewer.getId()), eq(filter), eq(pageNumber), eq(pageSize)))
+            // Expect the resolved filter (TimeFilter.ALL resolves to FAR_PAST_DATE and FAR_FUTURE_DATE)
+            RecurringEventFilterDTO expectedResolvedFilter = new RecurringEventFilterDTO(
+                    filter.labelId(),
+                    filter.timeFilter(),
+                    com.yohan.event_planner.time.TimeUtils.FAR_PAST_DATE,
+                    com.yohan.event_planner.time.TimeUtils.FAR_FUTURE_DATE,
+                    filter.sortDescending()
+            );
+            
+            when(recurringEventDAO.findConfirmedRecurringEvents(eq(viewer.getId()), eq(expectedResolvedFilter), eq(pageNumber), eq(pageSize)))
                     .thenReturn(pagedRecurringEvents);
 
             // Act
