@@ -1,6 +1,7 @@
 package com.yohan.event_planner.util;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.dto.auth.LoginRequestDTO;
 import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
 import com.yohan.event_planner.domain.User;
@@ -16,12 +17,14 @@ import org.springframework.test.web.servlet.MvcResult;
 import static com.yohan.event_planner.util.TestUtils.createValidRegisterPayload;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
+@Component
 public class TestAuthUtils {
 
     private final JwtUtils jwtUtils;
     private final MockMvc mockMvc;
     private final ObjectMapper objectMapper;
 
+    @Autowired
     public TestAuthUtils(JwtUtils jwtUtils, MockMvc mockMvc, ObjectMapper objectMapper) {
         this.jwtUtils = jwtUtils;
         this.mockMvc = mockMvc;
@@ -42,13 +45,21 @@ public class TestAuthUtils {
     /**
      * Registers and logs in a new user using HTTP endpoints.
      * Returns the JWT token for authenticated requests.
-     *
-     * @param usernameSuffix a unique suffix to prevent username/email collisions
-     * @return a valid JWT token for the created user
+     * Uses a default RegisterRequestDTO with a provided username suffix.
      */
     public String registerAndLoginUser(String usernameSuffix) throws Exception {
         RegisterRequestDTO registerDTO = createValidRegisterPayload(usernameSuffix);
+        return registerAndLogin(registerDTO);
+    }
 
+    /**
+     * Registers and logs in a new user using a custom RegisterRequestDTO.
+     * Allows full control over test user fields.
+     *
+     * @param registerDTO the registration request
+     * @return JWT token
+     */
+    public String registerAndLogin(RegisterRequestDTO registerDTO) throws Exception {
         mockMvc.perform(post("/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(registerDTO)))
@@ -67,4 +78,6 @@ public class TestAuthUtils {
 
         return objectMapper.readTree(json).get("token").asText();
     }
+
+    public record AuthResult(String jwt, User user) {}
 }

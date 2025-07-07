@@ -4,8 +4,12 @@ import com.yohan.event_planner.business.PasswordBO;
 import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.business.handler.UserPatchHandler;
 import com.yohan.event_planner.domain.User;
-import com.yohan.event_planner.domain.enums.Role;
+import com.yohan.event_planner.domain.UserInitializer;
+import com.yohan.event_planner.dto.BadgeResponseDTO;
 import com.yohan.event_planner.dto.UserCreateDTO;
+import com.yohan.event_planner.dto.UserHeaderResponseDTO;
+import com.yohan.event_planner.dto.UserHeaderUpdateDTO;
+import com.yohan.event_planner.dto.UserProfileResponseDTO;
 import com.yohan.event_planner.dto.UserResponseDTO;
 import com.yohan.event_planner.dto.UserUpdateDTO;
 import com.yohan.event_planner.exception.EmailException;
@@ -15,8 +19,10 @@ import com.yohan.event_planner.mapper.UserMapper;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 
 import static com.yohan.event_planner.exception.ErrorCode.DUPLICATE_EMAIL;
 import static com.yohan.event_planner.exception.ErrorCode.DUPLICATE_USERNAME;
@@ -37,123 +43,42 @@ public class UserServiceImpl implements UserService {
     private final UserBO userBO;
     private final UserMapper userMapper;
     private final UserPatchHandler userPatchHandler;
+    private final UserInitializer userInitializer;
     private final PasswordBO passwordBO;
-    private final OwnershipValidator ownershipValidator;
+    private final BadgeService badgeService;
     private final AuthenticatedUserProvider authenticatedUserProvider;
+    private final OwnershipValidator ownershipValidator;
 
     public UserServiceImpl(
             UserBO userBO,
             UserMapper userMapper,
             UserPatchHandler userPatchHandler,
+            UserInitializer userInitializer,
             PasswordBO passwordBO,
-            OwnershipValidator ownershipValidator,
-            AuthenticatedUserProvider authenticatedUserProvider
+            BadgeService badgeService,
+            AuthenticatedUserProvider authenticatedUserProvider,
+            OwnershipValidator ownershipValidator
     ) {
         this.userBO = userBO;
         this.userMapper = userMapper;
         this.userPatchHandler = userPatchHandler;
+        this.userInitializer = userInitializer;
         this.passwordBO = passwordBO;
-        this.ownershipValidator = ownershipValidator;
+        this.badgeService = badgeService;
         this.authenticatedUserProvider = authenticatedUserProvider;
+        this.ownershipValidator = ownershipValidator;
     }
 
-    /**
-     * Retrieves a user by their unique identifier.
-     *
-     * @param userId the ID of the user to retrieve
-     * @return the corresponding {@link UserResponseDTO}
-     * @throws UserNotFoundException if no user with the given ID exists
-     */
-    @Override
-    public UserResponseDTO getUserById(Long userId) {
-        User user = userBO.getUserById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
-        return userMapper.toResponseDTO(user);
-    }
 
-    /**
-     * Retrieves a user by username (case-insensitive).
-     *
-     * @param username the username to search for
-     * @return the corresponding {@link UserResponseDTO}
-     * @throws UserNotFoundException if no user with the given username exists
-     */
     @Override
-    public UserResponseDTO getUserByUsername(String username) {
-        User user = userBO.getUserByUsername(username.toLowerCase())
-                .orElseThrow(() -> new UserNotFoundException(username));
-        return userMapper.toResponseDTO(user);
-    }
-
-    /**
-     * Retrieves a user by email (case-insensitive).
-     *
-     * @param email the email to search for
-     * @return the corresponding {@link UserResponseDTO}
-     * @throws UserNotFoundException if no user with the given email exists
-     */
-    @Override
-    public UserResponseDTO getUserByEmail(String email) {
-        User user = userBO.getUserByEmail(email.toLowerCase())
-                .orElseThrow(() -> new UserNotFoundException(email));
-        return userMapper.toResponseDTO(user);
-    }
-
-    /**
-     * Retrieves all users with the specified role.
-     *
-     * @param role the role to filter users by
-     * @return a list of matching {@link UserResponseDTO}s; empty list if none
-     */
-    @Override
-    public List<UserResponseDTO> getUsersByRole(Role role) {
-        return userBO.getUsersByRole(role).stream()
-                .map(userMapper::toResponseDTO)
-                .toList();
-    }
-
-    /**
-     * Retrieves all users in the system.
-     *
-     * <p>Note: Paging is not yet implemented; provided parameters are currently ignored.</p>
-     *
-     * @param page the (ignored) page index
-     * @param size the (ignored) page size
-     * @return a list of all users as {@link UserResponseDTO}s
-     */
-    @Override
-    public List<UserResponseDTO> getAllUsers(int page, int size) {
-        return userBO.getAllUsers().stream()
-                .map(userMapper::toResponseDTO)
-                .toList();
-    }
-
-    /**
-     * Retrieves the currently authenticated user's profile.
-     *
-     * @return the corresponding {@link UserResponseDTO}
-     * @throws UserNotFoundException if the current user does not exist
-     */
-    @Override
-    public UserResponseDTO getCurrentUser() {
+    public UserResponseDTO getUserSettings() {
         User currentUser = authenticatedUserProvider.getCurrentUser();
+
         return userMapper.toResponseDTO(currentUser);
     }
 
-    /**
-     * Creates a new user with the specified details.
-     *
-     * <p>
-     * Usernames and emails are normalized to lowercase.
-     * Passwords are encrypted before storage.
-     * </p>
-     *
-     * @param dto the DTO containing user creation data
-     * @return the corresponding {@link UserResponseDTO}
-     * @throws UsernameException if the username is already taken
-     * @throws EmailException if the email is already taken
-     */
     @Override
+    @Transactional
     public UserResponseDTO createUser(UserCreateDTO dto) {
         String normalizedUsername = dto.username().toLowerCase();
         String normalizedEmail = dto.email().toLowerCase();
@@ -170,54 +95,15 @@ public class UserServiceImpl implements UserService {
         user.setEmail(normalizedEmail);
         user.setHashedPassword(passwordBO.encryptPassword(dto.password()));
 
-        return userMapper.toResponseDTO(userBO.createUser(user));
+        // Delegate to UserInitializer instead of userBO directly
+        User initializedUser = userInitializer.initializeUser(user);
+
+        return userMapper.toResponseDTO(initializedUser);
     }
 
-    /**
-     * Applies a partial update to the specified user.
-     *
-     * <p>
-     * Validates ownership and uniqueness of updated fields before applying changes.
-     * </p>
-     *
-     * @param userId the ID of the user to update
-     * @param dto the patch data DTO
-     * @return the updated {@link UserResponseDTO}
-     * @throws UserNotFoundException if the user does not exist
-     * @throws UsernameException if the username is already taken
-     * @throws EmailException if the email is already taken
-     */
     @Override
-    public UserResponseDTO updateUser(Long userId, UserUpdateDTO dto) {
-        User user = userBO.getUserById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
-
-        Long currentUserId = authenticatedUserProvider.getCurrentUser().getId();
-        ownershipValidator.validateUserOwnership(currentUserId, userId);
-
-        if (dto.username() != null) {
-            validateUsernameAvailability(dto.username(), userId);
-        }
-
-        if (dto.email() != null) {
-            validateEmailAvailability(dto.email(), userId);
-        }
-
-        boolean changed = userPatchHandler.applyPatch(user, dto);
-        return userMapper.toResponseDTO(changed ? userBO.updateUser(user) : user);
-    }
-
-    /**
-     * Applies a partial update to the currently authenticated user.
-     *
-     * @param dto the patch data DTO
-     * @return the updated {@link UserResponseDTO}
-     * @throws UserNotFoundException if the user does not exist
-     * @throws UsernameException if the username is already taken
-     * @throws EmailException if the email is already taken
-     */
-    @Override
-    public UserResponseDTO updateCurrentUser(UserUpdateDTO dto) {
+    @Transactional
+    public UserResponseDTO updateUserSettings(UserUpdateDTO dto) {
         User currentUser = authenticatedUserProvider.getCurrentUser();
 
         if (dto.username() != null) {
@@ -233,31 +119,65 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
-     * Soft-deletes the user with the specified ID.
-     *
-     * @param userId the ID of the user to delete
-     * @throws UserNotFoundException if the user does not exist
+     * Marks the currently authenticated user for deletion after a grace period.
      */
     @Override
-    public void deleteUser(Long userId) {
-        User user = userBO.getUserById(userId)
-                .orElseThrow(() -> new UserNotFoundException(userId));
-
-        Long currentUserId = authenticatedUserProvider.getCurrentUser().getId();
-        ownershipValidator.validateUserOwnership(currentUserId, userId);
-
-        userBO.deleteUser(user);
+    @Transactional
+    public void markUserForDeletion() {
+        User currentUser = authenticatedUserProvider.getCurrentUser();
+        userBO.markUserForDeletion(currentUser);
     }
 
     /**
-     * Soft-deletes the currently authenticated user.
-     *
-     * @throws UserNotFoundException if the user does not exist
+     * Cancels the deletion of the currently authenticated user, if previously marked.
      */
     @Override
-    public void deleteCurrentUser() {
+    @Transactional
+    public void reactivateCurrentUser() {
         User currentUser = authenticatedUserProvider.getCurrentUser();
-        userBO.deleteUser(currentUser);
+        currentUser.unmarkForDeletion(); // domain logic clears timestamp
+        userBO.updateUser(currentUser); // persist
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserProfileResponseDTO getUserProfile(String username, Long viewerId) {
+        User user = userBO.getUserByUsername(username.toLowerCase())
+                .orElseThrow(() -> new UserNotFoundException(username));
+
+        boolean isSelf = viewerId != null && user.getId().equals(viewerId);
+
+        UserHeaderResponseDTO header = getUserHeader(user);
+        List<BadgeResponseDTO> badges = badgeService.getBadgesByUser(user.getId());
+
+        return new UserProfileResponseDTO(isSelf, header, badges);
+    }
+
+    @Override
+    @Transactional
+    public UserHeaderResponseDTO updateUserHeader(Long userId, UserHeaderUpdateDTO dto) {
+        User user = userBO.getUserById(userId)
+                .orElseThrow(() -> new UserNotFoundException(userId));
+
+        ownershipValidator.validateUserOwnership(user.getId(), userId);
+
+        boolean changed = false;
+
+        if (!Objects.equals(dto.bio(), user.getBio())) {
+            user.setBio(dto.bio());
+            changed = true;
+        }
+
+        if (!Objects.equals(dto.profilePictureUrl(), user.getProfilePictureUrl())) {
+            user.setProfilePictureUrl(dto.profilePictureUrl());
+            changed = true;
+        }
+
+        if (changed) {
+            user = userBO.updateUser(user);
+        }
+
+        return getUserHeader(user);
     }
 
     /**
@@ -282,33 +202,6 @@ public class UserServiceImpl implements UserService {
         return userBO.existsByEmail(email.toLowerCase());
     }
 
-    /**
-     * Returns the number of users who are not soft-deleted.
-     *
-     * @return count of active (non-deleted) users
-     */
-    @Override
-    public long countActiveUsers() {
-        return userBO.countActiveUsers();
-    }
-
-    /**
-     * Returns the total number of users.
-     *
-     * @return user count
-     */
-    @Override
-    public long countUsers() {
-        return userBO.countUsers();
-    }
-
-    /**
-     * Validates that the provided username is not already taken by another user.
-     *
-     * @param username the username to validate
-     * @param userId the ID of the user being updated
-     * @throws UsernameException if the username is already in use
-     */
     private void validateUsernameAvailability(String username, Long userId) {
         String normalized = username.toLowerCase();
         userBO.getUserByUsername(normalized).ifPresent(existing -> {
@@ -332,5 +225,15 @@ public class UserServiceImpl implements UserService {
                 throw new EmailException(DUPLICATE_EMAIL, normalized);
             }
         });
+    }
+
+    private UserHeaderResponseDTO getUserHeader(User user) {
+        return new UserHeaderResponseDTO(
+                user.getUsername(),
+                user.getFirstName(),
+                user.getLastName(),
+                user.getBio(),
+                user.getProfilePictureUrl()
+        );
     }
 }

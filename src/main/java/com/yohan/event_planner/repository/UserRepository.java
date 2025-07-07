@@ -5,6 +5,7 @@ import com.yohan.event_planner.domain.enums.Role;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,12 +47,28 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByUsername(String username);
 
     /**
+     * Retrieves a user by their unique username, excluding pending deletion users.
+     *
+     * @param username the username to search for
+     * @return an {@link Optional} containing the found user, or empty if none found
+     */
+    Optional<User> findByUsernameAndIsPendingDeletionFalse(String username);
+
+    /**
      * Retrieves a user by their unique email address.
      *
      * @param email the email address to search for
      * @return an {@link Optional} containing the found user, or empty if none found
      */
     Optional<User> findByEmail(String email);
+
+    /**
+     * Retrieves a user by their unique email address, excluding pending deletion users.
+     *
+     * @param email the email address to search for
+     * @return an {@link Optional} containing the found user, or empty if none found
+     */
+    Optional<User> findByEmailAndIsPendingDeletionFalse(String email);
 
     /**
      * Retrieves all users assigned the specified role.
@@ -63,6 +80,29 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * @return a list of users having the given role
      */
     List<User> findAllByRoles(Role role);
+
+    /**
+     * Retrieves all users assigned the specified role, excluding pending deletion users.
+     *
+     * @param role the role to filter users by
+     * @return a list of users having the given role
+     */
+    List<User> findAllByRolesAndIsPendingDeletionFalse(Role role);
+
+    /**
+     * Retrieves all users excluding pending deletion users.
+     *
+     * @return a list of all active users
+     */
+    List<User> findAllByIsPendingDeletionFalse();
+
+    /**
+     * Retrieves all users pending deletion with scheduled deletion date before the given time.
+     *
+     * @param cutoffTime the cutoff time for scheduled deletion
+     * @return a list of users eligible for permanent deletion
+     */
+    List<User> findAllByIsPendingDeletionTrueAndScheduledDeletionDateBefore(ZonedDateTime cutoffTime);
 
     /**
      * Deletes the user entity with the specified ID.
@@ -100,11 +140,4 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Override
     <S extends User> S save(S user);
-
-    /**
-     * Counts the number of users who have not been soft-deleted.
-     *
-     * @return the total number of users with {@code deleted = false}
-     */
-    long countByDeletedFalse();
 }

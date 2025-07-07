@@ -40,7 +40,6 @@ public class PasswordException extends RuntimeException implements HasErrorCode 
         return switch (errorCode) {
             case WEAK_PASSWORD -> "The password does not meet strength requirements.";
             case INVALID_PASSWORD_LENGTH -> "The password length is invalid.";
-            case NULL_PASSWORD -> "Password is required and cannot be null.";
             case DUPLICATE_PASSWORD -> "The new password must be different from the current password.";
             default -> "Password validation error with code: " + errorCode.name();
         };

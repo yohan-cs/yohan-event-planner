@@ -1,12 +1,21 @@
 package com.yohan.event_planner.business;
 
 import com.yohan.event_planner.domain.Event;
-import com.yohan.event_planner.exception.EventNotFoundException;
+import com.yohan.event_planner.domain.RecurringEvent;
+import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.dto.DayViewDTO;
+import com.yohan.event_planner.dto.EventChangeContextDTO;
+import com.yohan.event_planner.dto.EventResponseDTO;
+import com.yohan.event_planner.dto.WeekViewDTO;
 import com.yohan.event_planner.exception.ConflictException;
+import com.yohan.event_planner.exception.EventNotFoundException;
 import com.yohan.event_planner.exception.EventOwnershipException;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -32,43 +41,72 @@ public interface EventBO {
      */
     Optional<Event> getEventById(Long eventId);
 
-    /**
-     * Retrieves all events created by a specific user.
-     *
-     * @param userId the ID of the user who created the events
-     * @return a list of events created by the user (may be empty, never {@code null})
-     */
-    List<Event> getEventsByUser(Long userId);
+    List<Event> getConfirmedEventsForUserInRange(Long userId, ZonedDateTime windowStart, ZonedDateTime windowEnd);
+
+    List<Event> getConfirmedEventsPage(
+            Long userId,
+            ZonedDateTime endTimeCursor,
+            ZonedDateTime startTimeCursor,
+            Long idCursor,
+            int limit
+    );
+
+    List<Event> getUnconfirmedEventsForUser(Long userId);
 
     /**
-     * Retrieves events created by a user that start within the given date-time range.
+     * Creates a new scheduled event after validating time bounds and checking for conflicts.
      *
-     * @param userId the ID of the event creator
-     * @param start  the inclusive lower bound for event start time
-     * @param end    the exclusive upper bound for event start time
-     * @return a list of matching events (may be empty, never {@code null})
-     */
-    List<Event> getEventsByUserAndDateRange(Long userId, ZonedDateTime start, ZonedDateTime end);
-
-    /**
-     * Creates a new event after performing validation.
+     * <p>
+     * This is typically used when the event is created with a start and end time
+     * and should be validated immediately. It is not used for impromptu (open-ended)
+     * event creation, which bypasses immediate validation.
+     * </p>
      *
      * @param event the event to create (must include start time, end time, and creator)
      * @return the saved {@link Event}
      * @throws IllegalArgumentException if time validation fails
-     * @throws ConflictException if the event conflicts with another event
+     * @throws ConflictException if the event conflicts with an existing event
      */
     Event createEvent(Event event);
 
+    void solidifyRecurrences(
+            Long userId,
+            ZonedDateTime startTime,
+            ZonedDateTime endTime,
+            ZoneId userZoneId
+    );
+
     /**
-     * Updates an existing event after performing validation.
+     * Applies updates to an existing event, validating time bounds and checking for conflicts.
      *
-     * @param event the event to update (must include ID and creator)
-     * @return the updated and saved {@link Event}
+     * <p>
+     * This method also handles time bucket updates when completion status or label changes.
+     * The context DTO is used to detect what changed and update downstream systems accordingly.
+     * </p>
+     *
+     * @param contextDTO context about the original event (for bucket/statistics updates)
+     * @param event      the updated event to persist
+     * @return the updated {@link Event}
      * @throws IllegalArgumentException if time validation fails
-     * @throws ConflictException if the event overlaps with another event
+     * @throws ConflictException if the updated event conflicts with another event
      */
-    Event updateEvent(Event event);
+    Event updateEvent(EventChangeContextDTO contextDTO, Event event);
+
+    /**
+     * Confirms an open-ended (impromptu) event by performing conflict validation and
+     * persisting the updated state.
+     *
+     * <p>
+     * This method is only used to transition an event from an unconfirmed state
+     * (e.g. draft = true) to confirmed (draft = false). If the event is already
+     * confirmed, the caller is expected to short-circuit or raise an exception.
+     * </p>
+     *
+     * @param event the event to confirm
+     * @return the confirmed and saved {@link Event}
+     * @throws ConflictException if the confirmed time range overlaps another event
+     */
+    Event confirmEvent(Event event);
 
     /**
      * Deletes an event by its ID.
@@ -79,20 +117,43 @@ public interface EventBO {
      */
     void deleteEvent(Long eventId);
 
-    /**
-     * Validates that an event's start time occurs strictly before its end time.
-     *
-     * @param event the event to validate
-     * @throws IllegalArgumentException if start time is equal to or after end time
-     */
-    void validateEventTimes(Event event);
+    void deleteAllUnconfirmedEventsByUser(Long userId);
 
     /**
-     * Checks whether an event conflicts with another event by the same user.
-     * If updating, the current event is excluded from the check.
+     * Generates a day view containing events for the specified date.
+     * 
+     * <p>
+     * This method encapsulates the business logic for:
+     * - Event combination and sorting for a single day
+     * - Proper event ordering by start time
+     * </p>
      *
-     * @param event the event to check for conflicts
-     * @throws ConflictException if the event overlaps with another event
+     * @param selectedDate the date to generate the view for
+     * @param confirmedEvents the confirmed events for the day
+     * @param virtualEvents the virtual events to include
+     * @return a DayViewDTO containing sorted events for the day
      */
-    void checkForConflicts(Event event);
+    DayViewDTO generateDayViewData(LocalDate selectedDate, List<EventResponseDTO> confirmedEvents, List<EventResponseDTO> virtualEvents);
+
+    /**
+     * Generates a week view containing events for the week containing the anchor date.
+     * 
+     * <p>
+     * This method encapsulates the business logic for:
+     * - Calculating week boundaries (Monday to Sunday)
+     * - Converting timezone boundaries from user zone to UTC
+     * - Deciding when to solidify past recurrences vs generate virtual events
+     * - Grouping events by day within the week
+     * </p>
+     *
+     * @param userId the user ID to generate the view for
+     * @param anchorDate any date within the desired week
+     * @param userZoneId the user's timezone for boundary calculations
+     * @param confirmedEvents the confirmed events for the week period
+     * @param virtualEvents the virtual events to include
+     * @return a WeekViewDTO containing events grouped by day
+     */
+    WeekViewDTO generateWeekViewData(Long userId, LocalDate anchorDate, ZoneId userZoneId, 
+                                   List<EventResponseDTO> confirmedEvents, List<EventResponseDTO> virtualEvents);
+
 }

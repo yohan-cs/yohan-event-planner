@@ -4,6 +4,7 @@ import com.yohan.event_planner.exception.UnauthorizedException;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -15,8 +16,14 @@ import java.lang.reflect.Method;
 import java.util.Base64;
 
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class JwtUtilsTest {
@@ -51,76 +58,88 @@ class JwtUtilsTest {
         initMethod.invoke(jwtUtils);
     }
 
-    @Test
-    void testGetJwtFromHeader_validBearerToken_returnsToken() {
-        // Arrange
-        String token = "abc.def.ghi";
-        when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
+    @Nested
+    class GetJwtFromHeaderTests {
 
-        // Act
-        String result = jwtUtils.getJwtFromHeader(request);
+        @Test
+        void testGetJwtFromHeader_validBearerToken_returnsToken() {
+            // Arrange
+            String token = "abc.def.ghi";
+            when(request.getHeader("Authorization")).thenReturn("Bearer " + token);
 
-        // Assert
-        assertEquals(token, result);
+            // Act
+            String result = jwtUtils.getJwtFromHeader(request);
+
+            // Assert
+            assertEquals(token, result);
+        }
+
+        @Test
+        void testGetJwtFromHeader_invalidHeader_returnsNull() {
+            // Arrange
+            when(request.getHeader("Authorization")).thenReturn("InvalidFormat");
+
+            // Act
+            String result = jwtUtils.getJwtFromHeader(request);
+
+            // Assert
+            assertNull(result);
+        }
+
+        @Test
+        void testGetJwtFromHeader_missingHeader_returnsNull() {
+            // Arrange
+            when(request.getHeader("Authorization")).thenReturn(null);
+
+            // Act
+            String result = jwtUtils.getJwtFromHeader(request);
+
+            // Assert
+            assertNull(result);
+        }
     }
 
-    @Test
-    void testGetJwtFromHeader_invalidHeader_returnsNull() {
-        // Arrange
-        when(request.getHeader("Authorization")).thenReturn("InvalidFormat");
+    @Nested
+    class GenerateTokenTests {
 
-        // Act
-        String result = jwtUtils.getJwtFromHeader(request);
+        @Test
+        void testGenerateAndValidateToken_success() {
+            // Arrange
+            Long userId = 42L;
+            CustomUserDetails userDetails = mock(CustomUserDetails.class);
+            when(userDetails.getUserId()).thenReturn(userId);
 
-        // Assert
-        assertNull(result);
+            // Act
+            String token = jwtUtils.generateToken(userDetails);
+            Long parsedUserId = jwtUtils.getUserIdFromJwtToken(token);
+
+            // Assert
+            assertEquals(userId, parsedUserId);
+        }
     }
 
-    @Test
-    void testGetJwtFromHeader_missingHeader_returnsNull() {
-        // Arrange
-        when(request.getHeader("Authorization")).thenReturn(null);
+    @Nested
+    class GetUserIdFromJwtTokenTests {
 
-        // Act
-        String result = jwtUtils.getJwtFromHeader(request);
+        @Test
+        void testGetUserIdFromJwtToken_nullToken_throwsUnauthorizedException() {
+            // Act + Assert
+            UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken(null));
+            assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
+        }
 
-        // Assert
-        assertNull(result);
-    }
+        @Test
+        void testGetUserIdFromJwtToken_blankToken_throwsUnauthorizedException() {
+            // Act + Assert
+            UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken(" "));
+            assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
+        }
 
-    @Test
-    void testGenerateAndValidateToken_success() {
-        // Arrange
-        Long userId = 42L;
-        CustomUserDetails userDetails = mock(CustomUserDetails.class);
-        when(userDetails.getUserId()).thenReturn(userId);
-
-        // Act
-        String token = jwtUtils.generateToken(userDetails);
-        Long parsedUserId = jwtUtils.getUserIdFromJwtToken(token);
-
-        // Assert
-        assertEquals(userId, parsedUserId);
-    }
-
-    @Test
-    void testGetUserIdFromJwtToken_nullToken_throwsUnauthorizedException() {
-        // Act + Assert
-        UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken(null));
-        assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
-    }
-
-    @Test
-    void testGetUserIdFromJwtToken_blankToken_throwsUnauthorizedException() {
-        // Act + Assert
-        UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken(" "));
-        assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
-    }
-
-    @Test
-    void testGetUserIdFromJwtToken_malformedToken_throwsUnauthorizedException() {
-        // Act + Assert
-        UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken("not.a.jwt"));
-        assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
+        @Test
+        void testGetUserIdFromJwtToken_malformedToken_throwsUnauthorizedException() {
+            // Act + Assert
+            UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken("not.a.jwt"));
+            assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
+        }
     }
 }

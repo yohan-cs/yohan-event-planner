@@ -1,8 +1,11 @@
 package com.yohan.event_planner.dto;
 
+import com.yohan.event_planner.constants.ApplicationConstants;
+
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.validation.ValidZoneId;
 import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -16,11 +19,15 @@ import jakarta.validation.constraints.Size;
 public record UserUpdateDTO(
 
         /** Optional new username. Must be 3–30 characters if present. */
-        @Size(min = 3, max = 30, message = "Username must be between 3 and 30 characters")
+        @Pattern(
+                regexp = "^[a-z0-9]+(?:[._][a-z0-9]+)*$",
+                message = "Username must be lowercase and may contain letters, numbers, periods, or underscores, without leading, trailing, or consecutive special characters"
+        )
+        @Size(min = ApplicationConstants.USERNAME_MIN_LENGTH, max = ApplicationConstants.USERNAME_MAX_LENGTH, message = "Username must be between " + ApplicationConstants.USERNAME_MIN_LENGTH + " and " + ApplicationConstants.USERNAME_MAX_LENGTH + " characters")
         String username,
 
         /** Optional new plaintext password. Must be 8–72 characters if present. */
-        @Size(min = 8, max = 72, message = "Password must be between 8 and 72 characters")
+        @Size(min = ApplicationConstants.PASSWORD_MIN_LENGTH, max = ApplicationConstants.PASSWORD_MAX_LENGTH, message = "Password must be between " + ApplicationConstants.PASSWORD_MIN_LENGTH + " and " + ApplicationConstants.PASSWORD_MAX_LENGTH + " characters")
         String password,
 
         /** Optional new email address. Must be valid format if present. */
@@ -28,15 +35,14 @@ public record UserUpdateDTO(
         String email,
 
         /** Optional new first name. Must be 1–50 characters if present. */
-        @Size(min = 1, max = 50, message = "First name must be between 1 and 50 characters")
+        @Size(min = ApplicationConstants.NAME_MIN_LENGTH, max = ApplicationConstants.SHORT_NAME_MAX_LENGTH, message = "First name must be between " + ApplicationConstants.NAME_MIN_LENGTH + " and " + ApplicationConstants.SHORT_NAME_MAX_LENGTH + " characters")
         String firstName,
 
         /** Optional new last name. Must be 1–50 characters if present. */
-        @Size(min = 1, max = 50, message = "Last name must be between 1 and 50 characters")
+        @Size(min = ApplicationConstants.NAME_MIN_LENGTH, max = ApplicationConstants.SHORT_NAME_MAX_LENGTH, message = "Last name must be between " + ApplicationConstants.NAME_MIN_LENGTH + " and " + ApplicationConstants.SHORT_NAME_MAX_LENGTH + " characters")
         String lastName,
 
         /** Optional new time zone (IANA ID format, e.g., "America/New_York"). */
         @ValidZoneId(message = "Invalid timezone provided")
         String timezone
-
 ) {}

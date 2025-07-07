@@ -12,9 +12,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -36,11 +41,13 @@ public class UserPatchHandlerTest {
     @Nested
     class ApplyPatchTests {
 
+        // region --- Username Patching ---
+
         @Test
         void testPatchUserNameSuccess() {
 
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String newUsername = "NewUserName";
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -65,7 +72,7 @@ public class UserPatchHandlerTest {
         void testPatchUsernameNoOp() {
 
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String existingUsername = existingUser.getUsername();
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -89,7 +96,7 @@ public class UserPatchHandlerTest {
         @Test
         void testPatchUsernameFailure_DuplicateUsername() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String newUsername = "duplicateUser";
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -111,10 +118,14 @@ public class UserPatchHandlerTest {
                     "Username should not be updated if duplicate.");
         }
 
+        // endregion
+
+        // region --- Password Patching ---
+
         @Test
         void testPatchPasswordSuccess() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String hashedPassword = existingUser.getHashedPassword();
             String newPassword = "newPassword123";
             String hashedNewPassword = "hashedNewPassword123";
@@ -146,7 +157,7 @@ public class UserPatchHandlerTest {
         @Test
         void testPatchPasswordFailure_DuplicatePassword() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String newPassword = "newPassword123";
             String existingHashedPassword = existingUser.getHashedPassword();
 
@@ -169,10 +180,14 @@ public class UserPatchHandlerTest {
             verify(passwordBO, never()).encryptPassword(any());
         }
 
+        // endregion
+
+        // region --- Email Patching ---
+
         @Test
         void testPatchEmailSuccess() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String newEmail = "newEmail@email.com";
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -196,7 +211,7 @@ public class UserPatchHandlerTest {
         @Test
         void testPatchUserEmailNoOp() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String existingEmail = existingUser.getEmail();
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -219,8 +234,8 @@ public class UserPatchHandlerTest {
 
         @Test
         void testPatchEmailFailure_DuplicateEmail() {
-// Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String newEmail = "duplicateEmail";
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -242,10 +257,14 @@ public class UserPatchHandlerTest {
                     "Email should not be updated if duplicate.");
         }
 
+        // endregion
+
+        // region --- First name Patching ---
+
         @Test
         void testPatchFirstNameSuccess() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String newFirstName = "Newfirstname";
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -269,7 +288,7 @@ public class UserPatchHandlerTest {
         @Test
         void testPatchFirstNameNoOp() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String existingFirstName = existingUser.getFirstName();
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -290,10 +309,14 @@ public class UserPatchHandlerTest {
                     "First name should remain unchanged.");
         }
 
+        // endregion
+
+        // region --- Last name Patching ---
+
         @Test
         void testPatchLastNameSuccess() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String newLastName = "Newlastname";
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -317,7 +340,7 @@ public class UserPatchHandlerTest {
         @Test
         void testPatchLastNameNoOp() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String existingLastName = existingUser.getLastName();
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -338,10 +361,14 @@ public class UserPatchHandlerTest {
                     "Last name should remain unchanged.");
         }
 
+        // endregion
+
+        // region --- Timezone Patching ---
+
         @Test
         void testPatchTimezoneSuccess() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String newTimezone = "Asia/Tokyo";
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -365,7 +392,7 @@ public class UserPatchHandlerTest {
         @Test
         void testPatchTimezoneNoOp() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String existingTimezone = existingUser.getTimezone();
 
             UserUpdateDTO dto = new UserUpdateDTO(
@@ -386,10 +413,14 @@ public class UserPatchHandlerTest {
                     "Timezone should remain unchanged.");
         }
 
+        // endregion
+
+        // region --- Other edge cases ---
+
         @Test
         void testPatchPartialUpdateFailure_OneValidOneInvalid() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
             String newUsername = "newuser";
             String duplicateEmail = "taken@email.com";
 
@@ -420,7 +451,7 @@ public class UserPatchHandlerTest {
         @Test
         void testPatchNoChangesNoOp() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId();
 
             UserUpdateDTO dto = new UserUpdateDTO(
                     null,
@@ -437,5 +468,7 @@ public class UserPatchHandlerTest {
             // Assert
             assertFalse(updated, "Patch should return false when everything is unchanged.");
         }
+
+        // endregion
     }
 }

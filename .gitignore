@@ -34,3 +34,7 @@ build/
 
 # Ignore application properties (config files)
 .env
+
+# Ignore Claude Code instructions and local settings
+CLAUDE.md
+.claude/settings.local.json

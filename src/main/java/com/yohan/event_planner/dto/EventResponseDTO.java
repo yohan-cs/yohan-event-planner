@@ -43,12 +43,14 @@ public record EventResponseDTO(
         /** Optional event description, if provided by the creator. */
         String description,
 
-        /** ID of the user who created the event. */
-        Long creatorId,
-
         /** Username of the user who created the event. */
         String creatorUsername,
 
-        /** Time zone of the user who created the event. */
-        String creatorTimezone
+        LabelResponseDTO label,
+
+        boolean isCompleted,
+
+        boolean unconfirmed,
+
+        boolean isVirtual
 ) {}

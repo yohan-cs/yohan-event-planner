@@ -1,5 +1,6 @@
 package com.yohan.event_planner.exception;
 
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -9,10 +10,12 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.stream.Collectors;
 
 import static com.yohan.event_planner.exception.ErrorCode.INVALID_CREDENTIALS;
+import static com.yohan.event_planner.exception.ErrorCode.NULL_FIELD_NOT_ALLOWED;
 import static com.yohan.event_planner.exception.ErrorCode.UNKNOWN_ERROR;
 
 
@@ -104,6 +107,16 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles {@link RecurringEventOwnershipException}, which occurs when a user
+     * attempts to access or modify a recurring event they do not own.
+     */
+    @ExceptionHandler(RecurringEventOwnershipException.class)
+    public ResponseEntity<ErrorResponse> handleRecurringEventOwnershipException(RecurringEventOwnershipException ex) {
+        logger.warn("RecurringEventOwnershipException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ex);
+    }
+
+    /**
      * Handles {@link UserOwnershipException} which occurs when a user
      * attempts to access or modify another user they do not own.
      */
@@ -120,7 +133,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handlePasswordException(PasswordException ex) {
         logger.warn("PasswordException [{}]: {}", ex.getErrorCode(), ex.getMessage());
         HttpStatus status = switch (ex.getErrorCode()) {
-            case WEAK_PASSWORD, INVALID_PASSWORD_LENGTH, NULL_PASSWORD -> HttpStatus.BAD_REQUEST;
+            case WEAK_PASSWORD, INVALID_PASSWORD_LENGTH -> HttpStatus.BAD_REQUEST;
             default -> HttpStatus.BAD_REQUEST;
         };
         return buildErrorResponse(status, ex);
@@ -135,6 +148,19 @@ public class GlobalExceptionHandler {
         HttpStatus status = switch (ex.getErrorCode()) {
             case DUPLICATE_ROLE -> HttpStatus.CONFLICT;
             case INVALID_ROLE_NAME -> HttpStatus.BAD_REQUEST;
+            default -> HttpStatus.BAD_REQUEST;
+        };
+        return buildErrorResponse(status, ex);
+    }
+
+    /**
+     * Handles all label-related exceptions such as duplicates.
+     */
+    @ExceptionHandler(LabelException.class)
+    public ResponseEntity<ErrorResponse> handleLabelException(LabelException ex) {
+        logger.warn("LabelException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        HttpStatus status = switch (ex.getErrorCode()) {
+            case DUPLICATE_LABEL -> HttpStatus.CONFLICT;
             default -> HttpStatus.BAD_REQUEST;
         };
         return buildErrorResponse(status, ex);
@@ -170,8 +196,145 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UnauthorizedException.class)
     public ResponseEntity<ErrorResponse> handleUnauthorizedException(UnauthorizedException ex) {
         logger.warn("UnauthorizedException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.UNAUTHORIZED, ex);
+    }
+
+    /**
+     * Handles deserialization failures where a field was explicitly set to null
+     * but disallowed via {@link com.fasterxml.jackson.annotation.JsonSetter}(nulls = Nulls.FAIL).
+     * Currently applies to fields like {@code startTime} in {@code EventUpdateDTO}.
+     */
+    @ExceptionHandler(MismatchedInputException.class)
+    public ResponseEntity<ErrorResponse> handleMismatchedInputException(MismatchedInputException ex) {
+        String message = "Invalid input format.";
+        String errorCode = NULL_FIELD_NOT_ALLOWED.name();
+
+        if (ex.getPath() != null && !ex.getPath().isEmpty()) {
+            String fieldName = ex.getPath().get(0).getFieldName();
+
+            if ("startTime".equals(fieldName)) {
+                message = "startTime must not be null if included in the request.";
+            }
+        }
+
+        logger.warn("MismatchedInputException [{}]: {}", errorCode, message);
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, message, errorCode);
+    }
+
+    /**
+     * Handles {@link MethodArgumentTypeMismatchException}, which occurs when there is a type mismatch
+     * between the expected and actual type of a method argument, usually in request parameters or path variables.
+     * For example, this is thrown when trying to bind a string value to a parameter that expects a numeric type.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleMethodArgumentTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        String message = "Invalid format for parameter: " + ex.getName();
+        String errorCode = "INVALID_PARAMETER_FORMAT";
+
+        logger.warn("MethodArgumentTypeMismatchException [{}]: {}", errorCode, message);
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, message, errorCode);
+    }
+
+    /**
+     * Handles {@link SystemManagedEntityException}, which occurs when a user
+     * attempts to modify or delete a system-managed entity such as the default
+     * "Unlabeled" label.
+     */
+    @ExceptionHandler(SystemManagedEntityException.class)
+    public ResponseEntity<ErrorResponse> handleSystemManagedEntityException(SystemManagedEntityException ex) {
+        logger.warn("SystemManagedEntityException [{}]: {}", ex.getErrorCode(), ex.getMessage());
         return buildErrorResponse(HttpStatus.FORBIDDEN, ex);
     }
+
+    /**
+     * Handles {@link EventAlreadyConfirmedException}, which occurs when attempting
+     * to confirm an event that is already published (i.e., draft = false).
+     */
+    @ExceptionHandler(EventAlreadyConfirmedException.class)
+    public ResponseEntity<ErrorResponse> handleEventAlreadyConfirmedException(EventAlreadyConfirmedException ex) {
+        logger.warn("EventAlreadyConfirmedException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.CONFLICT, ex);
+    }
+
+    /**
+     * Handles {@link RecurringEventAlreadyConfirmedException}, which occurs when attempting
+     * to confirm a recurring event that is already published (i.e., draft = false).
+     */
+    @ExceptionHandler(RecurringEventAlreadyConfirmedException.class)
+    public ResponseEntity<ErrorResponse> handleRecurringEventAlreadyConfirmedException(RecurringEventAlreadyConfirmedException ex) {
+        logger.warn("RecurringEventAlreadyConfirmedException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.CONFLICT, ex);
+    }
+
+    /**
+     * Handles {@link InvalidEventStateException}, which occurs when an event
+     * is missing required fields like name, startTime, endTime, or label during confirmation.
+     */
+    @ExceptionHandler(InvalidEventStateException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidEventStateException(InvalidEventStateException ex) {
+        logger.warn("InvalidEventStateException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex);
+    }
+
+    /**
+     * Handles {@link InvalidRecurrenceRuleException}, which occurs when a recurrence rule
+     * is structurally invalid or missing required information (e.g., BYDAY missing for WEEKLY).
+     */
+    @ExceptionHandler(InvalidRecurrenceRuleException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidRecurrenceRuleException(InvalidRecurrenceRuleException ex) {
+        logger.warn("InvalidRecurrenceRuleException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex);
+    }
+
+    /**
+     * Handles {@link InvalidSkipDayException}, which occurs when attempting
+     * to add or remove past skip days, which is not allowed.
+     */
+    @ExceptionHandler(InvalidSkipDayException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidSkipDayException(InvalidSkipDayException ex) {
+        logger.warn("InvalidSkipDayException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex);
+    }
+
+    /**
+     * Handles {@link IncompleteBadgeReorderListException}, thrown when a badge reorder request
+     * does not include all badges owned by the user.
+     */
+    @ExceptionHandler(IncompleteBadgeReorderListException.class)
+    public ResponseEntity<ErrorResponse> handleIncompleteReorderListException(IncompleteBadgeReorderListException ex) {
+        logger.warn("IncompleteReorderListException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex);
+    }
+
+    /**
+     * Handles {@link IncompleteBadgeLabelReorderListException}, thrown when a badge label reorder request
+     * does not include all labels associated with the badge or includes invalid label IDs.
+     */
+    @ExceptionHandler(IncompleteBadgeLabelReorderListException.class)
+    public ResponseEntity<ErrorResponse> handleIncompleteBadgeLabelReorderListException(IncompleteBadgeLabelReorderListException ex) {
+        logger.warn("IncompleteBadgeLabelReorderListException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex);
+    }
+
+    /**
+     * Handles {@link IncompleteRecapMediaReorderListException}, thrown when a recap media reorder request
+     * does not include all media items for the recap.
+     */
+    @ExceptionHandler(IncompleteRecapMediaReorderListException.class)
+    public ResponseEntity<ErrorResponse> handleIncompleteRecapMediaReorderListException(IncompleteRecapMediaReorderListException ex) {
+        logger.warn("IncompleteRecapMediaReorderListException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex);
+    }
+
+    /**
+     * Handles {@link InvalidMediaTypeException}, thrown when an invalid media type is provided.
+     */
+    @ExceptionHandler(InvalidMediaTypeException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidMediaTypeException(InvalidMediaTypeException ex) {
+        logger.warn("InvalidMediaTypeException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex);
+    }
+
 
     /**
      * Catch-all handler for any unexpected, unhandled exceptions.

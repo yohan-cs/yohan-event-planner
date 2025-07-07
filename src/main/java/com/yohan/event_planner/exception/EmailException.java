@@ -55,7 +55,6 @@ public class EmailException extends RuntimeException implements HasErrorCode {
             case DUPLICATE_EMAIL -> "The email '" + email + "' is already registered.";
             case INVALID_EMAIL_LENGTH -> "The email '" + email + "' does not meet the length requirements.";
             case INVALID_EMAIL_FORMAT -> "The email '" + email + "' has an invalid format.";
-            case NULL_EMAIL -> "Email is required and cannot be null.";
             default -> "Email validation error with code: " + errorCode.name();
         };
     }

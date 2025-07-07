@@ -53,7 +53,6 @@ public class UsernameException extends RuntimeException implements HasErrorCode 
         return switch (errorCode) {
             case DUPLICATE_USERNAME -> "User with username '" + username + "' already exists.";
             case INVALID_USERNAME_LENGTH -> "The username '" + username + "' does not meet the length requirements.";
-            case NULL_USERNAME -> "Username is required and cannot be null.";
             default -> "Username validation error with code: " + errorCode.name();
         };
     }

@@ -1,139 +1,131 @@
 package com.yohan.event_planner.business.handler;
 
 import com.yohan.event_planner.domain.Event;
-import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.domain.Label;
 import com.yohan.event_planner.dto.EventUpdateDTO;
+import com.yohan.event_planner.exception.InvalidEventStateException;
+import com.yohan.event_planner.security.OwnershipValidator;
+import com.yohan.event_planner.service.LabelService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.ZonedDateTime;
+import java.util.Objects;
+
+import static com.yohan.event_planner.exception.ErrorCode.EVENT_NOT_CONFIRMED;
+import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_END_TIME;
+import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_NAME;
+import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_START_TIME;
 
 /**
- * Applies validated partial updates to an existing {@link Event} entity based on data
- * from a {@link EventUpdateDTO} patch object.
- *
+ * Handles partial updates to {@link Event} entities using {@link EventUpdateDTO} payloads.
  * <p>
- * This handler is responsible for in-place updates to fields such as name, time range,
- * and description. Fields are only updated if:
- * <ul>
- *   <li>The field in the DTO is non-null</li>
- *   <li>The new value differs from the current value, or is explicitly cleared (e.g. {@code Optional.empty()})</li>
- * </ul>
- * </p>
- *
- * <h2>Time and Duration Handling</h2>
- * <ul>
- *     <li>If either the start or end time is updated, both are reassigned to maintain consistency.</li>
- *     <li>If {@code endTime} is explicitly cleared (via {@code Optional.empty()}), the event is made open-ended.</li>
- *     <li>{@code durationMinutes} is automatically recalculated or cleared based on {@code endTime} changes.</li>
- *     <li>All time values are normalized to UTC when stored.</li>
- * </ul>
- *
+ * Applies field-by-field patching logic with support for clearing optional values.
+ * If an update causes a previously confirmed event to become invalid (e.g. missing name, start, or end time),
+ * the event will be automatically marked as unconfirmed.
  * <p>
- * This component performs <strong>mutation only</strong>; it does <em>not</em> perform validation,
- * conflict detection, or authorization. All such logic is expected to be enforced upstream.
- * </p>
- *
- * <p>
- * Updates are <strong>atomic</strong>: either all validations pass and changes are applied,
- * or nothing is updated.
- * </p>
- *
- * @see EventUpdateDTO
+ * Draft (unconfirmed) events are allowed to have incomplete fields and are not subject to validation.
  */
 @Component
 public class EventPatchHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(EventPatchHandler.class);
 
-    public EventPatchHandler() {
-        // Default constructor
+    private final LabelService labelService;
+    private final OwnershipValidator ownershipValidator;
+
+    public EventPatchHandler(LabelService labelService, OwnershipValidator ownershipValidator) {
+        this.labelService = labelService;
+        this.ownershipValidator = ownershipValidator;
     }
 
     /**
-     * Applies non-null and changed fields from the provided {@link EventUpdateDTO}
-     * to the target {@link Event} instance.
+     * Applies a partial update to an existing {@link Event} based on the given {@link EventUpdateDTO}.
      *
-     * <p>
-     * If either {@code startTime} or {@code endTime} is updated (or explicitly cleared),
-     * the event's time range is reassigned. If {@code endTime} is present, the duration
-     * is recalculated in whole minutes. If it is cleared, {@code durationMinutes} is also removed.
-     * </p>
+     * <p>If the patch modifies a required field to an invalid state (e.g. null name or time on a confirmed event),
+     * the event will be demoted to draft (unconfirmed). Attempts to mark such an event as completed
+     * will result in a {@link InvalidEventStateException}.
      *
-     * @param existingEvent the existing event entity to be modified
-     * @param dto           the incoming patch data
-     * @param user          the authenticated user performing the update (reserved for future use)
-     * @return {@code true} if any fields were modified; otherwise {@code false}
+     * @param existingEvent the event to update
+     * @param dto           the update payload
+     * @return {@code true} if any field was changed; {@code false} otherwise
+     * @throws InvalidEventStateException if the patch attempts to complete an invalid or unconfirmed event
      */
-    public boolean applyPatch(Event existingEvent, EventUpdateDTO dto, User user) {
+    public boolean applyPatch(Event existingEvent, EventUpdateDTO dto) {
         boolean updated = false;
 
-        if (dto.name() != null && !dto.name().equals(existingEvent.getName())) {
-            logger.info("Patching event name: '{}' → '{}'", existingEvent.getName(), dto.name());
-            existingEvent.setName(dto.name());
+        // --- Name ---
+        if (dto.name() != null && !Objects.equals(dto.name().orElse(null), existingEvent.getName())) {
+            existingEvent.setName(dto.name().orElse(null));
             updated = true;
         }
 
-        boolean startChanged = dto.startTime() != null &&
-                !dto.startTime().equals(existingEvent.getStartTime());
-
-        boolean endChanged = dto.endTime() != null && (
-                (dto.endTime().isEmpty() && existingEvent.getEndTime() != null) ||
-                        (dto.endTime().isPresent() && !dto.endTime().get().equals(existingEvent.getEndTime()))
-        );
-
-        if (startChanged || endChanged) {
-            ZonedDateTime newStart = dto.startTime() != null
-                    ? dto.startTime()
-                    : existingEvent.getStartTime();
-
-            logger.info("Patching event time: [{} - {}] → [{} - {}]",
-                    existingEvent.getStartTime(),
-                    existingEvent.getEndTime(),
-                    newStart,
-                    (dto.endTime() != null && dto.endTime().isPresent()) ? dto.endTime().get() : null
-            );
-
-            if (dto.endTime() != null && dto.endTime().isPresent()) {
-                ZonedDateTime newEnd = dto.endTime().get();
+        // --- Start Time ---
+        if (dto.startTime() != null) {
+            ZonedDateTime newStart = dto.startTime().orElse(null);
+            if (!Objects.equals(newStart, existingEvent.getStartTime())) {
+                logger.info("Updating start time for event {}: [{} -> {}]",
+                        existingEvent.getId(), existingEvent.getStartTime(), newStart);
                 existingEvent.setStartTime(newStart);
+                updated = true;
+            }
+        }
+
+        // --- End Time ---
+        if (dto.endTime() != null) {
+            ZonedDateTime newEnd = dto.endTime().orElse(null);
+            if (!Objects.equals(newEnd, existingEvent.getEndTime())) {
+                logger.info("Updating end time for event {}: [{} -> {}]",
+                        existingEvent.getId(), existingEvent.getEndTime(), newEnd);
                 existingEvent.setEndTime(newEnd);
-
-                long minutes = java.time.Duration.between(
-                        newStart.withZoneSameInstant(java.time.ZoneOffset.UTC),
-                        newEnd.withZoneSameInstant(java.time.ZoneOffset.UTC)
-                ).toMinutes();
-                existingEvent.setDurationMinutes((int) minutes);
-
-            } else if (dto.endTime() != null && dto.endTime().isEmpty()) {
-                existingEvent.setStartTime(newStart);
-                existingEvent.setEndTime(null); // also clears durationMinutes via setter
-            } else {
-                existingEvent.setStartTime(newStart);
+                updated = true;
             }
+        }
 
+        // --- Description ---
+        if (dto.description() != null && !Objects.equals(dto.description().orElse(null), existingEvent.getDescription())) {
+            existingEvent.setDescription(dto.description().orElse(null));
             updated = true;
         }
 
-        if (dto.description() != null) {
-            if (dto.description().isEmpty()) {
-                if (existingEvent.getDescription() != null) {
-                    logger.info("Clearing event description.");
-                    existingEvent.setDescription(null);
-                    updated = true;
+        // --- Label ---
+        if (dto.labelId() != null) {
+            Long newLabelId = dto.labelId().orElse(null);
+            Long resolvedLabelId = (newLabelId != null)
+                    ? newLabelId
+                    : existingEvent.getCreator().getUnlabeled().getId();
+
+            Long currentLabelId = existingEvent.getLabel().getId();
+
+            if (!Objects.equals(resolvedLabelId, currentLabelId)) {
+                Label newLabel = labelService.getLabelEntityById(resolvedLabelId);
+                ownershipValidator.validateLabelOwnership(existingEvent.getCreator().getId(), newLabel);
+                existingEvent.setLabel(newLabel);
+                updated = true;
+            }
+        }
+
+        // --- Completion ---
+        if (dto.isCompleted() != null && !Objects.equals(dto.isCompleted(), existingEvent.isCompleted())) {
+            if (dto.isCompleted()) {
+                if (existingEvent.isUnconfirmed()) {
+                    throw new InvalidEventStateException(EVENT_NOT_CONFIRMED);
                 }
-            } else {
-                String newDescription = dto.description().get();
-                if (!newDescription.equals(existingEvent.getDescription())) {
-                    logger.info("Patching event description.");
-                    existingEvent.setDescription(newDescription);
-                    updated = true;
+                if (existingEvent.getName() == null) {
+                    throw new InvalidEventStateException(MISSING_EVENT_NAME);
+                }
+                if (existingEvent.getStartTime() == null) {
+                    throw new InvalidEventStateException(MISSING_EVENT_START_TIME);
+                }
+                if (existingEvent.getEndTime() == null) {
+                    throw new InvalidEventStateException(MISSING_EVENT_END_TIME);
                 }
             }
+            existingEvent.setCompleted(dto.isCompleted());
+            updated = true;
         }
 
         return updated;
     }
-
 }

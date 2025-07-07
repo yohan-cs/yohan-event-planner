@@ -1,16 +1,17 @@
 package com.yohan.event_planner.exception;
 
 import com.yohan.event_planner.domain.Event;
+import com.yohan.event_planner.domain.RecurringEvent;
 
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Set;
 
 /**
- * Exception thrown when a new or updated event conflicts with an existing event's time range.
+ * Exception thrown when a new or updated event conflicts with existing events' time ranges.
  *
  * <p>
- * This exception includes details about the conflicting event, such as its ID, name,
- * and the start and end times, to aid in debugging and user feedback.
+ * Supports normal event conflicts and recurring event conflicts.
  * </p>
  *
  * <p>
@@ -24,45 +25,46 @@ public class ConflictException extends RuntimeException implements HasErrorCode 
     private final ErrorCode errorCode;
 
     /**
-     * Constructs a new {@code ConflictException} with the provided conflicting event.
+     * Constructs a ConflictException for a normal event conflict.
      *
-     * @param existingEvent the event that causes the scheduling conflict
+     * @param event the event that failed to create
+     * @param conflictingEventIds the IDs of conflicting events
      */
-    public ConflictException(Event existingEvent) {
-        super(buildMessage(existingEvent));
+    public ConflictException(Event event, Set<Long> conflictingEventIds) {
+        super(buildMessage(event, conflictingEventIds));
         this.errorCode = ErrorCode.EVENT_CONFLICT;
     }
 
     /**
-     * Returns the {@link ErrorCode} associated with this conflict exception.
+     * Constructs a ConflictException for a recurring event conflict.
      *
-     * @return the error code indicating a scheduling conflict
+     * @param recurringEvent the recurring event that failed to create
+     * @param conflictingEventIds the IDs of conflicting recurring events
      */
+    public ConflictException(RecurringEvent recurringEvent, Set<Long> conflictingEventIds) {
+        super(buildMessage(recurringEvent, conflictingEventIds));
+        this.errorCode = ErrorCode.RECURRING_EVENT_CONFLICT;
+    }
+
     @Override
     public ErrorCode getErrorCode() {
         return errorCode;
     }
 
-    /**
-     * Builds a detailed error message including event ID, name, and time range.
-     * If start or end time is missing (null), it will display "N/A".
-     *
-     * @param existingEvent the conflicting event
-     * @return a human-readable error message
-     */
-    private static String buildMessage(Event existingEvent) {
-        return "Event conflicts with existing event (ID: " + existingEvent.getId() + "): " +
-                existingEvent.getName() + " (" +
-                formatDateTime(existingEvent.getStartTime()) + " - " +
-                formatDateTime(existingEvent.getEndTime()) + ")";
+    // region Message builders
+
+    private static String buildMessage(Event event, Set<Long> conflictingEventIds) {
+        return "Event '" + event.getName() + "' (ID: " + event.getId() + ") conflicts with events: " +
+                conflictingEventIds;
     }
 
-    /**
-     * Formats the given ZonedDateTime or returns "N/A" if null.
-     *
-     * @param dateTime the ZonedDateTime to format
-     * @return the formatted date string or "N/A"
-     */
+    private static String buildMessage(RecurringEvent recurringEvent, Set<Long> conflictingEventIds) {
+        return "Recurring event '" + recurringEvent.getName() + "' (ID: " + recurringEvent.getId() +
+                ") conflicts with recurring events: " + conflictingEventIds;
+    }
+
+    // endregion
+
     private static String formatDateTime(ZonedDateTime dateTime) {
         return dateTime != null
                 ? dateTime.format(FORMATTER)

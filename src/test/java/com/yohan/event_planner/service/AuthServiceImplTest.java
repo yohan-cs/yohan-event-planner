@@ -14,8 +14,12 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AuthServiceImplTest {
 
@@ -38,7 +42,7 @@ class AuthServiceImplTest {
         void testLogin_success_returnsLoginResponseDTO() {
             // Arrange
             LoginRequestDTO loginDTO = new LoginRequestDTO("johnny", "password123");
-            User user = TestUtils.createUserEntityWithId();
+            User user = TestUtils.createValidUserEntityWithId();
             CustomUserDetails userDetails = new CustomUserDetails(user);
             String expectedToken = "mock-jwt-token";
 

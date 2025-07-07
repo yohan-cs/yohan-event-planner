@@ -13,8 +13,14 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 
 class AuthenticatedUserProviderTest {
 
@@ -39,7 +45,7 @@ class AuthenticatedUserProviderTest {
             // Arrange
             Long userId = 1L;
             String jwtToken = "valid.jwt.token";
-            User expectedUser = TestUtils.createUserEntityWithId(userId);
+            User expectedUser = TestUtils.createValidUserEntityWithId(userId);
 
             when(jwtUtils.getJwtFromHeader(request)).thenReturn(jwtToken);
             when(jwtUtils.getUserIdFromJwtToken(jwtToken)).thenReturn(userId);

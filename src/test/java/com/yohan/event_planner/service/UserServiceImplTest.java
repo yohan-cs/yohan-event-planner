@@ -4,13 +4,16 @@ import com.yohan.event_planner.business.PasswordBO;
 import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.business.handler.UserPatchHandler;
 import com.yohan.event_planner.domain.User;
-import com.yohan.event_planner.domain.enums.Role;
+import com.yohan.event_planner.domain.UserInitializer;
+import com.yohan.event_planner.dto.BadgeResponseDTO;
 import com.yohan.event_planner.dto.UserCreateDTO;
+import com.yohan.event_planner.dto.UserHeaderResponseDTO;
+import com.yohan.event_planner.dto.UserHeaderUpdateDTO;
+import com.yohan.event_planner.dto.UserProfileResponseDTO;
 import com.yohan.event_planner.dto.UserResponseDTO;
 import com.yohan.event_planner.dto.UserUpdateDTO;
 import com.yohan.event_planner.exception.EmailException;
 import com.yohan.event_planner.exception.UserNotFoundException;
-import com.yohan.event_planner.exception.UserOwnershipException;
 import com.yohan.event_planner.exception.UsernameException;
 import com.yohan.event_planner.mapper.UserMapper;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
@@ -21,21 +24,38 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 
-import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_USER_ACCESS;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
+
 
 public class UserServiceImplTest {
 
     private UserBO userBO;
     private UserMapper userMapper;
     private UserPatchHandler userPatchHandler;
+    private UserInitializer userInitializer;
     private PasswordBO passwordBO;
-    private OwnershipValidator ownershipValidator;
+    private BadgeService badgeService;
     private AuthenticatedUserProvider authenticatedUserProvider;
+    private OwnershipValidator ownershipValidator;
+    private Clock fixedClock;
 
     private UserServiceImpl userService;
 
@@ -44,218 +64,52 @@ public class UserServiceImplTest {
         userBO = mock(UserBO.class);
         userMapper = mock(UserMapper.class);
         userPatchHandler = mock(UserPatchHandler.class);
+        userInitializer = mock(UserInitializer.class);
         passwordBO = mock(PasswordBO.class);
-        ownershipValidator = mock(OwnershipValidator.class);
+        badgeService = mock(BadgeService.class);
         authenticatedUserProvider = mock(AuthenticatedUserProvider.class);
-        userService = new UserServiceImpl(userBO, userMapper, userPatchHandler, passwordBO, ownershipValidator, authenticatedUserProvider);
+        ownershipValidator = mock(OwnershipValidator.class);
+
+        fixedClock = Clock.fixed(Instant.parse("2025-06-29T12:00:00Z"), ZoneId.of("UTC"));
+
+        userService = new UserServiceImpl(userBO, userMapper, userPatchHandler, userInitializer, passwordBO, badgeService, authenticatedUserProvider, ownershipValidator);
     }
 
     @Nested
-    class GetUserByIdTests {
+    class GetUserSettingsTests {
 
         @Test
-        void testGetUserByIdSuccess() {
+        void testGetUserSettingsSuccess() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            UserResponseDTO expectedDTO = TestUtils.createUserResponseDTO();
+            User currentUser = TestUtils.createValidUserEntityWithId();  // A valid user
+            UserResponseDTO responseDTO = TestUtils.createValidUserResponseDTO();  // The expected DTO response
 
-            when(userBO.getUserById(TestConstants.USER_ID)).thenReturn(Optional.of(user));
-            when(userMapper.toResponseDTO(user)).thenReturn(expectedDTO);
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);  // Mock that current user is returned
+            when(userMapper.toResponseDTO(currentUser)).thenReturn(responseDTO);  // Mock the DTO mapping
 
             // Act
-            UserResponseDTO result = userService.getUserById(TestConstants.USER_ID);
+            UserResponseDTO result = userService.getUserSettings();
 
             // Assert
-            assertEquals(expectedDTO, result);
-            verify(userBO).getUserById(TestConstants.USER_ID);
-            verify(userMapper).toResponseDTO(user);
-        }
-
-        @Test
-        void testGetUserByIdFailure_NotFound() {
-            // Arrange
-            when(userBO.getUserById(TestConstants.USER_ID)).thenReturn(Optional.empty());
-
-            // Act + Assert
-            assertThrows(UserNotFoundException.class, () -> userService.getUserById(TestConstants.USER_ID));
-            verify(userBO).getUserById(TestConstants.USER_ID);
-            verify(userMapper, never()).toResponseDTO(any());
-        }
-    }
-
-    @Nested
-    class GetUserByUsernameTests {
-
-        @Test
-        void testGetUserByUsername_CaseInsensitive_Success() {
-            // Arrange
-            String inputUsername = "TestUser";
-            String normalizedUsername = inputUsername.toLowerCase();
-
-            User expectedUser = TestUtils.createUserEntityWithId();
-            UserResponseDTO expectedDTO = TestUtils.createUserResponseDTO();
-
-            when(userBO.getUserByUsername(normalizedUsername)).thenReturn(Optional.of(expectedUser));
-            when(userMapper.toResponseDTO(expectedUser)).thenReturn(expectedDTO);
-
-            // Act
-            UserResponseDTO result = userService.getUserByUsername(inputUsername);
-
-            // Assert
-            assertEquals(expectedDTO, result);
-            verify(userBO).getUserByUsername(normalizedUsername);
-            verify(userMapper).toResponseDTO(expectedUser);
-        }
-
-        @Test
-        void testGetUserByUsername_NotFound_ThrowsException() {
-            // Arrange
-            String inputUsername = "NonexistentUser";
-            String normalizedUsername = inputUsername.toLowerCase();
-
-            when(userBO.getUserByUsername(normalizedUsername)).thenReturn(Optional.empty());
-
-            // Act + Assert
-            assertThrows(UserNotFoundException.class, () -> userService.getUserByUsername(inputUsername));
-            verify(userBO).getUserByUsername(normalizedUsername);
-            verify(userMapper, never()).toResponseDTO(any());
-        }
-    }
-
-    @Nested
-    class GetUserByEmailTests {
-
-        @Test
-        void testGetUserByEmail_CaseInsensitive_Success() {
-            // Arrange
-            String inputEmail = "USER@Email.Com";
-            String normalizedEmail = inputEmail.toLowerCase();
-
-            User expectedUser = TestUtils.createUserEntityWithId();
-            UserResponseDTO expectedDTO = TestUtils.createUserResponseDTO();
-
-            when(userBO.getUserByEmail(normalizedEmail)).thenReturn(Optional.of(expectedUser));
-            when(userMapper.toResponseDTO(expectedUser)).thenReturn(expectedDTO);
-
-            // Act
-            UserResponseDTO result = userService.getUserByEmail(inputEmail);
-
-            // Assert
-            assertEquals(expectedDTO, result);
-            verify(userBO).getUserByEmail(normalizedEmail);
-            verify(userMapper).toResponseDTO(expectedUser);
-        }
-
-        @Test
-        void testGetUserByEmail_NotFound_ThrowsException() {
-            // Arrange
-            String inputEmail = "missing@Email.Com";
-            String normalizedEmail = inputEmail.toLowerCase();
-
-            when(userBO.getUserByEmail(normalizedEmail)).thenReturn(Optional.empty());
-
-            // Act + Assert
-            assertThrows(UserNotFoundException.class, () -> userService.getUserByEmail(inputEmail));
-            verify(userBO).getUserByEmail(normalizedEmail);
-            verify(userMapper, never()).toResponseDTO(any());
-        }
-    }
-
-    @Nested
-    class GetUsersByRoleTests {
-
-        @Test
-        void testGetUsersByRoleSuccess() {
-            // Arrange
-            Role role = Role.USER;
-            List<User> users = List.of(TestUtils.createUserEntityWithId());
-            List<UserResponseDTO> responseDTOs = List.of(TestUtils.createUserResponseDTO());
-
-            when(userBO.getUsersByRole(role)).thenReturn(users);
-            when(userMapper.toResponseDTO(users.get(0))).thenReturn(responseDTOs.get(0));
-
-            // Act
-            List<UserResponseDTO> result = userService.getUsersByRole(role);
-
-            // Assert
-            assertEquals(responseDTOs, result);
-            verify(userBO).getUsersByRole(role);
-            verify(userMapper).toResponseDTO(users.get(0));
-        }
-
-        @Test
-        void testGetUsersByRoleEmptyList() {
-            // Arrange
-            Role role = Role.ADMIN;
-            when(userBO.getUsersByRole(role)).thenReturn(List.of());
-
-            // Act
-            List<UserResponseDTO> result = userService.getUsersByRole(role);
-
-            // Assert
-            assertTrue(result.isEmpty());
-            verify(userBO).getUsersByRole(role);
-            verify(userMapper, never()).toResponseDTO(any());
-        }
-    }
-
-    @Nested
-    class GetAllUsersTests {
-
-        @Test
-        void testGetAllUsersSuccess() {
-            // Arrange
-            List<User> users = List.of(TestUtils.createUserEntityWithId());
-            List<UserResponseDTO> responseDTOs = List.of(TestUtils.createUserResponseDTO());
-
-            when(userBO.getAllUsers()).thenReturn(users);
-            when(userMapper.toResponseDTO(users.get(0))).thenReturn(responseDTOs.get(0));
-
-            // Act
-            List<UserResponseDTO> result = userService.getAllUsers(0, 10);
-
-            // Assert
-            assertEquals(responseDTOs, result);
-            verify(userBO).getAllUsers();
-            verify(userMapper).toResponseDTO(users.get(0));
-        }
-
-        @Test
-        void testGetAllUsersEmptyList() {
-            // Arrange
-            when(userBO.getAllUsers()).thenReturn(List.of());
-
-            // Act
-            List<UserResponseDTO> result = userService.getAllUsers(0, 10);
-
-            // Assert
-            assertTrue(result.isEmpty());
-            verify(userBO).getAllUsers();
-            verify(userMapper, never()).toResponseDTO(any());
-        }
-    }
-
-    @Nested
-    class GetCurrentUserTests {
-
-        @Test
-        void testGetCurrentUserSuccess() {
-            // Arrange
-            User currentUser = TestUtils.createUserEntityWithId();
-            UserResponseDTO expectedDTO = TestUtils.createUserResponseDTO();
-
-            when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
-            when(userMapper.toResponseDTO(currentUser)).thenReturn(expectedDTO);
-
-            // Act
-            UserResponseDTO result = userService.getCurrentUser();
-
-            // Assert
-            assertEquals(expectedDTO, result);
+            assertEquals(responseDTO, result);
             verify(authenticatedUserProvider).getCurrentUser();
             verify(userMapper).toResponseDTO(currentUser);
         }
+
+        @Test
+        void testGetUserSettingsFailure_UserNotAuthenticated() {
+            // Arrange
+            when(authenticatedUserProvider.getCurrentUser()).thenThrow(new UserNotFoundException("User not authenticated"));
+
+            // Act + Assert
+            assertThrows(UserNotFoundException.class, () -> userService.getUserSettings());
+
+            verify(authenticatedUserProvider).getCurrentUser();
+            verify(userMapper, never()).toResponseDTO(any());
+        }
+
     }
+
 
     @Nested
     class CreateUserTests {
@@ -264,16 +118,16 @@ public class UserServiceImplTest {
         void testCreateUserSuccess() {
             // Arrange
             UserCreateDTO dto = TestUtils.createValidUserCreateDTO();
-            User entityToCreate = TestUtils.createUserEntityWithoutId();
-            User createdEntity = TestUtils.createUserEntityWithId();
-            UserResponseDTO responseDTO = TestUtils.createUserResponseDTO();
+            User entityToCreate = TestUtils.createValidUserEntity();
+            User initializedEntity = TestUtils.createValidUserEntityWithId();
+            UserResponseDTO responseDTO = TestUtils.createValidUserResponseDTO();
 
             when(userBO.existsByUsername(dto.username())).thenReturn(false);
             when(userBO.existsByEmail(dto.email())).thenReturn(false);
             when(userMapper.toEntity(dto)).thenReturn(entityToCreate);
             when(passwordBO.encryptPassword(dto.password())).thenReturn(TestConstants.VALID_PASSWORD);
-            when(userBO.createUser(entityToCreate)).thenReturn(createdEntity);
-            when(userMapper.toResponseDTO(createdEntity)).thenReturn(responseDTO);
+            when(userInitializer.initializeUser(entityToCreate)).thenReturn(initializedEntity);
+            when(userMapper.toResponseDTO(initializedEntity)).thenReturn(responseDTO);
 
             // Act
             UserResponseDTO result = userService.createUser(dto);
@@ -284,8 +138,8 @@ public class UserServiceImplTest {
             verify(userBO).existsByEmail(dto.email());
             verify(userMapper).toEntity(dto);
             verify(passwordBO).encryptPassword(dto.password());
-            verify(userBO).createUser(entityToCreate);
-            verify(userMapper).toResponseDTO(createdEntity);
+            verify(userInitializer).initializeUser(entityToCreate);
+            verify(userMapper).toResponseDTO(initializedEntity);
         }
 
         @Test
@@ -339,106 +193,17 @@ public class UserServiceImplTest {
     }
 
     @Nested
-    class UpdateUserTests {
+    class UpdateUserSettingsTests {
 
         @Test
-        void testUpdateUsernameTimezoneSuccess() {
-            // Arrange
-            String newUsername = "newUserName";
-            String updatedTimezone = "Asia/Tokyo";
-            UserUpdateDTO dto = new UserUpdateDTO(newUsername, null, null, null, null, updatedTimezone);
-
-            User existingUser = TestUtils.createUserEntityWithId();
-            User updatedUser = TestUtils.createUserEntityWithId();
-            updatedUser.setUsername(newUsername.toLowerCase());
-            updatedUser.setTimezone(updatedTimezone);
-            UserResponseDTO responseDTO = TestUtils.createUserResponseDTO();
-
-            when(userBO.getUserById(TestConstants.USER_ID)).thenReturn(Optional.of(existingUser));
-            when(authenticatedUserProvider.getCurrentUser()).thenReturn(existingUser);
-            doNothing().when(ownershipValidator).validateUserOwnership(existingUser.getId(), TestConstants.USER_ID);
-            when(userBO.getUserByUsername(newUsername.toLowerCase())).thenReturn(Optional.empty());
-            when(userPatchHandler.applyPatch(existingUser, dto)).thenReturn(true);
-            when(userBO.updateUser(existingUser)).thenReturn(updatedUser);
-            when(userMapper.toResponseDTO(updatedUser)).thenReturn(responseDTO);
-
-            // Act
-            UserResponseDTO result = userService.updateUser(TestConstants.USER_ID, dto);
-
-            // Assert
-            assertEquals(responseDTO, result);
-            verify(userBO).getUserById(TestConstants.USER_ID);
-            verify(authenticatedUserProvider).getCurrentUser();
-            verify(ownershipValidator).validateUserOwnership(existingUser.getId(), TestConstants.USER_ID);
-            verify(userBO).getUserByUsername(newUsername.toLowerCase());
-            verify(userPatchHandler).applyPatch(existingUser, dto);
-            verify(userBO).updateUser(existingUser);
-            verify(userMapper).toResponseDTO(updatedUser);
-        }
-
-        @Test
-        void testUpdateUsernameFailure_DuplicateUsername() {
-            // Arrange
-            String newUsername = TestConstants.VALID_USERNAME;
-            UserUpdateDTO dto = new UserUpdateDTO(newUsername, null, null, null, null, null);
-
-            User existingUser = TestUtils.createUserEntityWithId();
-            User updatingUser = TestUtils.createUserEntityWithId(999L);
-
-            when(userBO.getUserById(updatingUser.getId())).thenReturn(Optional.of(updatingUser));
-            when(authenticatedUserProvider.getCurrentUser()).thenReturn(updatingUser);
-            doNothing().when(ownershipValidator).validateUserOwnership(updatingUser.getId(), updatingUser.getId());
-            when(userBO.getUserByUsername(newUsername.toLowerCase())).thenReturn(Optional.of(existingUser));
-
-            // Act + Assert
-            assertThrows(UsernameException.class, () -> userService.updateUser(updatingUser.getId(), dto));
-
-            // Assert
-            verify(userBO).getUserById(updatingUser.getId());
-            verify(authenticatedUserProvider).getCurrentUser();
-            verify(ownershipValidator).validateUserOwnership(updatingUser.getId(), updatingUser.getId());
-            verify(userBO).getUserByUsername(newUsername.toLowerCase());
-            verify(userPatchHandler, never()).applyPatch(any(), any());
-            verify(userBO, never()).updateUser(any());
-            verify(userMapper, never()).toResponseDTO(any());
-        }
-
-        @Test
-        void testUpdateUserFailure_UnauthorizedAccess() {
-            // Arrange
-            UserUpdateDTO dto = new UserUpdateDTO("newName", null, null, null, null, null);
-            User existingUser = TestUtils.createUserEntityWithId();
-
-            when(userBO.getUserById(TestConstants.USER_ID)).thenReturn(Optional.of(existingUser));
-            when(authenticatedUserProvider.getCurrentUser()).thenReturn(existingUser);
-            doThrow(new UserOwnershipException(UNAUTHORIZED_USER_ACCESS, TestConstants.USER_ID))
-                    .when(ownershipValidator).validateUserOwnership(existingUser.getId(), TestConstants.USER_ID);
-
-            // Act + Assert
-            assertThrows(UserOwnershipException.class, () -> userService.updateUser(TestConstants.USER_ID, dto));
-
-            // Assert
-            verify(userBO).getUserById(TestConstants.USER_ID);
-            verify(authenticatedUserProvider).getCurrentUser();
-            verify(ownershipValidator).validateUserOwnership(existingUser.getId(), TestConstants.USER_ID);
-            verify(userPatchHandler, never()).applyPatch(any(), any());
-            verify(userBO, never()).updateUser(any());
-            verify(userMapper, never()).toResponseDTO(any());
-        }
-    }
-
-    @Nested
-    class UpdateCurrentUserTests {
-
-        @Test
-        void testUpdateCurrentUserSuccess() {
+        void testUpdateUserSettingsSuccess() {
             // Arrange
             UserUpdateDTO dto = new UserUpdateDTO("newName", null, null, null, null, "Asia/Seoul");
-            User currentUser = TestUtils.createUserEntityWithId();
-            User updatedUser = TestUtils.createUserEntityWithId();
+            User currentUser = TestUtils.createValidUserEntityWithId();
+            User updatedUser = TestUtils.createValidUserEntityWithId();
             updatedUser.setUsername("newname");
             updatedUser.setTimezone("Asia/Seoul");
-            UserResponseDTO responseDTO = TestUtils.createUserResponseDTO();
+            UserResponseDTO responseDTO = TestUtils.createValidUserResponseDTO();
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
             when(userBO.getUserByUsername("newname")).thenReturn(Optional.empty());
@@ -447,7 +212,7 @@ public class UserServiceImplTest {
             when(userMapper.toResponseDTO(updatedUser)).thenReturn(responseDTO);
 
             // Act
-            UserResponseDTO result = userService.updateCurrentUser(dto);
+            UserResponseDTO result = userService.updateUserSettings(dto);
 
             // Assert
             assertEquals(responseDTO, result);
@@ -459,18 +224,18 @@ public class UserServiceImplTest {
         }
 
         @Test
-        void testUpdateCurrentUserFailure_UsernameConflict() {
+        void testUpdateUserSettingsFailure_UsernameConflict() {
             // Arrange
             String newUsername = TestConstants.VALID_USERNAME;
             UserUpdateDTO dto = new UserUpdateDTO(newUsername, null, null, null, null, null);
-            User currentUser = TestUtils.createUserEntityWithId();
-            User existingUser = TestUtils.createUserEntityWithId(999L);
+            User currentUser = TestUtils.createValidUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId(999L);
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
             when(userBO.getUserByUsername(newUsername.toLowerCase())).thenReturn(Optional.of(existingUser));
 
             // Act + Assert
-            assertThrows(UsernameException.class, () -> userService.updateCurrentUser(dto));
+            assertThrows(UsernameException.class, () -> userService.updateUserSettings(dto));
             verify(authenticatedUserProvider).getCurrentUser();
             verify(userBO).getUserByUsername(newUsername.toLowerCase());
             verify(userPatchHandler, never()).applyPatch(any(), any());
@@ -479,18 +244,18 @@ public class UserServiceImplTest {
         }
 
         @Test
-        void testUpdateCurrentUserFailure_EmailConflict() {
+        void testUpdateUserSettingsFailure_EmailConflict() {
             // Arrange
             String newEmail = TestConstants.VALID_EMAIL;
             UserUpdateDTO dto = new UserUpdateDTO(null, null, newEmail, null, null, null);
-            User currentUser = TestUtils.createUserEntityWithId();
-            User existingUser = TestUtils.createUserEntityWithId(999L);
+            User currentUser = TestUtils.createValidUserEntityWithId();
+            User existingUser = TestUtils.createValidUserEntityWithId(999L);
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
             when(userBO.getUserByEmail(newEmail.toLowerCase())).thenReturn(Optional.of(existingUser));
 
             // Act + Assert
-            assertThrows(EmailException.class, () -> userService.updateCurrentUser(dto));
+            assertThrows(EmailException.class, () -> userService.updateUserSettings(dto));
             verify(authenticatedUserProvider).getCurrentUser();
             verify(userBO).getUserByEmail(newEmail.toLowerCase());
             verify(userPatchHandler, never()).applyPatch(any(), any());
@@ -499,18 +264,18 @@ public class UserServiceImplTest {
         }
 
         @Test
-        void testUpdateCurrentUserNoOp() {
+        void testUpdateUserSettingsNoOp() {
             // Arrange
             UserUpdateDTO dto = new UserUpdateDTO(null, null, null, null, null, null);
-            User currentUser = TestUtils.createUserEntityWithId();
-            UserResponseDTO responseDTO = TestUtils.createUserResponseDTO();
+            User currentUser = TestUtils.createValidUserEntityWithId();
+            UserResponseDTO responseDTO = TestUtils.createValidUserResponseDTO();
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
             when(userPatchHandler.applyPatch(currentUser, dto)).thenReturn(false);
             when(userMapper.toResponseDTO(currentUser)).thenReturn(responseDTO);
 
             // Act
-            UserResponseDTO result = userService.updateCurrentUser(dto);
+            UserResponseDTO result = userService.updateUserSettings(dto);
 
             // Assert
             assertEquals(responseDTO, result);
@@ -521,91 +286,234 @@ public class UserServiceImplTest {
     }
 
     @Nested
-    class DeleteUserTests {
+    class MarkUserForDeletionTests {
 
         @Test
-        void testDeleteUserSuccess() {
+        void testMarkCurrentUserForDeletion_callsBOWithCurrentUser() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
-
-            when(userBO.getUserById(TestConstants.USER_ID)).thenReturn(Optional.of(existingUser));
-            when(authenticatedUserProvider.getCurrentUser()).thenReturn(existingUser);
-            doNothing().when(ownershipValidator).validateUserOwnership(existingUser.getId(), TestConstants.USER_ID);
-            doAnswer(invocation -> {
-                existingUser.setDeleted(true);
-                existingUser.setActive(false);
-                return null;
-            }).when(userBO).deleteUser(existingUser);
+            User currentUser = TestUtils.createValidUserEntityWithId();
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
 
             // Act
-            userService.deleteUser(TestConstants.USER_ID);
+            userService.markUserForDeletion();
 
             // Assert
-            verify(userBO).getUserById(TestConstants.USER_ID);
             verify(authenticatedUserProvider).getCurrentUser();
-            verify(ownershipValidator).validateUserOwnership(existingUser.getId(), TestConstants.USER_ID);
-            verify(userBO).deleteUser(existingUser);
-            assertTrue(existingUser.isDeleted());
-            assertFalse(existingUser.isActive());
+            verify(userBO).markUserForDeletion(currentUser);
         }
 
+    }
+
+    @Nested
+    class ReactivateCurrentUserTests {
+
         @Test
-        void testDeleteUserFailure_UnauthorizedAccess() {
+        void testReactivateCurrentUser_ClearsPendingDeletionAndDate() {
             // Arrange
-            User existingUser = TestUtils.createUserEntityWithId();
+            User currentUser = TestUtils.createValidUserEntityWithId();
+            currentUser.markForDeletion(ZonedDateTime.now(fixedClock)); // sets deletion flag + date
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
 
-            when(userBO.getUserById(TestConstants.USER_ID)).thenReturn(Optional.of(existingUser));
-            when(authenticatedUserProvider.getCurrentUser()).thenReturn(existingUser);
-            doThrow(new UserOwnershipException(UNAUTHORIZED_USER_ACCESS, TestConstants.USER_ID))
-                    .when(ownershipValidator).validateUserOwnership(existingUser.getId(), TestConstants.USER_ID);
+            // Act
+            userService.reactivateCurrentUser();
 
-            // Act + Assert
-            assertThrows(UserOwnershipException.class, () -> userService.deleteUser(TestConstants.USER_ID));
-
-            verify(userBO).getUserById(TestConstants.USER_ID);
+            // Assert
             verify(authenticatedUserProvider).getCurrentUser();
-            verify(ownershipValidator).validateUserOwnership(existingUser.getId(), TestConstants.USER_ID);
-            verify(userBO, never()).deleteUser(any());
-        }
-
-        @Test
-        void testDeleteUserFailure_UserNotFound() {
-            // Arrange
-            when(userBO.getUserById(TestConstants.USER_ID)).thenReturn(Optional.empty());
-
-            // Act + Assert
-            assertThrows(UserNotFoundException.class, () -> userService.deleteUser(TestConstants.USER_ID));
-
-            verify(userBO).getUserById(TestConstants.USER_ID);
-            verify(authenticatedUserProvider, never()).getCurrentUser();
-            verify(ownershipValidator, never()).validateUserOwnership(any(), any());
-            verify(userBO, never()).deleteUser(any());
+            verify(userBO).updateUser(currentUser);
+            assertFalse(currentUser.isPendingDeletion());
+            assertTrue(currentUser.getScheduledDeletionDate().isEmpty());
         }
     }
 
     @Nested
-    class DeleteCurrentUserTests {
+    class GetUserProfileTests {
 
         @Test
-        void testDeleteCurrentUserSuccess() {
+        void testGetUserProfile_SelfView_ReturnsCorrectDTO() {
             // Arrange
-            User currentUser = TestUtils.createUserEntityWithId();
-            when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
-            doAnswer(invocation -> {
-                currentUser.setDeleted(true);
-                currentUser.setActive(false);
-                return null;
-            }).when(userBO).deleteUser(currentUser);
+            String username = "testuser";
+            Long viewerId = 1L;
+            User user = TestUtils.createValidUserEntityWithId(viewerId);
+            user.setUsername(username);
+
+            UserHeaderResponseDTO header = new UserHeaderResponseDTO(
+                    username, user.getFirstName(), user.getLastName(), user.getBio(), user.getProfilePictureUrl()
+            );
+
+            List<BadgeResponseDTO> badges = List.of(
+                    mock(BadgeResponseDTO.class)
+            );
+
+            when(userBO.getUserByUsername(username.toLowerCase())).thenReturn(Optional.of(user));
+            when(badgeService.getBadgesByUser(user.getId())).thenReturn(badges);
 
             // Act
-            userService.deleteCurrentUser();
+            UserProfileResponseDTO result = userService.getUserProfile(username, viewerId);
 
             // Assert
-            verify(authenticatedUserProvider).getCurrentUser();
-            verify(userBO).deleteUser(currentUser);
-            assertTrue(currentUser.isDeleted());
-            assertFalse(currentUser.isActive());
+            assertTrue(result.isSelf());
+            assertEquals(header.username(), result.header().username());
+            assertEquals(header.firstName(), result.header().firstName());
+            assertEquals(header.lastName(), result.header().lastName());
+            assertEquals(header.bio(), result.header().bio());
+            assertEquals(header.profilePictureUrl(), result.header().profilePictureUrl());
+            assertEquals(badges, result.badges());
+
+            verify(userBO).getUserByUsername(username.toLowerCase());
+            verify(badgeService).getBadgesByUser(user.getId());
         }
+
+        @Test
+        void testGetUserProfile_OtherView_ReturnsCorrectDTO() {
+            // Arrange
+            String username = "testuser";
+            Long userId = 1L;
+            Long viewerId = 999L;
+            User user = TestUtils.createValidUserEntityWithId(userId);
+            user.setUsername(username);
+
+            UserHeaderResponseDTO header = new UserHeaderResponseDTO(
+                    username, user.getFirstName(), user.getLastName(), user.getBio(), user.getProfilePictureUrl()
+            );
+
+            List<BadgeResponseDTO> badges = List.of(
+                    mock(BadgeResponseDTO.class)
+            );
+
+            when(userBO.getUserByUsername(username.toLowerCase())).thenReturn(Optional.of(user));
+            when(badgeService.getBadgesByUser(user.getId())).thenReturn(badges);
+
+            // Act
+            UserProfileResponseDTO result = userService.getUserProfile(username, viewerId);
+
+            // Assert
+            assertFalse(result.isSelf());
+            assertEquals(header.username(), result.header().username());
+            assertEquals(header.firstName(), result.header().firstName());
+            assertEquals(header.lastName(), result.header().lastName());
+            assertEquals(header.bio(), result.header().bio());
+            assertEquals(header.profilePictureUrl(), result.header().profilePictureUrl());
+            assertEquals(badges, result.badges());
+
+            verify(userBO).getUserByUsername(username.toLowerCase());
+            verify(badgeService).getBadgesByUser(user.getId());
+        }
+
+        @Test
+        void testGetUserProfile_UserNotFound_ThrowsException() {
+            // Arrange
+            String username = "nonexistent";
+            when(userBO.getUserByUsername(username.toLowerCase())).thenReturn(Optional.empty());
+
+            // Act + Assert
+            assertThrows(UserNotFoundException.class, () -> userService.getUserProfile(username, 1L));
+            verify(userBO).getUserByUsername(username.toLowerCase());
+            verifyNoInteractions(badgeService);
+        }
+    }
+
+    @Nested
+    class UpdateUserHeaderTests {
+
+        @Test
+        void testUpdateUserHeader_SuccessfullyUpdatesBioAndPicture() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            User user = TestUtils.createValidUserEntityWithId(userId);
+            UserHeaderUpdateDTO input = new UserHeaderUpdateDTO("new bio", "https://new.picture/url.png");
+
+            when(userBO.getUserById(userId)).thenReturn(Optional.of(user));
+            doNothing().when(ownershipValidator).validateUserOwnership(user.getId(), userId);
+            when(userBO.updateUser(user)).thenReturn(user);
+
+            // Act
+            UserHeaderResponseDTO result = userService.updateUserHeader(userId, input);
+
+            // Assert
+            assertEquals(user.getUsername(), result.username());
+            assertEquals("new bio", result.bio());
+            assertEquals("https://new.picture/url.png", result.profilePictureUrl());
+
+            verify(userBO).getUserById(userId);
+            verify(ownershipValidator).validateUserOwnership(user.getId(), userId);
+            verify(userBO).updateUser(user);
+        }
+
+        @Test
+        void testUpdateUserHeader_OnlyUpdatesBio() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            User user = TestUtils.createValidUserEntityWithId(userId);
+            user.setProfilePictureUrl("https://same.picture.png");
+
+            UserHeaderUpdateDTO input = new UserHeaderUpdateDTO("updated bio", "https://same.picture.png");
+
+            when(userBO.getUserById(userId)).thenReturn(Optional.of(user));
+            doNothing().when(ownershipValidator).validateUserOwnership(user.getId(), userId);
+            when(userBO.updateUser(user)).thenReturn(user);
+
+            // Act
+            UserHeaderResponseDTO result = userService.updateUserHeader(userId, input);
+
+            // Assert
+            assertEquals("updated bio", result.bio());
+            verify(userBO).updateUser(user);
+        }
+
+        @Test
+        void testUpdateUserHeader_NoChanges_MakesNoUpdateCall() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            User user = TestUtils.createValidUserEntityWithId(userId);
+            user.setBio("same bio");
+            user.setProfilePictureUrl("https://same.url");
+
+            UserHeaderUpdateDTO input = new UserHeaderUpdateDTO("same bio", "https://same.url");
+
+            when(userBO.getUserById(userId)).thenReturn(Optional.of(user));
+            doNothing().when(ownershipValidator).validateUserOwnership(user.getId(), userId);
+
+            // Act
+            UserHeaderResponseDTO result = userService.updateUserHeader(userId, input);
+
+            // Assert
+            assertEquals("same bio", result.bio());
+            verify(userBO, never()).updateUser(any());
+        }
+
+        @Test
+        void testUpdateUserHeader_UserNotFound_ThrowsException() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            UserHeaderUpdateDTO input = new UserHeaderUpdateDTO("bio", "url");
+
+            when(userBO.getUserById(userId)).thenReturn(Optional.empty());
+
+            // Act + Assert
+            assertThrows(UserNotFoundException.class, () -> userService.updateUserHeader(userId, input));
+            verify(userBO).getUserById(userId);
+            verify(ownershipValidator, never()).validateUserOwnership(any(), any());
+            verify(userBO, never()).updateUser(any());
+        }
+
+        @Test
+        void testUpdateUserHeader_ValidatesOwnership() {
+            // Arrange
+            Long userId = TestConstants.USER_ID;
+            User user = TestUtils.createValidUserEntityWithId(userId);
+            UserHeaderUpdateDTO input = new UserHeaderUpdateDTO("bio", "pic");
+
+            when(userBO.getUserById(userId)).thenReturn(Optional.of(user));
+            doThrow(new RuntimeException("Ownership failed")).when(ownershipValidator)
+                    .validateUserOwnership(user.getId(), userId);
+
+            // Act + Assert
+            assertThrows(RuntimeException.class, () -> userService.updateUserHeader(userId, input));
+            verify(userBO).getUserById(userId);
+            verify(ownershipValidator).validateUserOwnership(user.getId(), userId);
+            verify(userBO, never()).updateUser(any());
+        }
+
     }
 
     @Nested
@@ -669,42 +577,6 @@ public class UserServiceImplTest {
             // Assert
             assertFalse(result);
             verify(userBO).existsByEmail(inputEmail.toLowerCase());
-        }
-    }
-
-    @Nested
-    class CountActiveUsersTests {
-
-        @Test
-        void testCountActiveUsersSuccess() {
-            // Arrange
-            long expectedCount = 37L;
-            when(userBO.countActiveUsers()).thenReturn(expectedCount);
-
-            // Act
-            long result = userService.countActiveUsers();
-
-            // Assert
-            assertEquals(expectedCount, result);
-            verify(userBO).countActiveUsers();
-        }
-    }
-
-    @Nested
-    class CountUsersTests {
-
-        @Test
-        void testCountUsersSuccess() {
-            // Arrange
-            long expectedCount = 42L;
-            when(userBO.countUsers()).thenReturn(expectedCount);
-
-            // Act
-            long result = userService.countUsers();
-
-            // Assert
-            assertEquals(expectedCount, result);
-            verify(userBO).countUsers();
         }
     }
 }

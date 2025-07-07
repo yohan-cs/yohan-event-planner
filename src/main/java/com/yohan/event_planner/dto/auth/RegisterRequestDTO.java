@@ -1,8 +1,10 @@
 package com.yohan.event_planner.dto.auth;
 
+import com.yohan.event_planner.constants.ApplicationConstants;
 import com.yohan.event_planner.validation.ValidZoneId;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
@@ -21,13 +23,17 @@ import jakarta.validation.constraints.Size;
 public record RegisterRequestDTO(
 
         /** Desired username for the new account. Must be unique and 3–30 characters long. */
+        @Pattern(
+                regexp = "^[a-z0-9]+(?:[._][a-z0-9]+)*$",
+                message = "Username must be lowercase and may contain letters, numbers, periods, or underscores, without leading, trailing, or consecutive special characters"
+        )
         @NotBlank(message = "Username is required")
-        @Size(min = 3, max = 30)
+        @Size(min = ApplicationConstants.USERNAME_MIN_LENGTH, max = ApplicationConstants.USERNAME_MAX_LENGTH)
         String username,
 
         /** Plaintext password for the new account. Must be 8–72 characters long. */
         @NotBlank(message = "Password is required")
-        @Size(min = 8, max = 72)
+        @Size(min = ApplicationConstants.PASSWORD_MIN_LENGTH, max = ApplicationConstants.PASSWORD_MAX_LENGTH)
         String password,
 
         /** Email address for the user. Must be a valid email format. */
@@ -37,12 +43,12 @@ public record RegisterRequestDTO(
 
         /** User's first name. */
         @NotBlank(message = "First name is required")
-        @Size(min = 1, max = 50)
+        @Size(min = ApplicationConstants.NAME_MIN_LENGTH, max = ApplicationConstants.SHORT_NAME_MAX_LENGTH)
         String firstName,
 
         /** User's last name. */
         @NotBlank(message = "Last name is required")
-        @Size(min = 1, max = 50)
+        @Size(min = ApplicationConstants.NAME_MIN_LENGTH, max = ApplicationConstants.SHORT_NAME_MAX_LENGTH)
         String lastName,
 
         /** Preferred time zone of the user (e.g., "America/New_York"). */

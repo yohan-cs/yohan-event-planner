@@ -1,5 +1,7 @@
 package com.yohan.event_planner.security;
 
+import com.yohan.event_planner.constants.ApplicationConstants;
+
 import com.yohan.event_planner.exception.UnauthorizedException;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
@@ -75,8 +77,8 @@ public class JwtUtils {
     public String getJwtFromHeader(HttpServletRequest request) {
         String bearerToken = request.getHeader("Authorization");
         logger.debug("Authorization Header: {}", bearerToken);
-        if (bearerToken != null && bearerToken.startsWith("Bearer ")) {
-            return bearerToken.substring(7);
+        if (bearerToken != null && bearerToken.startsWith(ApplicationConstants.JWT_BEARER_PREFIX)) {
+            return bearerToken.substring(ApplicationConstants.JWT_BEARER_PREFIX_LENGTH);
         }
         return null;
     }

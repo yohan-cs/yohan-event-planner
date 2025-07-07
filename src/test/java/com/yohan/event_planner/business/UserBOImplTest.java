@@ -3,29 +3,45 @@ package com.yohan.event_planner.business;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.Role;
 import com.yohan.event_planner.repository.UserRepository;
+import com.yohan.event_planner.time.ClockProvider;
 import com.yohan.event_planner.util.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Optional;
 
 import static com.yohan.event_planner.util.TestConstants.USER_ID;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 
 public class UserBOImplTest {
 
     private UserRepository userRepository;
+    private ClockProvider clockProvider;
+    private Clock fixedClock;
 
     private UserBOImpl userBO;
 
     @BeforeEach
     void setUp() {
         this.userRepository = mock(UserRepository.class);
+        this.clockProvider = mock(ClockProvider.class);
 
-        userBO = new UserBOImpl(userRepository);
+        fixedClock = Clock.fixed(Instant.parse("2025-06-29T12:00:00Z"), ZoneId.of("UTC"));
+
+        userBO = new UserBOImpl(userRepository, clockProvider);
     }
 
     @Nested
@@ -34,7 +50,7 @@ public class UserBOImplTest {
         @Test
         void testGetUserById_userExists_returnsUser() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
+            User user = TestUtils.createValidUserEntityWithId();
 
             // Mocks
             when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
@@ -68,10 +84,10 @@ public class UserBOImplTest {
         @Test
         void testGetUserByUsername_userExists_returnsUser() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
+            User user = TestUtils.createValidUserEntityWithId();
 
             // Mocks
-            when(userRepository.findByUsername(user.getUsername())).thenReturn(Optional.of(user));
+            when(userRepository.findByUsernameAndIsPendingDeletionFalse(user.getUsername())).thenReturn(Optional.of(user));
 
             // Act
             Optional<User> result = userBO.getUserByUsername(user.getUsername());
@@ -79,7 +95,7 @@ public class UserBOImplTest {
             // Assert
             assertTrue(result.isPresent());
             assertEquals(user.getUsername(), result.get().getUsername());
-            verify(userRepository).findByUsername(user.getUsername());
+            verify(userRepository).findByUsernameAndIsPendingDeletionFalse(user.getUsername());
         }
 
         @Test
@@ -88,14 +104,14 @@ public class UserBOImplTest {
             String username = "nonexistent_user";
 
             // Mocks
-            when(userRepository.findByUsername(username)).thenReturn(Optional.empty());
+            when(userRepository.findByUsernameAndIsPendingDeletionFalse(username)).thenReturn(Optional.empty());
 
             // Act
             Optional<User> result = userBO.getUserByUsername(username);
 
             // Assert
             assertTrue(result.isEmpty());
-            verify(userRepository).findByUsername(username);
+            verify(userRepository).findByUsernameAndIsPendingDeletionFalse(username);
         }
     }
 
@@ -105,10 +121,10 @@ public class UserBOImplTest {
         @Test
         void testGetUserByEmail_userExists_returnsUser() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
+            User user = TestUtils.createValidUserEntityWithId();
 
             // Mocks
-            when(userRepository.findByEmail(user.getEmail())).thenReturn(Optional.of(user));
+            when(userRepository.findByEmailAndIsPendingDeletionFalse(user.getEmail())).thenReturn(Optional.of(user));
 
             // Act
             Optional<User> result = userBO.getUserByEmail(user.getEmail());
@@ -116,7 +132,7 @@ public class UserBOImplTest {
             // Assert
             assertTrue(result.isPresent());
             assertEquals(user.getEmail(), result.get().getEmail());
-            verify(userRepository).findByEmail(user.getEmail());
+            verify(userRepository).findByEmailAndIsPendingDeletionFalse(user.getEmail());
         }
 
         @Test
@@ -125,32 +141,32 @@ public class UserBOImplTest {
             String email = "notfound@example.com";
 
             // Mocks
-            when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+            when(userRepository.findByEmailAndIsPendingDeletionFalse(email)).thenReturn(Optional.empty());
 
             // Act
             Optional<User> result = userBO.getUserByEmail(email);
 
             // Assert
             assertTrue(result.isEmpty());
-            verify(userRepository).findByEmail(email);
+            verify(userRepository).findByEmailAndIsPendingDeletionFalse(email);
         }
     }
 
     @Nested
-    class GetUserByRoleTests {
+    class GetUsersByRoleTests {
 
         @Test
         void testGetUsersByRole_usersExist_returnsMatchingUsers() {
             // Arrange
             Role role = Role.USER;
-            User user1 = TestUtils.createUserEntityWithId();
-            User user2 = TestUtils.createUserEntityWithId();
+            User user1 = TestUtils.createValidUserEntityWithId();
+            User user2 = TestUtils.createValidUserEntityWithId();
             user1.addRole(role);
             user2.addRole(role);
             List<User> users = List.of(user1, user2);
 
             // Mocks
-            when(userRepository.findAllByRoles(role)).thenReturn(users);
+            when(userRepository.findAllByRolesAndIsPendingDeletionFalse(role)).thenReturn(users);
 
             // Act
             List<User> result = userBO.getUsersByRole(role);
@@ -158,7 +174,7 @@ public class UserBOImplTest {
             // Assert
             assertEquals(2, result.size());
             assertTrue(result.stream().allMatch(u -> u.getRoles().contains(role)));
-            verify(userRepository).findAllByRoles(role);
+            verify(userRepository).findAllByRolesAndIsPendingDeletionFalse(role);
         }
 
         @Test
@@ -167,14 +183,14 @@ public class UserBOImplTest {
             Role role = Role.ADMIN;
 
             // Mocks
-            when(userRepository.findAllByRoles(role)).thenReturn(List.of());
+            when(userRepository.findAllByRolesAndIsPendingDeletionFalse(role)).thenReturn(List.of());
 
             // Act
             List<User> result = userBO.getUsersByRole(role);
 
             // Assert
             assertTrue(result.isEmpty());
-            verify(userRepository).findAllByRoles(role);
+            verify(userRepository).findAllByRolesAndIsPendingDeletionFalse(role);
         }
     }
 
@@ -184,12 +200,12 @@ public class UserBOImplTest {
         @Test
         void testGetAllUsers_multipleUsersExist_returnsAllUsers() {
             // Arrange
-            User user1 = TestUtils.createUserEntityWithId();
-            User user2 = TestUtils.createUserEntityWithId();
+            User user1 = TestUtils.createValidUserEntityWithId();
+            User user2 = TestUtils.createValidUserEntityWithId();
             List<User> users = List.of(user1, user2);
 
             // Mocks
-            when(userRepository.findAll()).thenReturn(users);
+            when(userRepository.findAllByIsPendingDeletionFalse()).thenReturn(users);
 
             // Act
             List<User> result = userBO.getAllUsers();
@@ -198,20 +214,20 @@ public class UserBOImplTest {
             assertEquals(2, result.size());
             assertTrue(result.contains(user1));
             assertTrue(result.contains(user2));
-            verify(userRepository).findAll();
+            verify(userRepository).findAllByIsPendingDeletionFalse();
         }
 
         @Test
         void testGetAllUsers_noUsersExist_returnsEmptyList() {
             // Mocks
-            when(userRepository.findAll()).thenReturn(List.of());
+            when(userRepository.findAllByIsPendingDeletionFalse()).thenReturn(List.of());
 
             // Act
             List<User> result = userBO.getAllUsers();
 
             // Assert
             assertTrue(result.isEmpty());
-            verify(userRepository).findAll();
+            verify(userRepository).findAllByIsPendingDeletionFalse();
         }
     }
 
@@ -221,8 +237,8 @@ public class UserBOImplTest {
         @Test
         void testCreateUser_validUser_savesAndReturnsUserWithId() {
             // Arrange
-            User unsavedUser = TestUtils.createUserEntityWithoutId(); // ID is null
-            User savedUser = TestUtils.createUserEntityWithId(); // ID is set
+            User unsavedUser = TestUtils.createValidUserEntityWithId(); // ID is null
+            User savedUser = TestUtils.createValidUserEntityWithId(); // ID is set
             when(userRepository.save(unsavedUser)).thenReturn(savedUser);
 
             // Act
@@ -241,7 +257,7 @@ public class UserBOImplTest {
         @Test
         void testUpdateUser_validUser_updatesAndReturnsUser() {
             // Arrange
-            User updatedUser = TestUtils.createUserEntityWithId();
+            User updatedUser = TestUtils.createValidUserEntityWithId();
             when(userRepository.save(updatedUser)).thenReturn(updatedUser);
 
             // Act
@@ -255,24 +271,22 @@ public class UserBOImplTest {
     }
 
     @Nested
-    class DeleteUserTests {
+    class MarkUserForDeletionTests {
 
         @Test
-        void testDeleteUser_marksUserAsDeletedAndInactiveAndSaves() {
+        void shouldMarkUserForDeletionWithScheduledDeletionDate30DaysLater() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            assertFalse(user.isDeleted()); // sanity check
-            assertTrue(user.isActive());   // sanity check
+            User user = TestUtils.createValidUserEntityWithId();
 
-            // Mocks
-            when(userRepository.save(user)).thenReturn(user);
+            ZonedDateTime fixedNow = ZonedDateTime.now(fixedClock);
+            when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
 
             // Act
-            userBO.deleteUser(user);
+            userBO.markUserForDeletion(user);
 
             // Assert
-            assertTrue(user.isDeleted());
-            assertFalse(user.isActive());
+            assertTrue(user.isPendingDeletion());
+            assertEquals(fixedNow.plusDays(30), user.getScheduledDeletionDate().orElseThrow());
             verify(userRepository).save(user);
         }
     }
@@ -338,41 +352,6 @@ public class UserBOImplTest {
             // Assert
             assertFalse(result);
             verify(userRepository).existsByEmail(email);
-        }
-    }
-
-    @Nested
-    class CountActiveUsersTests {
-
-        @Test
-        void testCountActiveUsers_excludesDeletedUsers() {
-            // Mocks
-            when(userRepository.countByDeletedFalse()).thenReturn(1L);
-
-            // Act
-            long count = userBO.countActiveUsers();
-
-            // Assert
-            assertEquals(1L, count);
-            verify(userRepository).countByDeletedFalse();
-        }
-    }
-
-    @Nested
-    class CountUsersTests {
-
-        @Test
-        void testCountUsers_returnsCorrectCount() {
-            // Arrange
-            long expectedCount = 42L;
-            when(userRepository.count()).thenReturn(expectedCount);
-
-            // Act
-            long result = userBO.countUsers();
-
-            // Assert
-            assertEquals(expectedCount, result);
-            verify(userRepository).count();
         }
     }
 }

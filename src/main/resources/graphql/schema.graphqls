@@ -1,0 +1,170 @@
+scalar Date
+scalar DateTime
+
+type Query {
+  userProfile(username: String!): UserProfile!
+  eventRecap(eventId: ID!): EventRecap
+}
+
+type Mutation {
+  updateUserHeader(input: UpdateUserHeaderInput!): UserHeader!
+  updateBadge(id: ID!, input: UpdateBadgeInput!): Badge!
+  deleteBadge(id: ID!): Boolean!
+  reorderBadges(ids: [ID!]!): Boolean!
+  reorderBadgeLabels(badgeId: ID!, labelOrder: [ID!]!): Boolean!
+  updateEvent(id: ID!, input: UpdateEventInput!): EventResponse!
+  deleteEvent(id: ID!): Boolean!
+  addEventRecap(input: AddEventRecapInput!): EventRecap!
+  updateEventRecap(eventId: ID!, input: UpdateEventRecapInput!): EventRecap!
+  confirmEventRecap(eventId: ID!): EventRecap!
+  deleteEventRecap(eventId: ID!): Boolean!
+  addRecapMedia(recapId: ID!, input: CreateRecapMediaInput!): RecapMedia!
+  updateRecapMedia(mediaId: ID!, input: UpdateRecapMediaInput!): RecapMedia!
+  deleteRecapMedia(mediaId: ID!): Boolean!
+  reorderRecapMedia(recapId: ID!, mediaOrder: [ID!]!): Boolean!
+}
+
+enum RecapMediaType {
+  IMAGE
+  VIDEO
+}
+
+input UpdateUserHeaderInput {
+  bio: String
+  profilePictureUrl: String
+}
+
+input UpdateBadgeInput {
+  name: String
+}
+
+input UpdateEventInput {
+  name: UpdateFieldInput_String
+  startTime: UpdateFieldInput_DateTime
+  endTime: UpdateFieldInput_DateTime
+  description: UpdateFieldInput_String
+  labelId: UpdateFieldInput_ID
+  isCompleted: UpdateFieldInput_Boolean
+}
+
+input AddEventRecapInput {
+  eventId: ID!
+  recapName: String
+  notes: String
+  isUnconfirmed: Boolean
+  media: [CreateRecapMediaInput!]
+}
+
+input UpdateEventRecapInput {
+  notes: String
+}
+
+input CreateRecapMediaInput {
+  mediaUrl: String!
+  mediaType: RecapMediaType! # changed from String to RecapMediaType enum
+  durationSeconds: Int
+  mediaOrder: Int
+}
+
+input UpdateRecapMediaInput {
+  mediaUrl: String
+  mediaType: String
+  durationSeconds: Int
+}
+
+input UpdateFieldInput_String {
+  value: String
+}
+
+input UpdateFieldInput_ID {
+  value: ID
+}
+
+input UpdateFieldInput_Boolean {
+  value: Boolean
+}
+
+input UpdateFieldInput_DateTime {
+  value: DateTime
+}
+
+type UserProfile {
+  isSelf: Boolean!
+  header: UserHeader!
+  badges: [Badge!]!
+  weekView(anchorDate: Date!): WeekView!
+}
+
+type UserHeader {
+  username: String!
+  firstName: String!
+  lastName: String!
+  bio: String
+  profilePictureUrl: String
+}
+
+type Badge {
+  id: ID!
+  name: String!
+  sortOrder: Int!
+  labelOrder: [ID!]!
+  labels: [Label!]!
+  timeStats: TimeStats!
+}
+
+type TimeStats {
+  minutesToday: Int!
+  minutesThisWeek: Int!
+  minutesThisMonth: Int!
+  minutesLastWeek: Int!
+  minutesLastMonth: Int!
+  minutesAllTime: Int!
+}
+
+type WeekView {
+  days: [DayView!]!
+}
+
+type DayView {
+  date: Date!
+  events: [EventResponse!]!
+}
+
+type Label {
+  id: ID!
+  name: String!
+}
+
+type EventResponse {
+  id: ID!
+  name: String
+  description: String
+  startTimeUtc: DateTime
+  endTimeUtc: DateTime
+  durationMinutes: Int
+  startTimeZone: String
+  endTimeZone: String
+  label: Label
+  isCompleted: Boolean!
+  unconfirmed: Boolean!
+  isVirtual: Boolean!
+}
+
+type EventRecap {
+  id: ID!
+  eventName: String!
+  username: String!
+  date: DateTime!
+  durationMinutes: Int!
+  labelName: String
+  notes: String
+  media: [RecapMedia!]!
+}
+
+type RecapMedia {
+  id: ID!
+  mediaUrl: String!
+  mediaType: RecapMediaType! # updated here
+  durationSeconds: Int
+  mediaOrder: Int!
+}

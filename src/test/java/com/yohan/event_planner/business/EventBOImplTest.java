@@ -1,213 +1,319 @@
 package com.yohan.event_planner.business;
 
+
 import com.yohan.event_planner.domain.Event;
+import com.yohan.event_planner.domain.Label;
+import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.dto.EventChangeContextDTO;
 import com.yohan.event_planner.exception.ConflictException;
-import com.yohan.event_planner.exception.EventNotFoundException;
+import com.yohan.event_planner.exception.InvalidEventStateException;
 import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.repository.EventRepository;
+import com.yohan.event_planner.service.LabelTimeBucketService;
+import com.yohan.event_planner.service.RecurrenceRuleService;
+import com.yohan.event_planner.time.ClockProvider;
 import com.yohan.event_planner.util.TestConstants;
 import com.yohan.event_planner.util.TestUtils;
+import com.yohan.event_planner.validation.ConflictValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.yohan.event_planner.util.TestConstants.EVENT_ID;
-
-import static com.yohan.event_planner.util.TestConstants.VALID_EVENT_END;
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.*;
+import static com.yohan.event_planner.util.TestConstants.USER_ID;
+import static com.yohan.event_planner.util.TestConstants.VALID_EVENT_DURATION_MINUTES;
+import static com.yohan.event_planner.util.TestConstants.VALID_LABEL_ID;
+import static com.yohan.event_planner.util.TestConstants.VALID_TIMEZONE;
+import static com.yohan.event_planner.util.TestConstants.getValidEventEndFuture;
+import static com.yohan.event_planner.util.TestConstants.getValidEventStartFuture;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 public class EventBOImplTest {
 
+    private RecurringEventBO recurringEventBO;
+    private RecurrenceRuleService recurrenceRuleService;
+    private LabelTimeBucketService labelTimeBucketService;
     private EventRepository eventRepository;
+    private ConflictValidator conflictValidator;
+    private ClockProvider clockProvider;
+    private Clock fixedClock;
 
     private EventBOImpl eventBO;
 
     @BeforeEach
     void setUp() {
+        this.recurringEventBO = mock(RecurringEventBO.class);
+        this.recurrenceRuleService = mock(RecurrenceRuleService.class);
+        this.labelTimeBucketService = mock(LabelTimeBucketService.class);
         this.eventRepository = mock(EventRepository.class);
+        this.conflictValidator = mock(ConflictValidator.class);
+        this.clockProvider = mock(ClockProvider.class);
 
-        eventBO = new EventBOImpl(eventRepository);
+        fixedClock = Clock.fixed(Instant.parse("2025-06-29T12:00:00Z"), ZoneId.of("UTC"));
+
+        eventBO = new EventBOImpl(
+                recurringEventBO,
+                recurrenceRuleService,
+                labelTimeBucketService,
+                eventRepository,
+                conflictValidator,
+                clockProvider
+        );
     }
 
     @Nested
     class GetEventByIdTests {
 
         @Test
-        void testGetEventById_eventExists_returnsEvent() {
+        void testGetEventByIdReturnsEventIfPresent() {
             // Arrange
-            User creator = TestUtils.createUserEntityWithId();
-            Event expectedEvent = TestUtils.createTimedEventEntity(creator);
-
-            // Mocks
-            when(eventRepository.findById(EVENT_ID)).thenReturn(Optional.of(expectedEvent));
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
+            when(eventRepository.findById(EVENT_ID)).thenReturn(Optional.of(event));
 
             // Act
             Optional<Event> result = eventBO.getEventById(EVENT_ID);
 
             // Assert
             assertTrue(result.isPresent());
-            assertEquals(expectedEvent, result.get());
+            assertEquals(EVENT_ID, result.get().getId());
+            verify(eventRepository).findById(EVENT_ID);
         }
 
         @Test
-        void testGetEventById_eventNotFound_returnsEmptyOptional() {
-            // Mocks
+        void testGetEventByIdReturnsEmptyIfNotFound() {
+            // Arrange
             when(eventRepository.findById(EVENT_ID)).thenReturn(Optional.empty());
 
             // Act
             Optional<Event> result = eventBO.getEventById(EVENT_ID);
 
             // Assert
-            assertFalse(result.isPresent());
+            assertTrue(result.isEmpty());
             verify(eventRepository).findById(EVENT_ID);
         }
-    }
-
-    @Nested
-    class GetEventsByUserTests {
-
-        @Test
-        void testGetEventsByUser_userHasEvents_returnsListOfEvents() {
-            // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event event1 = TestUtils.createTimedEventEntityWithId(101L, user);
-            Event event2 = TestUtils.createTimedEventEntityWithId(102L, user);
-            List<Event> expectedEvents = List.of(event1, event2);
-
-            // Mocks
-            when(eventRepository.findAllByCreatorId(user.getId())).thenReturn(expectedEvents);
-
-            // Act
-            List<Event> result = eventBO.getEventsByUser(user.getId());
-
-            // Assert
-            assertEquals(2, result.size());
-            assertTrue(result.contains(event1));
-            assertTrue(result.contains(event2));
-            verify(eventRepository).findAllByCreatorId(user.getId());
-        }
-
-        @Test
-        void testGetEventsByUser_userHasNoEvents_returnsEmptyList() {
-            // Arrange
-            User user = TestUtils.createUserEntityWithId();
-
-            // Mocks
-            when(eventRepository.findAllByCreatorId(user.getId())).thenReturn(Collections.emptyList());
-
-            // Act
-            List<Event> result = eventBO.getEventsByUser(user.getId());
-
-            // Assert
-            assertTrue(result.isEmpty());
-            verify(eventRepository).findAllByCreatorId(user.getId());
-        }
 
     }
 
     @Nested
-    class GetEventByUserAndDateRangeTests {
+    class GetConfirmedEventsForUserBetweenTests {
 
         @Test
-        void testGetEventByUserAndDateRange_eventsInRange_returnsEvents() {
+        void shouldReturnEventsWithinWindow() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
+            Long userId = USER_ID;
+            ZonedDateTime windowStart = getValidEventStartFuture(fixedClock).minusDays(1);
+            ZonedDateTime windowEnd = getValidEventEndFuture(fixedClock).plusDays(1);
 
-            ZonedDateTime rangeStart = ZonedDateTime.of(2024, 1, 1, 0, 0, 0, 0, ZoneId.of("America/New_York"));
-            ZonedDateTime rangeEnd   = ZonedDateTime.of(2024, 1, 2, 0, 0, 0, 0, ZoneId.of("America/New_York"));
+            User user = TestUtils.createValidUserEntityWithId(userId);
+            Event mockEvent = TestUtils.createValidScheduledEventWithId(EVENT_ID, user, fixedClock);
+            List<Event> mockEvents = List.of(mockEvent);
 
-            Event event1 = TestUtils.createTimedEventEntityWithId(201L, user); // Assume it's within range
-            Event event2 = TestUtils.createTimedEventEntityWithId(202L, user); // Assume also within range
-
-            List<Event> expectedEvents = List.of(event1, event2);
-
-            // Mocks
-            when(eventRepository.findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd)).thenReturn(expectedEvents);
+            when(eventRepository.findConfirmedEventsForUserBetween(userId, windowStart, windowEnd))
+                    .thenReturn(mockEvents);
 
             // Act
-            List<Event> result = eventBO.getEventsByUserAndDateRange(user.getId(), rangeStart, rangeEnd);
+            List<Event> result = eventBO.getConfirmedEventsForUserInRange(userId, windowStart, windowEnd);
 
             // Assert
-            assertEquals(2, result.size());
-            assertTrue(result.contains(event1));
-            assertTrue(result.contains(event2));
-            verify(eventRepository).findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd);
+            assertEquals(mockEvents, result);
+            verify(eventRepository).findConfirmedEventsForUserBetween(userId, windowStart, windowEnd);
         }
 
         @Test
-        void testGetEventByUserAndDateRange_noEventsInRange_returnsEmptyList() {
+        void shouldReturnEmptyListWhenNoEventsFound() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
+            Long userId = USER_ID;
+            ZonedDateTime windowStart = getValidEventStartFuture(fixedClock);
+            ZonedDateTime windowEnd = getValidEventEndFuture(fixedClock);
 
-            ZonedDateTime rangeStart = ZonedDateTime.of(2023, 12, 1, 0, 0, 0, 0, ZoneId.of("America/New_York"));
-            ZonedDateTime rangeEnd   = ZonedDateTime.of(2023, 12, 2, 0, 0, 0, 0, ZoneId.of("America/New_York"));
-
-            // Mocks
-            when(eventRepository.findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd)).thenReturn(Collections.emptyList());
+            when(eventRepository.findConfirmedEventsForUserBetween(userId, windowStart, windowEnd))
+                    .thenReturn(List.of());
 
             // Act
-            List<Event> result = eventBO.getEventsByUserAndDateRange(user.getId(), rangeStart, rangeEnd);
+            List<Event> result = eventBO.getConfirmedEventsForUserInRange(userId, windowStart, windowEnd);
 
             // Assert
             assertTrue(result.isEmpty());
-            verify(eventRepository).findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd);
+            verify(eventRepository).findConfirmedEventsForUserBetween(userId, windowStart, windowEnd);
         }
 
+    }
+
+    @Nested
+    class GetUnconfirmedEventsForUserTests {
+
         @Test
-        void testGetEventByUserAndDateRange_untimedEventInRange_returnsEvent() {
+        void shouldReturnUnconfirmedEventsForUser() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
+            Long userId = 1L;
+            Event event1 = mock(Event.class);
+            Event event2 = mock(Event.class);
+            List<Event> expectedEvents = List.of(event1, event2);
 
-            ZonedDateTime rangeStart = ZonedDateTime.of(2024, 1, 1, 0, 0, 0, 0, ZoneId.of("America/New_York"));
-            ZonedDateTime rangeEnd   = ZonedDateTime.of(2024, 1, 10, 0, 0, 0, 0, ZoneId.of("America/New_York"));
-
-            Event untimedEvent = TestUtils.createUntimedEventEntityWithId(301L, user);
-            untimedEvent.setStartTime(ZonedDateTime.of(2024, 1, 5, 12, 0, 0, 0, ZoneId.of("America/New_York")));
-
-            List<Event> expectedEvents = List.of(untimedEvent);
-
-            // Mocks
-            when(eventRepository.findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd))
+            when(eventRepository.findUnconfirmedEventsForUserSortedByStartTime(userId))
                     .thenReturn(expectedEvents);
 
             // Act
-            List<Event> result = eventBO.getEventsByUserAndDateRange(user.getId(), rangeStart, rangeEnd);
+            List<Event> result = eventBO.getUnconfirmedEventsForUser(userId);
 
             // Assert
-            assertEquals(1, result.size());
-            assertTrue(result.contains(untimedEvent));
-            verify(eventRepository).findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd);
+            assertEquals(expectedEvents, result);
+            verify(eventRepository).findUnconfirmedEventsForUserSortedByStartTime(userId);
         }
 
         @Test
-        void testGetEventByUserAndDateRange_untimedEventOutOfRange_returnsEmptyList() {
+        void shouldReturnEmptyListWhenNoUnconfirmedEventsExist() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-
-            ZonedDateTime rangeStart = ZonedDateTime.of(2024, 1, 1, 0, 0, 0, 0, ZoneId.of("America/New_York"));
-            ZonedDateTime rangeEnd   = ZonedDateTime.of(2024, 1, 2, 0, 0, 0, 0, ZoneId.of("America/New_York"));
-
-            Event untimedEvent = TestUtils.createUntimedEventEntityWithId(302L, user);
-            untimedEvent.setStartTime(ZonedDateTime.of(2024, 1, 10, 12, 0, 0, 0, ZoneId.of("America/New_York")));
-
-            // Mocks
-            when(eventRepository.findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd))
-                    .thenReturn(Collections.emptyList());
+            Long userId = 1L;
+            when(eventRepository.findUnconfirmedEventsForUserSortedByStartTime(userId))
+                    .thenReturn(List.of());
 
             // Act
-            List<Event> result = eventBO.getEventsByUserAndDateRange(user.getId(), rangeStart, rangeEnd);
+            List<Event> result = eventBO.getUnconfirmedEventsForUser(userId);
 
             // Assert
             assertTrue(result.isEmpty());
-            verify(eventRepository).findAllByCreatorIdAndStartTimeBetween(user.getId(), rangeStart, rangeEnd);
+            verify(eventRepository).findUnconfirmedEventsForUserSortedByStartTime(userId);
+        }
+
+    }
+
+    @Nested
+    class GetConfirmedEventsPageTests {
+
+        @Test
+        void shouldReturnTopConfirmedEventsWhenCursorsAreNull() {
+            // Arrange
+            Long userId = USER_ID;
+            ZonedDateTime endTimeCursor = null;
+            ZonedDateTime startTimeCursor = null;
+            Long idCursor = null;
+            int limit = 5;
+
+            Event event1 = TestUtils.createValidScheduledEventWithId(1L, TestUtils.createValidUserEntityWithId(userId), fixedClock);
+            Event event2 = TestUtils.createValidScheduledEventWithId(2L, TestUtils.createValidUserEntityWithId(userId), fixedClock);
+            List<Event> expectedEvents = List.of(event1, event2);
+
+            when(eventRepository.findTopConfirmedByUserIdOrderByEndTimeDescStartTimeDescIdDesc(
+                    eq(userId),
+                    any()
+            )).thenReturn(expectedEvents);
+
+            // Act
+            List<Event> results = eventBO.getConfirmedEventsPage(userId, endTimeCursor, startTimeCursor, idCursor, limit);
+
+            // Assert
+            assertEquals(expectedEvents, results);
+            verify(eventRepository).findTopConfirmedByUserIdOrderByEndTimeDescStartTimeDescIdDesc(
+                    eq(userId),
+                    argThat(pageable -> pageable.getPageNumber() == 0 && pageable.getPageSize() == limit)
+            );
+            verifyNoMoreInteractions(eventRepository);
+        }
+
+        @Test
+        void shouldReturnEventsBeforeCursorWhenCursorsProvided() {
+            // Arrange
+            Long userId = USER_ID;
+            ZonedDateTime endTimeCursor = ZonedDateTime.now(fixedClock);
+            ZonedDateTime startTimeCursor = endTimeCursor.minusHours(1);
+            Long idCursor = 10L;
+            int limit = 3;
+
+            Event event1 = TestUtils.createValidScheduledEventWithId(5L, TestUtils.createValidUserEntityWithId(userId), fixedClock);
+            List<Event> expectedEvents = List.of(event1);
+
+            when(eventRepository.findConfirmedByUserIdBeforeCursor(
+                    eq(userId),
+                    eq(endTimeCursor),
+                    eq(startTimeCursor),
+                    eq(idCursor),
+                    any()
+            )).thenReturn(expectedEvents);
+
+            // Act
+            List<Event> results = eventBO.getConfirmedEventsPage(userId, endTimeCursor, startTimeCursor, idCursor, limit);
+
+            // Assert
+            assertEquals(expectedEvents, results);
+            verify(eventRepository).findConfirmedByUserIdBeforeCursor(
+                    eq(userId),
+                    eq(endTimeCursor),
+                    eq(startTimeCursor),
+                    eq(idCursor),
+                    argThat(pageable -> pageable.getPageNumber() == 0 && pageable.getPageSize() == limit)
+            );
+            verifyNoMoreInteractions(eventRepository);
+        }
+
+        @Test
+        void shouldReturnEmptyListWhenRepositoryReturnsEmpty() {
+            // Arrange
+            Long userId = USER_ID;
+            ZonedDateTime endTimeCursor = ZonedDateTime.now(fixedClock);
+            ZonedDateTime startTimeCursor = endTimeCursor.minusHours(2);
+            Long idCursor = 100L;
+            int limit = 10;
+
+            when(eventRepository.findConfirmedByUserIdBeforeCursor(
+                    eq(userId),
+                    eq(endTimeCursor),
+                    eq(startTimeCursor),
+                    eq(idCursor),
+                    any()
+            )).thenReturn(List.of());
+
+            // Act
+            List<Event> results = eventBO.getConfirmedEventsPage(userId, endTimeCursor, startTimeCursor, idCursor, limit);
+
+            // Assert
+            assertTrue(results.isEmpty());
+            verify(eventRepository).findConfirmedByUserIdBeforeCursor(
+                    eq(userId),
+                    eq(endTimeCursor),
+                    eq(startTimeCursor),
+                    eq(idCursor),
+                    any()
+            );
+            verifyNoMoreInteractions(eventRepository);
+        }
+
+        @Test
+        void shouldThrowWhenLimitIsZero() {
+            // Arrange
+            Long userId = USER_ID;
+            ZonedDateTime endTimeCursor = null;
+            ZonedDateTime startTimeCursor = null;
+            Long idCursor = null;
+
+            // Act + Assert
+            assertThrows(IllegalArgumentException.class, () ->
+                    eventBO.getConfirmedEventsPage(userId, endTimeCursor, startTimeCursor, idCursor, 0)
+            );
         }
     }
 
@@ -215,76 +321,128 @@ public class EventBOImplTest {
     class CreateEventTests {
 
         @Test
-        void testCreateEvent_validEvent_savesAndReturnsEventWithId() {
+        void testCreateEventScheduledValid() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event inputEvent = TestUtils.createTimedEventEntity(user);
-            Event savedEvent = TestUtils.createTimedEventEntityWithId(301L, user);
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
 
-            // Mocks
-            when(eventRepository.save(inputEvent)).thenReturn(savedEvent);
+            // Mock conflict validator to do nothing (no conflicts)
+            doNothing().when(conflictValidator).validateNoConflicts(event);
+
+            when(eventRepository.save(event)).thenReturn(event);
 
             // Act
-            Event result = eventBO.createEvent(inputEvent);
+            Event result = eventBO.createEvent(event);
 
             // Assert
-            assertNotNull(result.getId());
-            assertEquals(savedEvent.getName(), result.getName());
-            verify(eventRepository).save(inputEvent);
+            assertEquals(event, result);
+            verify(conflictValidator).validateNoConflicts(event);
+            verify(eventRepository).save(event);
         }
 
         @Test
-        void testCreateEvent_invalidTime_throwsInvalidTimeException() {
+        void testCreateEventDraftSkipsValidation() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event invalidEvent = new Event(
-                    "Invalid Event",
-                    VALID_EVENT_END,
-                    user
-            );
-            invalidEvent.setEndTime(VALID_EVENT_END);
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event draft = TestUtils.createPartialDraftEvent(creator, fixedClock);
+            when(eventRepository.save(draft)).thenReturn(draft);
+
+            // Act
+            Event result = eventBO.createEvent(draft);
+
+            // Assert
+            assertEquals(draft, result);
+            verify(eventRepository).save(draft);
+        }
+
+        @Test
+        void testCreateEventWithInvalidTimeThrowsException() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
+            event.setStartTime(getValidEventEndFuture(fixedClock).plusHours(1)); // start after end
 
             // Act + Assert
-            assertThrows(InvalidTimeException.class, () -> eventBO.createEvent(invalidEvent));
-            verify(eventRepository, never()).save(any(Event.class));
+            assertThrows(InvalidTimeException.class, () -> eventBO.createEvent(event));
+            verify(eventRepository, never()).save(any());
         }
 
         @Test
-        void testCreateEvent_conflictingEventExists_throwsConflictException() {
+        void testCreateEventWithConflictThrowsException() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event newEvent = TestUtils.createTimedEventEntity(user);
-            Event conflictingEvent = TestUtils.createTimedEventEntityWithId(999L, user);
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event newEvent = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
 
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
-                    eq(user.getId()),
-                    eq(newEvent.getEndTime()),
-                    eq(newEvent.getStartTime())
-            )).thenReturn(Optional.of(conflictingEvent));
+            // Mock conflictValidator to throw ConflictException
+            doThrow(new ConflictException(newEvent, Set.of(100L)))
+                    .when(conflictValidator).validateNoConflicts(newEvent);
 
             // Act + Assert
             assertThrows(ConflictException.class, () -> eventBO.createEvent(newEvent));
-            verify(eventRepository, never()).save(any(Event.class));
+
+            // Verify conflict validation was called
+            verify(conflictValidator).validateNoConflicts(newEvent);
+
+            // Verify event was not saved due to conflict
+            verify(eventRepository, never()).save(any());
+        }
+
+    }
+
+    @Nested
+    class SolidifyRecurrencesTests {
+
+        @Test
+        void shouldCallGetRecurringEventsAndSolidifyEach() {
+            // Arrange
+            User user = TestUtils.createValidUserEntityWithId();
+            ZonedDateTime fixedNow = ZonedDateTime.now(fixedClock);
+            ZonedDateTime fromTime = fixedNow.minusDays(3);
+            ZoneId userZoneId = ZoneId.of(user.getTimezone());
+
+            RecurringEvent recurrence1 = TestUtils.createValidRecurringEventWithId(user, 1L, fixedClock);
+            RecurringEvent recurrence2 = TestUtils.createValidRecurringEventWithId(user, 2L, fixedClock);
+
+            when(recurringEventBO.getConfirmedRecurringEventsForUserInRange(
+                    user.getId(),
+                    fromTime.toLocalDate(),
+                    fixedNow.toLocalDate()
+            )).thenReturn(List.of(recurrence1, recurrence2));
+
+            // Act
+            eventBO.solidifyRecurrences(user.getId(), fromTime, fixedNow, userZoneId);
+
+            // Assert
+            verify(recurringEventBO).getConfirmedRecurringEventsForUserInRange(
+                    user.getId(),
+                    fromTime.toLocalDate(),
+                    fixedNow.toLocalDate()
+            );
         }
 
         @Test
-        void testCreateEvent_validUntimedEvent_savesAndReturnsEventWithId() {
+        void shouldDoNothingWhenNoRecurringEventsFound() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event inputEvent = TestUtils.createUntimedEventEntity(user);
-            Event savedEvent = TestUtils.createUntimedEventEntityWithId(302L, user);
+            User user = TestUtils.createValidUserEntityWithId();
+            ZonedDateTime fixedNow = ZonedDateTime.now(fixedClock);
+            ZonedDateTime fromTime = fixedNow.minusDays(3);
+            ZoneId userZoneId = ZoneId.of(user.getTimezone());
 
-            // Mocks
-            when(eventRepository.save(inputEvent)).thenReturn(savedEvent);
+            when(recurringEventBO.getConfirmedRecurringEventsForUserInRange(
+                    user.getId(),
+                    fromTime.toLocalDate(),
+                    fixedNow.toLocalDate()
+            )).thenReturn(List.of());
 
             // Act
-            Event result = eventBO.createEvent(inputEvent);
+            eventBO.solidifyRecurrences(user.getId(), fromTime, fixedNow, userZoneId);
 
             // Assert
-            assertNotNull(result.getId());
-            assertEquals(savedEvent.getName(), result.getName());
-            verify(eventRepository).save(inputEvent);
+            verify(recurringEventBO).getConfirmedRecurringEventsForUserInRange(
+                    user.getId(),
+                    fromTime.toLocalDate(),
+                    fixedNow.toLocalDate()
+            );
         }
     }
 
@@ -292,287 +450,391 @@ public class EventBOImplTest {
     class UpdateEventTests {
 
         @Test
-        void testUpdateEvent_validInput_savesAndReturnsEvent() {
+        void testUpdateEventScheduledValidNoCompletionChange() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event inputEvent = TestUtils.createTimedEventEntityWithId(103L, user);
-            Event savedEvent = TestUtils.createTimedEventEntityWithId(103L, user); // Same but persisted
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
+            EventChangeContextDTO contextDTO = new EventChangeContextDTO(
+                    creator.getId(),
+                    VALID_LABEL_ID,
+                    VALID_LABEL_ID,
+                    getValidEventStartFuture(fixedClock),
+                    getValidEventStartFuture(fixedClock),
+                    VALID_EVENT_DURATION_MINUTES,
+                    VALID_EVENT_DURATION_MINUTES,
+                    ZoneId.of(VALID_TIMEZONE),
+                    false,
+                    false
+            );
 
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
-                    eq(user.getId()), any(), any(), eq(inputEvent.getId())))
-                    .thenReturn(Optional.empty());
-            when(eventRepository.save(inputEvent)).thenReturn(savedEvent);
+            // Mock conflictValidator to do nothing (no conflicts)
+            doNothing().when(conflictValidator).validateNoConflicts(event);
+
+            when(eventRepository.save(event)).thenReturn(event);
 
             // Act
-            Event result = eventBO.updateEvent(inputEvent);
+            Event result = eventBO.updateEvent(contextDTO, event);
 
             // Assert
-            assertNotNull(result);
-            assertEquals(savedEvent.getId(), result.getId());
-            verify(eventRepository).save(inputEvent);
+            assertEquals(event, result);
+            verify(conflictValidator).validateNoConflicts(event);
+            verify(labelTimeBucketService, never()).handleEventChange(any());
+            verify(eventRepository).save(event);
         }
 
         @Test
-        void testUpdateEvent_invalidTimes_throwsInvalidTimeException() {
+        void testUpdateEventTriggersLabelTimeBucketUpdateOnCompletionChange() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event invalidEvent = TestUtils.createTimedEventEntityWithId(101L, user);
-            invalidEvent.setStartTime(VALID_EVENT_END);   // Start == End
-            invalidEvent.setEndTime(VALID_EVENT_END);
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, creator, fixedClock); // isCompleted = true
+            when(clockProvider.getClockForUser(creator)).thenReturn(fixedClock);
+
+            EventChangeContextDTO contextDTO = new EventChangeContextDTO(
+                    creator.getId(),
+                    VALID_LABEL_ID,
+                    VALID_LABEL_ID,
+                    getValidEventStartFuture(fixedClock),
+                    getValidEventStartFuture(fixedClock),
+                    VALID_EVENT_DURATION_MINUTES,
+                    VALID_EVENT_DURATION_MINUTES,
+                    ZoneId.of(VALID_TIMEZONE),
+                    false, // wasCompleted
+                    true   // isNowCompleted
+            );
+
+            // Mock conflictValidator to do nothing (no conflicts)
+            doNothing().when(conflictValidator).validateNoConflicts(event);
+
+            when(eventRepository.save(event)).thenReturn(event);
+
+            // Act
+            eventBO.updateEvent(contextDTO, event);
+
+            // Assert
+            verify(conflictValidator).validateNoConflicts(event);
+            verify(labelTimeBucketService).handleEventChange(any(EventChangeContextDTO.class));
+            verify(eventRepository).save(event);
+        }
+
+
+        @Test
+        void testUpdateEventInvalidTimeThrowsException() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
+            event.setStartTime(getValidEventEndFuture(fixedClock).plusHours(1)); // invalid: start > end
 
             // Act + Assert
-            assertThrows(InvalidTimeException.class, () -> eventBO.updateEvent(invalidEvent));
+            assertThrows(InvalidTimeException.class, () -> eventBO.updateEvent(null, event));
             verify(eventRepository, never()).save(any());
         }
 
         @Test
-        void testUpdateEvent_conflictingEvent_throwsConflictException() {
+        void testUpdateEventWithConflictThrowsException() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event eventToUpdate = TestUtils.createTimedEventEntityWithId(102L, user);
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
 
-            Event conflict = TestUtils.createTimedEventEntityWithId(999L, user);
-
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
-                    eq(user.getId()), any(), any(), eq(eventToUpdate.getId())))
-                    .thenReturn(Optional.of(conflict));
+            // Mock conflictValidator to throw ConflictException
+            doThrow(new ConflictException(event, Set.of(999L)))
+                    .when(conflictValidator).validateNoConflicts(event);
 
             // Act + Assert
-            assertThrows(ConflictException.class, () -> eventBO.updateEvent(eventToUpdate));
+            assertThrows(ConflictException.class, () -> eventBO.updateEvent(null, event));
+
+            // Verify conflictValidator was called
+            verify(conflictValidator).validateNoConflicts(event);
+
+            // Verify event was not saved due to conflict
             verify(eventRepository, never()).save(any());
         }
 
         @Test
-        void testUpdateEvent_addsEndTime_savesUpdatedEvent() {
+        void testUpdateEventAlreadyCompletedStillTriggersLabelTimeBucketUpdate() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event inputEvent = TestUtils.createUntimedEventEntityWithId(104L, user);
-            inputEvent.setEndTime(VALID_EVENT_END);
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, creator, fixedClock); // isCompleted = true
 
-            // Recalculate duration manually
-            long minutes = java.time.Duration.between(
-                    inputEvent.getStartTime().withZoneSameInstant(java.time.ZoneOffset.UTC),
-                    VALID_EVENT_END.withZoneSameInstant(java.time.ZoneOffset.UTC)
-            ).toMinutes();
-            inputEvent.setDurationMinutes((int) minutes);
+            EventChangeContextDTO contextDTO = new EventChangeContextDTO(
+                    creator.getId(),
+                    VALID_LABEL_ID,
+                    VALID_LABEL_ID,
+                    getValidEventStartFuture(fixedClock),
+                    getValidEventStartFuture(fixedClock),
+                    VALID_EVENT_DURATION_MINUTES,
+                    VALID_EVENT_DURATION_MINUTES,
+                    ZoneId.of(VALID_TIMEZONE),
+                    true,  // wasCompleted
+                    true   // isNowCompleted
+            );
 
-            Event savedEvent = TestUtils.createTimedEventEntityWithId(104L, user);
+            // Mock conflictValidator to do nothing (no conflicts)
+            doNothing().when(conflictValidator).validateNoConflicts(event);
 
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
-                    eq(user.getId()), any(), any(), eq(inputEvent.getId())))
-                    .thenReturn(Optional.empty());
-            when(eventRepository.save(inputEvent)).thenReturn(savedEvent);
+            when(eventRepository.save(event)).thenReturn(event);
 
             // Act
-            Event result = eventBO.updateEvent(inputEvent);
+            eventBO.updateEvent(contextDTO, event);
 
             // Assert
-            assertNotNull(result);
-            assertEquals(savedEvent.getEndTime(), result.getEndTime());
-            verify(eventRepository).save(inputEvent);
+            verify(conflictValidator).validateNoConflicts(event);
+            verify(labelTimeBucketService).handleEventChange(any(EventChangeContextDTO.class));
+            verify(eventRepository).save(event);
         }
 
         @Test
-        void testUpdateEvent_removesEndTime_savesUpdatedEvent() {
+        void testUpdateUnconfirmedDraftSkipsValidationAndSaves() {
             // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event inputEvent = TestUtils.createTimedEventEntityWithId(105L, user);
-            inputEvent.setEndTime(null);
-            inputEvent.setDurationMinutes(null);
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event draft = TestUtils.createPartialDraftEvent(creator, fixedClock); // unconfirmed = true
+            TestUtils.setEventId(draft, EVENT_ID);
 
-            Event savedEvent = TestUtils.createUntimedEventEntityWithId(105L, user);
+            // intentionally make time invalid (should be ignored for drafts)
+            draft.setStartTime(getValidEventEndFuture(fixedClock).plusHours(1));
 
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
-                    eq(user.getId()), any(), any(), eq(inputEvent.getId())))
-                    .thenReturn(Optional.empty());
-            when(eventRepository.save(inputEvent)).thenReturn(savedEvent);
+            when(eventRepository.save(draft)).thenReturn(draft);
 
             // Act
-            Event result = eventBO.updateEvent(inputEvent);
+            Event result = eventBO.updateEvent(null, draft);
 
             // Assert
-            assertNotNull(result);
-            assertNull(result.getEndTime());
-            verify(eventRepository).save(inputEvent);
+            assertEquals(draft, result);
+            verify(eventRepository).save(draft);
+            verify(labelTimeBucketService, never()).handleEventChange(any());
         }
+
+        @Test
+        void testUpdateCompletedEventWithNullContextSkipsLabelTimeBucket() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event completed = TestUtils.createValidCompletedEventWithId(EVENT_ID, creator, fixedClock);
+            when(clockProvider.getClockForUser(creator)).thenReturn(fixedClock);
+
+            // Mock conflictValidator to do nothing (no conflicts)
+            doNothing().when(conflictValidator).validateNoConflicts(completed);
+
+            when(eventRepository.save(completed)).thenReturn(completed);
+
+            // Act
+            Event result = eventBO.updateEvent(null, completed);
+
+            // Assert
+            assertEquals(completed, result);
+            verify(conflictValidator).validateNoConflicts(completed);
+            verify(labelTimeBucketService, never()).handleEventChange(any());
+            verify(eventRepository).save(completed);
+        }
+
+        @Test
+        void testUpdateEventNotCompletedWithContextDoesNotTriggerLabelTimeBucket() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock); // not completed
+
+            EventChangeContextDTO contextDTO = new EventChangeContextDTO(
+                    creator.getId(),
+                    VALID_LABEL_ID,
+                    VALID_LABEL_ID,
+                    getValidEventStartFuture(fixedClock),
+                    getValidEventStartFuture(fixedClock),
+                    VALID_EVENT_DURATION_MINUTES,
+                    VALID_EVENT_DURATION_MINUTES,
+                    ZoneId.of(VALID_TIMEZONE),
+                    false,
+                    false
+            );
+
+            // Mock conflictValidator to do nothing (no conflicts)
+            doNothing().when(conflictValidator).validateNoConflicts(event);
+
+            when(eventRepository.save(event)).thenReturn(event);
+
+            // Act
+            eventBO.updateEvent(contextDTO, event);
+
+            // Assert
+            verify(conflictValidator).validateNoConflicts(event);
+            verify(labelTimeBucketService, never()).handleEventChange(any());
+            verify(eventRepository).save(event);
+        }
+
+        @Test
+        void testUpdateEventWithLabelChangeTriggersLabelTimeBucket() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, creator, fixedClock); // completed = true
+            Long newLabelId = VALID_LABEL_ID;
+            Label newLabel = TestUtils.createValidLabelWithId(newLabelId, creator);
+            event.setLabel(newLabel); // set different label
+
+            EventChangeContextDTO contextDTO = new EventChangeContextDTO(
+                    creator.getId(),
+                    VALID_LABEL_ID,
+                    newLabelId,
+                    getValidEventStartFuture(fixedClock),
+                    getValidEventStartFuture(fixedClock),
+                    VALID_EVENT_DURATION_MINUTES,
+                    VALID_EVENT_DURATION_MINUTES,
+                    ZoneId.of(VALID_TIMEZONE),
+                    true,
+                    true
+            );
+
+            // Mock conflictValidator to do nothing (no conflicts)
+            doNothing().when(conflictValidator).validateNoConflicts(event);
+
+            when(eventRepository.save(event)).thenReturn(event);
+
+            // Act
+            eventBO.updateEvent(contextDTO, event);
+
+            // Assert
+            verify(conflictValidator).validateNoConflicts(event);
+
+            ArgumentCaptor<EventChangeContextDTO> captor = ArgumentCaptor.forClass(EventChangeContextDTO.class);
+            verify(labelTimeBucketService).handleEventChange(captor.capture());
+
+            EventChangeContextDTO captured = captor.getValue();
+            assertEquals(newLabelId, captured.newLabelId());
+            assertEquals(VALID_LABEL_ID, captured.oldLabelId());
+
+            verify(eventRepository).save(event);
+        }
+    }
+
+    @Nested
+    class ConfirmEventTests {
+
+        @Test
+        void testConfirmEventValid() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event draft = TestUtils.createValidFullDraftEvent(creator, fixedClock); // unconfirmed + all fields valid
+            TestUtils.setEventId(draft, EVENT_ID);
+
+            // Mock conflictValidator to do nothing (no conflicts)
+            doNothing().when(conflictValidator).validateNoConflicts(draft);
+
+            when(eventRepository.save(draft)).thenReturn(draft);
+
+            // Act
+            Event result = eventBO.confirmEvent(draft);
+
+            // Assert
+            assertFalse(result.isUnconfirmed());
+            verify(conflictValidator).validateNoConflicts(draft);
+            verify(eventRepository).save(draft);
+        }
+
+        @Test
+        void testConfirmEventMissingNameThrowsException() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event draft = TestUtils.createEmptyDraftEvent(creator);
+            draft.setStartTime(getValidEventStartFuture(fixedClock));
+            draft.setEndTime(getValidEventEndFuture(fixedClock));
+            draft.setLabel(TestUtils.createValidLabelWithId(VALID_LABEL_ID, creator));
+
+            // Act + Assert
+            assertThrows(InvalidEventStateException.class, () -> eventBO.confirmEvent(draft));
+        }
+
+        @Test
+        void testConfirmEventMissingStartTimeThrowsException() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event draft = TestUtils.createValidFullDraftEvent(creator, fixedClock);
+            draft.setStartTime(null);
+
+            // Act + Assert
+            assertThrows(InvalidEventStateException.class, () -> eventBO.confirmEvent(draft));
+        }
+
+        @Test
+        void testConfirmEventMissingEndTimeThrowsException() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event draft = TestUtils.createValidFullDraftEvent(creator, fixedClock);
+            draft.setEndTime(null);
+
+            // Act + Assert
+            assertThrows(InvalidEventStateException.class, () -> eventBO.confirmEvent(draft));
+        }
+
+        @Test
+        void testConfirmEventMissingLabelThrowsException() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event draft = TestUtils.createValidFullDraftEvent(creator, fixedClock);
+            draft.setLabel(null);
+
+            // Act + Assert
+            assertThrows(InvalidEventStateException.class, () -> eventBO.confirmEvent(draft));
+        }
+
+        @Test
+        void testConfirmEventInvalidTimeThrowsException() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event draft = TestUtils.createValidFullDraftEvent(creator, fixedClock);
+            draft.setStartTime(getValidEventEndFuture(fixedClock).plusHours(1)); // invalid time
+
+            // Act + Assert
+            assertThrows(InvalidTimeException.class, () -> eventBO.confirmEvent(draft));
+        }
+
+        @Test
+        void testConfirmEventWithConflictThrowsException() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event draft = TestUtils.createValidFullDraftEvent(creator, fixedClock);
+            TestUtils.setEventId(draft, EVENT_ID);
+
+            // Mock conflictValidator to throw ConflictException
+            doThrow(new ConflictException(draft, Set.of(999L)))
+                    .when(conflictValidator).validateNoConflicts(draft);
+
+            // Act + Assert
+            assertThrows(ConflictException.class, () -> eventBO.confirmEvent(draft));
+
+            // Verify conflict validation was called
+            verify(conflictValidator).validateNoConflicts(draft);
+
+            // Verify event was not saved due to conflict
+            verify(eventRepository, never()).save(any());
+        }
+
     }
 
     @Nested
     class DeleteEventTests {
-
         @Test
-        void testDeleteEvent_existingEvent_deletesSuccessfully() {
-            // Arrange
-            Long eventId = 201L;
-            Event event = TestUtils.createTimedEventEntityWithId(eventId, TestUtils.createUserEntityWithId());
 
-            // Mocks
-            when(eventRepository.findById(eventId)).thenReturn(Optional.of(event));
-
+        void testDeleteEventDelegatesToRepository() {
             // Act
-            eventBO.deleteEvent(eventId);
+            eventBO.deleteEvent(EVENT_ID);
 
             // Assert
-            verify(eventRepository).deleteById(eventId);
+            verify(eventRepository).deleteById(EVENT_ID);
         }
+
     }
 
     @Nested
-    class ValidateEventTimesTests {
+    class DeleteAllUnconfirmedEventsByUserTests {
 
         @Test
-        void testValidateEventTimes_validTimes_doesNotThrow() {
+        void deleteAllUnconfirmedEventsByUser_callsRepositoryDelete() {
             // Arrange
-            ZonedDateTime validStart = ZonedDateTime.parse("2025-01-01T10:00:00Z");
-            ZonedDateTime validEnd = ZonedDateTime.parse("2025-01-01T12:00:00Z");
-            Event event = new Event(
-                    "Valid Event",
-                    validStart,
-                    TestUtils.createUserEntityWithId()
-            );
-            event.setEndTime(validEnd);
+            Long userId = USER_ID;
 
-            // Act & Assert
-            assertDoesNotThrow(() -> eventBO.validateEventTimes(event));
+            // Act
+            eventBO.deleteAllUnconfirmedEventsByUser(userId);
+
+            // Assert
+            verify(eventRepository).deleteAllUnconfirmedEventsByUser(userId);
         }
 
-        @Test
-        void testValidateEventTimes_invalidTimes_throwsInvalidTimeException() {
-            // Arrange
-            ZonedDateTime invalidStart = ZonedDateTime.parse("2025-01-01T12:00:00Z");
-            ZonedDateTime invalidEnd = ZonedDateTime.parse("2025-01-01T10:00:00Z");
-
-            Event event = new Event(
-                    "Invalid Event",
-                    invalidStart,
-                    TestUtils.createUserEntityWithId()
-            );
-            event.setEndTime(invalidEnd);
-
-            // Act & Assert
-            assertThrows(InvalidTimeException.class, () -> eventBO.validateEventTimes(event));
-        }
-
-        @Test
-        void testValidateEventTimes_noEndTime_doesNotThrow() {
-            // Arrange
-            ZonedDateTime start = ZonedDateTime.parse("2025-01-01T08:00:00Z");
-            Event event = new Event(
-                    "Open-Ended Event",
-                    start,
-                    TestUtils.createUserEntityWithId()
-            );
-            // No end time is set
-
-            // Act & Assert
-            assertDoesNotThrow(() -> eventBO.validateEventTimes(event));
-        }
     }
 
-    @Nested
-    class CheckForConflictsTests {
-
-        @Test
-        void testCheckForConflicts_noConflict_doesNotThrow() {
-            // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event event = TestUtils.createTimedEventEntity(user);
-
-            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
-                    user.getId(), event.getEndTime(), event.getStartTime()))
-                    .thenReturn(Optional.empty());
-
-            // Act & Assert
-            assertDoesNotThrow(() -> eventBO.checkForConflicts(event));
-        }
-
-        @Test
-        void testCheckForConflicts_conflictExists_throwsConflictException() {
-            // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event event = TestUtils.createTimedEventEntity(user); // No ID = new event
-            Event conflicting = TestUtils.createTimedEventEntityWithId(999L, user);
-
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
-                    user.getId(), event.getEndTime(), event.getStartTime()))
-                    .thenReturn(Optional.of(conflicting));
-
-            // Act & Assert
-            assertThrows(ConflictException.class, () -> eventBO.checkForConflicts(event));
-        }
-
-        void testCheckForConflicts_adjacentEvents_noConflict() {
-            // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event event = TestUtils.createTimedEventEntity(user); // No ID = new event
-            Event adjacentEvent = TestUtils.createTimedEventEntityWithId(999L, user);
-
-            // Set the start and end time of the event to be adjacent
-            event.setStartTime(ZonedDateTime.parse("2025-06-05T10:00:00Z"));
-            event.setEndTime(ZonedDateTime.parse("2025-06-05T12:00:00Z"));
-
-            adjacentEvent.setStartTime(ZonedDateTime.parse("2025-06-05T12:00:00Z"));
-            adjacentEvent.setEndTime(ZonedDateTime.parse("2025-06-05T14:00:00Z"));
-
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
-                    user.getId(), event.getEndTime(), event.getStartTime(), event.getId()))  // Exclude the event being updated
-                    .thenReturn(Optional.empty()); // No conflict, adjacent event shouldn't trigger a conflict
-
-            // Act & Assert
-            // Adjacent events should not be considered a conflict, so no exception should be thrown
-            assertDoesNotThrow(() -> eventBO.checkForConflicts(event));
-        }
-
-        @Test
-        void testCheckForConflicts_untimedEvent_noConflict_doesNotThrow() {
-            // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event untimedEvent = TestUtils.createUntimedEventEntity(user);
-
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
-                    any(), any(), any())).thenReturn(Optional.empty());
-
-            // Act & Assert
-            assertDoesNotThrow(() -> eventBO.checkForConflicts(untimedEvent));
-        }
-
-        @Test
-        void testCheckForConflicts_untimedEvent_conflictExists_throwsConflictException() {
-            // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event untimedEvent = TestUtils.createUntimedEventEntity(user);
-            Event conflictingEvent = TestUtils.createUntimedEventEntityWithId(999L, user);
-
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndEndTimeIsNullAndStartTimeEquals(
-                    user.getId(), untimedEvent.getStartTime()))
-                    .thenReturn(Optional.of(conflictingEvent));
-
-            // Act & Assert
-            assertThrows(ConflictException.class, () -> eventBO.checkForConflicts(untimedEvent));
-        }
-
-        @Test
-        void testCheckForConflicts_multipleUntimedEvents_sameStartTime_throwsConflictException() {
-            // Arrange
-            User user = TestUtils.createUserEntityWithId();
-            Event newUntimedEvent = TestUtils.createUntimedEventEntity(user);
-            Event existingUntimedEvent = TestUtils.createUntimedEventEntityWithId(888L, user); // Same start time
-
-            // Mocks
-            when(eventRepository.findFirstByCreatorIdAndEndTimeIsNullAndStartTimeEquals(
-                    user.getId(), newUntimedEvent.getStartTime()))
-                    .thenReturn(Optional.of(existingUntimedEvent));
-
-            // Act & Assert
-            assertThrows(ConflictException.class, () -> eventBO.checkForConflicts(newUntimedEvent));
-        }
-    }
 }

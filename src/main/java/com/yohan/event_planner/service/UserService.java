@@ -1,75 +1,27 @@
 package com.yohan.event_planner.service;
 
-import com.yohan.event_planner.domain.enums.Role;
 import com.yohan.event_planner.dto.UserCreateDTO;
+import com.yohan.event_planner.dto.UserHeaderResponseDTO;
+import com.yohan.event_planner.dto.UserHeaderUpdateDTO;
+import com.yohan.event_planner.dto.UserProfileResponseDTO;
 import com.yohan.event_planner.dto.UserResponseDTO;
 import com.yohan.event_planner.dto.UserUpdateDTO;
-import com.yohan.event_planner.exception.*;
-
-import java.util.List;
+import com.yohan.event_planner.exception.EmailException;
+import com.yohan.event_planner.exception.UserNotFoundException;
+import com.yohan.event_planner.exception.UsernameException;
 
 /**
  * Service interface for managing user operations and business logic.
  *
  * <p>
  * Provides high-level access to core user flows, including identity lookups,
- * account creation, updates, deletions, and validation for uniqueness.
+ * account creation, updates, deletion scheduling, and validation for uniqueness.
  * This is the main orchestrator for user-related concerns.
  * </p>
  */
 public interface UserService {
 
-    /**
-     * Retrieves a user by their unique ID.
-     *
-     * @param userId the ID of the user to retrieve
-     * @return the corresponding {@link UserResponseDTO}
-     * @throws UserNotFoundException if the user is not found
-     */
-    UserResponseDTO getUserById(Long userId);
-
-    /**
-     * Retrieves the currently authenticated user's profile.
-     *
-     * @return the current user's profile as a {@link UserResponseDTO}
-     * @throws UserNotFoundException if the current user does not exist
-     */
-    UserResponseDTO getCurrentUser();
-
-    /**
-     * Retrieves a user by their username (case-insensitive).
-     *
-     * @param username the username to retrieve
-     * @return the corresponding {@link UserResponseDTO}
-     * @throws UserNotFoundException if no user is found
-     */
-    UserResponseDTO getUserByUsername(String username);
-
-    /**
-     * Retrieves a user by their email address (case-insensitive).
-     *
-     * @param email the email address to retrieve
-     * @return the corresponding {@link UserResponseDTO}
-     * @throws UserNotFoundException if no user is found
-     */
-    UserResponseDTO getUserByEmail(String email);
-
-    /**
-     * Retrieves all users assigned a specific role.
-     *
-     * @param role the role to filter by
-     * @return a list of matching {@link UserResponseDTO}s (may be empty)
-     */
-    List<UserResponseDTO> getUsersByRole(Role role);
-
-    /**
-     * Retrieves all users in the system using pagination.
-     *
-     * @param page the page number (0-based)
-     * @param size the page size
-     * @return a list of {@link UserResponseDTO}s (may be empty)
-     */
-    List<UserResponseDTO> getAllUsers(int page, int size);
+    UserResponseDTO getUserSettings();
 
     /**
      * Creates a new user with the provided details.
@@ -81,51 +33,33 @@ public interface UserService {
      */
     UserResponseDTO createUser(UserCreateDTO dto);
 
-    /**
-     * Applies a partial update to a specific user.
-     * <p>
-     * Requires that the current user is authorized to modify the target user.
-     * </p>
-     *
-     * @param userId the ID of the user to update
-     * @param dto    the patch payload
-     * @return the updated {@link UserResponseDTO}
-     * @throws UserNotFoundException  if the user does not exist
-     * @throws UserOwnershipException if the current user is unauthorized
-     * @throws UsernameException      if the new username is taken
-     * @throws EmailException         if the new email is taken
-     */
-    UserResponseDTO updateUser(Long userId, UserUpdateDTO dto);
+    UserResponseDTO updateUserSettings(UserUpdateDTO dto);
 
     /**
-     * Applies a partial update to the currently authenticated user.
+     * Marks the currently authenticated user for deletion after a grace period.
      *
-     * @param dto the patch payload
-     * @return the updated {@link UserResponseDTO}
+     * <p>
+     * This action disables the account and schedules it for permanent deletion.
+     * </p>
+     *
      * @throws UserNotFoundException if the current user does not exist
-     * @throws UsernameException     if the new username is taken
-     * @throws EmailException        if the new email is taken
      */
-    UserResponseDTO updateCurrentUser(UserUpdateDTO dto);
+    void markUserForDeletion();
 
     /**
-     * Soft-deletes a user.
+     * Cancels the pending deletion of the currently authenticated user.
+     *
      * <p>
-     * Requires that the current user is authorized to perform the deletion.
+     * This action restores the user's account to active status.
      * </p>
      *
-     * @param userId the ID of the user to delete
-     * @throws UserNotFoundException  if the user does not exist
-     * @throws UserOwnershipException if the current user is unauthorized
+     * @throws UserNotFoundException if the current user does not exist
      */
-    void deleteUser(Long userId);
+    void reactivateCurrentUser();
 
-    /**
-     * Soft-deletes the currently authenticated user.
-     *
-     * @throws UserNotFoundException if the user does not exist
-     */
-    void deleteCurrentUser();
+    UserProfileResponseDTO getUserProfile(String username, Long viewerId);
+
+    UserHeaderResponseDTO updateUserHeader(Long userId, UserHeaderUpdateDTO input);
 
     /**
      * Checks whether a username exists (case-insensitive).
@@ -142,19 +76,4 @@ public interface UserService {
      * @return {@code true} if the email is taken; otherwise {@code false}
      */
     boolean existsByEmail(String email);
-
-    /**
-     * Returns the number of users who are not soft-deleted.
-     *
-     * @return count of active (non-deleted) users
-     */
-    long countActiveUsers();
-
-    /**
-     * Returns the total number of users in the system.
-     *
-     * @return the user count
-     */
-    long countUsers();
-
 }

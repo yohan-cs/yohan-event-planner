@@ -1,16 +1,43 @@
 package com.yohan.event_planner.business;
 
 import com.yohan.event_planner.domain.Event;
-import com.yohan.event_planner.exception.ConflictException;
+import com.yohan.event_planner.domain.RecurringEvent;
+import com.yohan.event_planner.dto.DayViewDTO;
+import com.yohan.event_planner.dto.EventChangeContextDTO;
+import com.yohan.event_planner.dto.EventResponseDTO;
+import com.yohan.event_planner.dto.WeekViewDTO;
+
+import com.yohan.event_planner.exception.InvalidEventStateException;
 import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.repository.EventRepository;
+import com.yohan.event_planner.service.LabelTimeBucketService;
+import com.yohan.event_planner.service.RecurrenceRuleService;
+import com.yohan.event_planner.time.ClockProvider;
+import com.yohan.event_planner.validation.ConflictValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+
+import static com.yohan.event_planner.exception.ErrorCode.EVENT_ALREADY_CONFIRMED;
+import static com.yohan.event_planner.exception.ErrorCode.INVALID_COMPLETION_STATUS;
+import static com.yohan.event_planner.exception.ErrorCode.INVALID_EVENT_TIME;
+import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_END_TIME;
+import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_LABEL;
+import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_NAME;
+import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_START_TIME;
 
 /**
  * Concrete implementation of the {@link EventBO} interface.
@@ -30,10 +57,27 @@ import java.util.Optional;
 public class EventBOImpl implements EventBO {
 
     private static final Logger logger = LoggerFactory.getLogger(EventBOImpl.class);
+    private final RecurringEventBO recurringEventBO;
+    private final RecurrenceRuleService recurrenceRuleService;
+    private final LabelTimeBucketService labelTimeBucketService;
     private final EventRepository eventRepository;
+    private final ConflictValidator conflictValidator;
+    private final ClockProvider clockProvider;
 
-    public EventBOImpl(EventRepository eventRepository) {
+    public EventBOImpl(
+            RecurringEventBO recurringEventBO,
+            RecurrenceRuleService recurrenceRuleService,
+            LabelTimeBucketService labelTimeBucketService,
+            EventRepository eventRepository,
+            ConflictValidator conflictValidator,
+            ClockProvider clockProvider)
+    {
+        this.recurringEventBO = recurringEventBO;
+        this.recurrenceRuleService = recurrenceRuleService;
+        this.labelTimeBucketService = labelTimeBucketService;
         this.eventRepository = eventRepository;
+        this.conflictValidator = conflictValidator;
+        this.clockProvider = clockProvider;
     }
 
     /**
@@ -45,22 +89,42 @@ public class EventBOImpl implements EventBO {
         return eventRepository.findById(eventId);
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public List<Event> getEventsByUser(Long userId) {
-        logger.debug("Fetching events for user ID {}", userId);
-        return eventRepository.findAllByCreatorId(userId);
+    public List<Event> getConfirmedEventsForUserInRange(Long userId, ZonedDateTime windowStart, ZonedDateTime windowEnd) {
+        logger.debug("Fetching confirmed events for User ID {} between {} and {}", userId, windowStart, windowEnd);
+        return eventRepository.findConfirmedEventsForUserBetween(userId, windowStart, windowEnd);
+
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public List<Event> getEventsByUserAndDateRange(Long userId, ZonedDateTime start, ZonedDateTime end) {
-        logger.debug("Fetching events for user ID {} between {} and {}", userId, start, end);
-        return eventRepository.findAllByCreatorIdAndStartTimeBetween(userId, start, end);
+    public List<Event> getConfirmedEventsPage(
+            Long userId,
+            ZonedDateTime endTimeCursor,
+            ZonedDateTime startTimeCursor,
+            Long idCursor,
+            int limit
+    ) {
+        if (endTimeCursor == null || startTimeCursor == null || idCursor == null) {
+            return eventRepository.findTopConfirmedByUserIdOrderByEndTimeDescStartTimeDescIdDesc(
+                    userId,
+                    PageRequest.of(0, limit)
+            );
+        } else {
+            return eventRepository.findConfirmedByUserIdBeforeCursor(
+                    userId,
+                    endTimeCursor,
+                    startTimeCursor,
+                    idCursor,
+                    PageRequest.of(0, limit)
+            );
+        }
+    }
+
+
+    @Override
+    public List<Event> getUnconfirmedEventsForUser(Long userId) {
+        logger.debug("Fetching unconfirmed events for User ID {}", userId);
+        return eventRepository.findUnconfirmedEventsForUserSortedByStartTime(userId);
     }
 
     /**
@@ -68,26 +132,140 @@ public class EventBOImpl implements EventBO {
      */
     @Override
     public Event createEvent(Event event) {
-        logger.info("Creating new event '{}'", event.getName());
+        if (!event.isUnconfirmed()) {
+            logger.info("Creating scheduled event '{}'", event.getName());
+            validateConfirmedEventFields(event);
+            validateStartBeforeEnd(event.getStartTime(), event.getEndTime());
+            conflictValidator.validateNoConflicts(event);
+        } else {
+            logger.info("Creating draft event for user ID {}", event.getCreator().getId());
+        }
 
-        validateEventTimes(event);
-        checkForConflicts(event);
+        return eventRepository.save(event);
+    }
 
-        Event saved = eventRepository.save(event);
-        logger.info("Event created with ID {}", saved.getId());
-        return saved;
+
+    @Override
+    public void solidifyRecurrences(
+            Long userId,
+            ZonedDateTime startTime,
+            ZonedDateTime endTime,
+            ZoneId userZoneId
+    ) {
+        List<RecurringEvent> recurrences = recurringEventBO.getConfirmedRecurringEventsForUserInRange(
+                userId, startTime.toLocalDate(), endTime.toLocalDate()
+        );
+
+        for (RecurringEvent recurrence : recurrences) {
+            solidifyVirtualOccurrences(recurrence, startTime, endTime, userZoneId);
+        }
+    }
+
+    private void solidifyVirtualOccurrences(
+            RecurringEvent recurrence,
+            ZonedDateTime windowStart,
+            ZonedDateTime windowEnd,
+            ZoneId userZoneId
+    ) {
+        List<LocalDate> occurrenceDates = recurrenceRuleService.expandRecurrence(
+                recurrence.getRecurrenceRule().getParsed(),
+                windowStart.toLocalDate(),
+                windowEnd.toLocalDate(),
+                recurrence.getSkipDays()
+        );
+
+        List<Event> solidifiedEvents = getAllConfirmedEventsAndSolidifiedRecurringInstanceForUserAndRecurringEventBetween(
+                recurrence.getCreator().getId(),
+                recurrence.getId(),
+                windowStart,
+                windowEnd
+        );
+
+        for (LocalDate date : occurrenceDates) {
+            ZonedDateTime startTime = ZonedDateTime.of(date, recurrence.getStartTime(), userZoneId)
+                    .withZoneSameInstant(ZoneId.of("UTC"));
+            ZonedDateTime endTime = ZonedDateTime.of(date, recurrence.getEndTime(), userZoneId)
+                    .withZoneSameInstant(ZoneId.of("UTC"));
+
+            if (!endTime.isBefore(windowEnd)) {
+                continue;
+            }
+
+            boolean instanceExists = solidifiedEvents.stream()
+                    .anyMatch(e -> e.getStartTime().withZoneSameInstant(userZoneId).toLocalDate().equals(date));
+
+            if (instanceExists) {
+                continue;
+            }
+
+            boolean hasConflict = solidifiedEvents.stream()
+                    .anyMatch(e -> e.getStartTime().isBefore(endTime) && e.getEndTime().isAfter(startTime));
+
+            Event event = hasConflict
+                    ? Event.createUnconfirmedDraft(recurrence.getName(), startTime, endTime, recurrence.getCreator())
+                    : Event.createEvent(recurrence.getName(), startTime, endTime, recurrence.getCreator());
+
+            event.setDescription(recurrence.getDescription());
+            event.setLabel((recurrence.getLabel() != null)
+                    ? recurrence.getLabel()
+                    : recurrence.getCreator().getUnlabeled());
+            event.setRecurringEvent(recurrence);
+
+            createEvent(event);
+        }
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public Event updateEvent(Event event) {
+    @Transactional
+    public Event updateEvent(EventChangeContextDTO contextDTO, Event event) {
         logger.info("Updating event ID {}", event.getId());
 
-        validateEventTimes(event);
-        checkForConflicts(event);
+        if (!event.isUnconfirmed()) {
+            validateConfirmedEventFields(event);
+            validateStartBeforeEnd(event.getStartTime(), event.getEndTime());
+            conflictValidator.validateNoConflicts(event);
+        }
 
+        boolean wasCompleted = contextDTO != null && contextDTO.wasCompleted();
+        boolean isNowCompleted = event.isCompleted();
+
+        if (!wasCompleted && isNowCompleted) {
+            ZonedDateTime now = ZonedDateTime.now(clockProvider.getClockForUser(event.getCreator()));
+
+
+            if (event.getEndTime().isAfter(now)) {
+                throw new InvalidTimeException(
+                        INVALID_COMPLETION_STATUS,
+                        event.getStartTime(),
+                        event.getEndTime(),
+                        now
+                );
+            }
+        }
+
+        Event saved = eventRepository.save(event);
+
+        if ((contextDTO != null) && (wasCompleted || isNowCompleted)) {
+            EventChangeContextDTO context = buildChangeContext(contextDTO, event);
+            labelTimeBucketService.handleEventChange(context);
+        }
+
+        return saved;
+    }
+
+    @Override
+    @Transactional
+    public Event confirmEvent(Event event) {
+        logger.info("Confirming event ID {}", event.getId());
+
+        validateConfirmedEventFields(event);
+        validateStartBeforeEnd(event.getStartTime(), event.getEndTime());
+        conflictValidator.validateNoConflicts(event);
+
+        event.setUnconfirmed(false);
         return eventRepository.save(event);
     }
 
@@ -100,24 +278,45 @@ public class EventBOImpl implements EventBO {
         eventRepository.deleteById(eventId);
     }
 
-    /**
-     * {@inheritDoc}
-     */
     @Override
-    public void validateEventTimes(Event event) {
-        validateStartBeforeEnd(event.getStartTime(), event.getEndTime());
+    public void deleteAllUnconfirmedEventsByUser(Long userId) {
+        logger.info("Deleting all unconfirmed events for  User ID {}", userId);
+        eventRepository.deleteAllUnconfirmedEventsByUser(userId);
     }
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void checkForConflicts(Event event) {
-        Long eventId = event.getId(); // nullable for new events
-        validateNoConflicts(event.getCreator().getId(), eventId, event.getStartTime(), event.getEndTime());
+
+    // region: Private Methods
+    private EventChangeContextDTO buildChangeContext(EventChangeContextDTO contextDTO, Event after) {
+        return new EventChangeContextDTO(
+                contextDTO.userId(),
+                contextDTO.oldLabelId(),
+                after.getLabel().getId(),
+                contextDTO.oldStartTime(),
+                after.getStartTime(),
+                contextDTO.oldDurationMinutes(),
+                after.getDurationMinutes(),
+                contextDTO.timezone(),
+                contextDTO.wasCompleted(),
+                after.isCompleted()
+        );
     }
 
     // region: Private Validation Methods
+
+    private void validateConfirmedEventFields(Event event) {
+        if (event.getName() == null || event.getName().isBlank()) {
+            throw new InvalidEventStateException(MISSING_EVENT_NAME);
+        }
+        if (event.getStartTime() == null) {
+            throw new InvalidEventStateException(MISSING_EVENT_START_TIME);
+        }
+        if (event.getEndTime() == null) {
+            throw new InvalidEventStateException(MISSING_EVENT_END_TIME);
+        }
+        if (event.getLabel() == null) {
+            throw new InvalidEventStateException(MISSING_EVENT_LABEL);
+        }
+    }
 
     /**
      * Ensures that a given start time occurs strictly before the end time.
@@ -127,81 +326,98 @@ public class EventBOImpl implements EventBO {
      * @throws InvalidTimeException if {@code start} is equal to or after {@code end}
      */
     private void validateStartBeforeEnd(ZonedDateTime start, ZonedDateTime end) {
-        if (end == null) return;
         if (!start.isBefore(end)) {
-            throw new InvalidTimeException(start, end);
+            throw new InvalidTimeException(INVALID_EVENT_TIME, start, end);
         }
     }
 
-    /**
-     * Checks whether a proposed time range overlaps with existing events for the same creator.
-     * <p>
-     * If the event has an end time, it checks for standard overlaps.
-     * If the event has no end time (i.e., open-ended), it checks whether the start time overlaps
-     * with the end of any other events.
-     *
-     * @param creatorId      the user ID of the event creator
-     * @param excludeEventId (nullable) ID of the event to exclude from the conflict check (used during update)
-     * @param newStart       the start time of the event being validated (must not be null)
-     * @param newEnd         the end time of the event being validated (may be null for open-ended events)
-     * @throws ConflictException if an overlapping event is found
-     */
-    private void validateNoConflicts(Long creatorId, Long excludeEventId, ZonedDateTime newStart, ZonedDateTime newEnd) {
-        Optional<Event> conflict = findConflict(creatorId, excludeEventId, newStart, newEnd);
-
-        conflict.ifPresent(conflictingEvent -> {
-            logger.warn("Conflict detected with event ID {} for user ID {}", conflictingEvent.getId(), creatorId);
-            throw new ConflictException(conflictingEvent);
-        });
+    private List<Event> getAllConfirmedEventsAndSolidifiedRecurringInstanceForUserAndRecurringEventBetween(
+            Long userId,
+            Long recurrenceId,
+            ZonedDateTime start,
+            ZonedDateTime end
+    ) {
+        return eventRepository.findConfirmedAndRecurringDraftsByUserAndRecurrenceIdBetween(
+                userId, recurrenceId, start, end
+        );
     }
 
     /**
-     * Searches for a conflicting event by the same creator.
-     *
+     * {@inheritDoc}
+     */
+    @Override
+    public DayViewDTO generateDayViewData(LocalDate selectedDate, List<EventResponseDTO> confirmedEvents, List<EventResponseDTO> virtualEvents) {
+        logger.debug("Generating day view data for date {}", selectedDate);
+        
+        // Combine confirmed and virtual events
+        List<EventResponseDTO> allEvents = new ArrayList<>(confirmedEvents);
+        allEvents.addAll(virtualEvents);
+        
+        // Sort events by start time
+        allEvents.sort(Comparator.comparing(EventResponseDTO::startTimeUtc));
+        
+        return new DayViewDTO(selectedDate, allEvents);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public WeekViewDTO generateWeekViewData(Long userId, LocalDate anchorDate, ZoneId userZoneId, 
+                                          List<EventResponseDTO> confirmedEvents, List<EventResponseDTO> virtualEvents) {
+        logger.debug("Generating week view data for user {} for week containing {}", userId, anchorDate);
+        
+        // Calculate week boundaries (Monday to Sunday)
+        LocalDate weekStartDate = anchorDate.with(DayOfWeek.MONDAY);
+        
+        // Combine confirmed and virtual events
+        List<EventResponseDTO> allEvents = new ArrayList<>(confirmedEvents);
+        allEvents.addAll(virtualEvents);
+        
+        // Sort events by start time
+        allEvents.sort(Comparator.comparing(EventResponseDTO::startTimeUtc));
+        
+        // Group events by day
+        Map<LocalDate, List<EventResponseDTO>> dayMap = groupEventsByDay(allEvents, userZoneId);
+        
+        // Create DayViewDTO for each day of the week
+        List<DayViewDTO> days = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            LocalDate date = weekStartDate.plusDays(i);
+            List<EventResponseDTO> eventsForDay = dayMap.getOrDefault(date, List.of());
+            days.add(new DayViewDTO(date, eventsForDay));
+        }
+        
+        return new WeekViewDTO(days);
+    }
+
+    /**
+     * Groups events by the local dates they span in the given timezone.
+     * 
      * <p>
-     * Conflict rules:
-     * <ul>
-     *     <li><b>Timed Event:</b> Conflicts with any existing event that overlaps the given time range
-     *         (<code>startTime &lt; newEnd</code> AND <code>endTime &gt; newStart</code>).</li>
-     *     <li><b>Untimed Event:</b> Can conflict with:
-     *         <ul>
-     *             <li>A timed event that ends after <code>newStart</code>.</li>
-     *             <li>Another untimed event that starts at the exact same <code>newStart</code>.</li>
-     *         </ul>
-     *     </li>
-     * </ul>
-     * If <code>excludeEventId</code> is provided, that event will be ignored (used for updates).
+     * Events that span multiple days will appear in the map for each day they occur.
+     * This is pure business logic for handling multi-day event distribution.
      * </p>
      *
-     * @param creatorId      ID of the event's creator
-     * @param excludeEventId ID of the event to exclude from conflict checking (can be null)
-     * @param newStart       Proposed start time of the event
-     * @param newEnd         Proposed end time (null for untimed events)
-     * @return Optional containing the first conflicting event found, if any
+     * @param events the list of events to group
+     * @param userZoneId the timezone to use for local date calculations
+     * @return a map where keys are local dates and values are lists of events occurring on that date
      */
-    private Optional<Event> findConflict(Long creatorId, Long excludeEventId, ZonedDateTime newStart, ZonedDateTime newEnd) {
-        if (newEnd != null) {
-            // Timed event: check for overlapping timed events
-            return excludeEventId == null
-                    ? eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThan(
-                    creatorId, newEnd, newStart)
-                    : eventRepository.findFirstByCreatorIdAndStartTimeLessThanAndEndTimeGreaterThanAndIdNot(
-                    creatorId, newEnd, newStart, excludeEventId);
-        } else {
-            // Untimed event: check for timed conflicts first
-            Optional<Event> conflict = excludeEventId == null
-                    ? eventRepository.findFirstByCreatorIdAndEndTimeGreaterThan(creatorId, newStart)
-                    : eventRepository.findFirstByCreatorIdAndEndTimeGreaterThanAndIdNot(creatorId, newStart, excludeEventId);
+    private Map<LocalDate, List<EventResponseDTO>> groupEventsByDay(List<EventResponseDTO> events, ZoneId userZoneId) {
+        Map<LocalDate, List<EventResponseDTO>> dayMap = new HashMap<>();
 
-            if (conflict.isPresent()) {
-                return conflict;
+        for (EventResponseDTO event : events) {
+            // Convert UTC times into user's local dates for grouping
+            LocalDate startDayLocal = event.startTimeUtc().withZoneSameInstant(userZoneId).toLocalDate();
+            LocalDate endDayLocal = event.endTimeUtc().withZoneSameInstant(userZoneId).toLocalDate();
+
+            LocalDate cursor = startDayLocal;
+            while (!cursor.isAfter(endDayLocal)) {
+                dayMap.computeIfAbsent(cursor, d -> new ArrayList<>()).add(event);
+                cursor = cursor.plusDays(1);
             }
-
-            // Then check for untimed conflicts with same start time
-            return excludeEventId == null
-                    ? eventRepository.findFirstByCreatorIdAndEndTimeIsNullAndStartTimeEquals(creatorId, newStart)
-                    : eventRepository.findFirstByCreatorIdAndEndTimeIsNullAndStartTimeEqualsAndIdNot(creatorId, newStart, excludeEventId);
         }
-    }
 
+        return dayMap;
+    }
 }

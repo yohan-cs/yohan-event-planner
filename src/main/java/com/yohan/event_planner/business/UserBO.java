@@ -8,10 +8,11 @@ import java.util.Optional;
 
 /**
  * Business operations interface for managing {@link User} entities.
+ *
  * <p>
- * Defines core use cases related to user creation, updates, soft deletion,
+ * Defines core use cases related to user creation, updates, scheduled deletion,
  * and lookup operations. This layer encapsulates persistence coordination
- * and domain enforcement such as soft deletion and entity wiring.
+ * and domain enforcement such as deletion scheduling and entity initialization.
  * </p>
  *
  * <h3>Design Notes:</h3>
@@ -19,6 +20,8 @@ import java.util.Optional;
  *   <li>Assumes that the service layer has already validated all business rules,
  *       such as username/email availability, user ownership, and patch logic.</li>
  *   <li>This layer is not defensive and will not repeat validation performed upstream.</li>
+ *   <li>Soft deletion is implemented using a grace period. Users are marked as
+ *       pending deletion and scheduled for hard deletion by a background job.</li>
  *   <li>Intended for use by the service layer only; not exposed to controllers or external code.</li>
  * </ul>
  */
@@ -89,16 +92,8 @@ public interface UserBO {
      */
     User updateUser(User user);
 
-    /**
-     * Performs a logical deletion by marking the user as deleted and inactive.
-     * <p>
-     * Does not remove the record from the database. Assumes the user has already
-     * been retrieved and validated by the service layer.
-     * </p>
-     *
-     * @param user the user entity to mark as deleted and inactive
-     */
-    void deleteUser(User user);
+
+    void markUserForDeletion(User user);
 
     /**
      * Checks if a user exists with the given username.
@@ -115,18 +110,4 @@ public interface UserBO {
      * @return {@code true} if a user with the email exists, otherwise {@code false}
      */
     boolean existsByEmail(String email);
-
-    /**
-     * Returns the number of users who are not soft-deleted.
-     *
-     * @return count of active (non-deleted) users
-     */
-    long countActiveUsers();
-
-    /**
-     * Returns the total number of user records, including soft-deleted users.
-     *
-     * @return total user count
-     */
-    long countUsers();
 }

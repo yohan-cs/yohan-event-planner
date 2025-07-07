@@ -1,22 +1,32 @@
 package com.yohan.event_planner.security;
 
+import com.yohan.event_planner.domain.Badge;
 import com.yohan.event_planner.domain.Event;
+import com.yohan.event_planner.domain.EventRecap;
+import com.yohan.event_planner.domain.Label;
+import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.exception.BadgeOwnershipException;
 import com.yohan.event_planner.exception.EventOwnershipException;
+import com.yohan.event_planner.exception.LabelOwnershipException;
+import com.yohan.event_planner.exception.RecurringEventOwnershipException;
 import com.yohan.event_planner.exception.UserOwnershipException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_BADGE_ACCESS;
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_EVENT_ACCESS;
+import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_LABEL_ACCESS;
+import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_RECURRING_EVENT_ACCESS;
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_USER_ACCESS;
 
 /**
- * Validates ownership and access permissions for user- and event-related operations.
+ * Validates ownership and access permissions for user-, event-, and label-related operations.
  *
  * <p>
- * Ensures that only the authenticated user can access or modify their own {@link User}
- * or {@link Event} resources. Throws ownership-related exceptions when violations occur.
+ * Ensures that only the authenticated user can access or modify their own {@link User},
+ * {@link Event}, or {@link Label} resources. Throws ownership-related exceptions when violations occur.
  * </p>
  *
  * <p>
@@ -25,25 +35,13 @@ import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_USER_ACCE
  *
  * @see UserOwnershipException
  * @see EventOwnershipException
+ * @see LabelOwnershipException
  */
 @Component
 public class OwnershipValidator {
 
     private static final Logger logger = LoggerFactory.getLogger(OwnershipValidator.class);
 
-    /**
-     * Ensures that the authenticated user is the creator of the specified {@link Event}.
-     *
-     * <p>
-     * If the event does not belong to the current user, this method throws an
-     * {@link EventOwnershipException}. This check is intended to prevent unauthorized
-     * access to another user's events.
-     * </p>
-     *
-     * @param currentUserId the ID of the currently authenticated user
-     * @param event the event whose ownership is being validated
-     * @throws EventOwnershipException if the current user is not the event's creator
-     */
     public void validateEventOwnership(Long currentUserId, Event event) {
         if (!currentUserId.equals(event.getCreator().getId())) {
             logger.warn("User {} is not authorized to access event {}", currentUserId, event.getId());
@@ -52,21 +50,51 @@ public class OwnershipValidator {
     }
 
     /**
-     * Ensures that the current user is attempting to access or modify their own {@link User} resource.
-     *
-     * <p>
-     * If the provided {@code userId} does not match the authenticated user's ID,
-     * this method throws a {@link UserOwnershipException}.
-     * </p>
+     * Ensures that the current user is the creator of the specified {@link RecurringEvent}.
      *
      * @param currentUserId the ID of the currently authenticated user
-     * @param userId the user ID to validate against
-     * @throws UserOwnershipException if the current user is not the same as the target user
+     * @param recurringEvent the recurring event whose ownership is being validated
+     * @throws RecurringEventOwnershipException if the current user is not the recurring event's creator
      */
+    public void validateRecurringEventOwnership(Long currentUserId, RecurringEvent recurringEvent) {
+        if (!currentUserId.equals(recurringEvent.getCreator().getId())) {
+            logger.warn("User {} is not authorized to access recurring event {}", currentUserId, recurringEvent.getId());
+            throw new RecurringEventOwnershipException(UNAUTHORIZED_RECURRING_EVENT_ACCESS, recurringEvent.getId());
+        }
+    }
+
     public void validateUserOwnership(Long currentUserId, Long userId) {
         if (!currentUserId.equals(userId)) {
             logger.warn("User {} is not authorized to access user {}", currentUserId, userId);
             throw new UserOwnershipException(UNAUTHORIZED_USER_ACCESS, userId);
+        }
+    }
+
+    /**
+     * Ensures that the current user is the creator of the specified {@link Label}.
+     *
+     * @param currentUserId the ID of the currently authenticated user
+     * @param label the label whose ownership is being validated
+     * @throws LabelOwnershipException if the current user is not the label's creator
+     */
+    public void validateLabelOwnership(Long currentUserId, Label label) {
+        if (!currentUserId.equals(label.getCreator().getId())) {
+            logger.warn("User {} is not authorized to access label {}", currentUserId, label.getId());
+            throw new LabelOwnershipException(UNAUTHORIZED_LABEL_ACCESS, label.getId());
+        }
+    }
+
+    /**
+     * Ensures that the current user is the creator of the specified {@link Badge}.
+     *
+     * @param currentUserId the ID of the currently authenticated user
+     * @param badge the badge whose ownership is being validated
+     * @throws BadgeOwnershipException if the current user is not the badge's creator
+     */
+    public void validateBadgeOwnership(Long currentUserId, Badge badge) {
+        if (!currentUserId.equals(badge.getUser().getId())) {
+            logger.warn("User {} is not authorized to access badge {}", currentUserId, badge.getId());
+            throw new BadgeOwnershipException(UNAUTHORIZED_BADGE_ACCESS, badge.getId());
         }
     }
 }
