@@ -14,6 +14,46 @@ import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.util.List;
 
+/**
+ * Repository interface for managing {@link RecurringEvent} entities with pattern-based queries.
+ * 
+ * <p>This repository provides specialized data access functionality for recurring event patterns,
+ * supporting complex temporal queries, state management, and cursor-based pagination. It enables
+ * efficient retrieval of recurring patterns for expansion, calendar generation, and analytics
+ * within the event planning system.</p>
+ * 
+ * <h2>Core Capabilities</h2>
+ * <ul>
+ *   <li><strong>Pattern State Queries</strong>: Retrieve patterns by confirmation status</li>
+ *   <li><strong>Temporal Range Queries</strong>: Find patterns intersecting date ranges</li>
+ *   <li><strong>Cursor Pagination</strong>: Efficient pagination for large pattern collections</li>
+ *   <li><strong>User-Scoped Access</strong>: All queries filtered by pattern ownership</li>
+ * </ul>
+ * 
+ * <h2>Recurring Pattern Management</h2>
+ * <p>Comprehensive support for recurring event patterns:</p>
+ * <ul>
+ *   <li><strong>Pattern Lifecycle</strong>: Draft, confirmed, and active pattern states</li>
+ *   <li><strong>Date Range Filtering</strong>: Patterns intersecting specific time windows</li>
+ *   <li><strong>Ownership Isolation</strong>: User-specific pattern collections</li>
+ *   <li><strong>State Transitions</strong>: Support for pattern confirmation workflows</li>
+ * </ul>
+ * 
+ * <h2>Performance Optimization</h2>
+ * <ul>
+ *   <li><strong>Indexed Queries</strong>: Utilize creator_id and date range indexes</li>
+ *   <li><strong>Cursor Pagination</strong>: Efficient pagination without offset costs</li>
+ *   <li><strong>Range Queries</strong>: Optimized date range intersection logic</li>
+ *   <li><strong>State Filtering</strong>: Efficient confirmation status queries</li>
+ * </ul>
+ * 
+ * @see RecurringEvent
+ * @see RecurringEventService
+ * @see Event
+ * @author Event Planner Development Team
+ * @version 2.0.0
+ * @since 1.0.0
+ */
 @Repository
 public interface RecurringEventRepository extends JpaRepository<RecurringEvent, Long> {
 

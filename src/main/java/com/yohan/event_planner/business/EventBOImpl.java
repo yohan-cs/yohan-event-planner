@@ -9,6 +9,7 @@ import com.yohan.event_planner.dto.EventResponseDTO;
 import com.yohan.event_planner.dto.EventUpdateDTO;
 import com.yohan.event_planner.dto.WeekViewDTO;
 
+import com.yohan.event_planner.exception.EventAlreadyConfirmedException;
 import com.yohan.event_planner.exception.InvalidEventStateException;
 import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.repository.EventRepository;
@@ -34,7 +35,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.yohan.event_planner.exception.ErrorCode.EVENT_ALREADY_CONFIRMED;
 import static com.yohan.event_planner.exception.ErrorCode.INVALID_COMPLETION_STATUS;
 import static com.yohan.event_planner.exception.ErrorCode.INVALID_EVENT_TIME;
 import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_END_TIME;
@@ -43,23 +43,45 @@ import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_NAME;
 import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_START_TIME;
 
 /**
- * Concrete implementation of the {@link EventBO} interface.
- *
- * <p>
- * Provides business logic and coordination for managing {@link Event} entities.
- * This implementation delegates persistence operations to the {@link EventRepository},
- * and is responsible for enforcing domain rules such as time validation and conflict detection.
- * </p>
- *
- * <p>
- * Assumes all authorization and ownership checks are handled upstream
- * in the service layer. This class is not defensive and expects well-formed inputs.
- * </p>
+ * Business Object implementation for managing {@link Event} entities.
+ * 
+ * <p><strong>Architectural Role:</strong> This component sits in the Business Object layer,
+ * orchestrating domain validation, conflict detection, and business rule enforcement
+ * between the Service layer and Repository layer. It handles both individual events
+ * and recurring event solidification.</p>
+ * 
+ * <p><strong>Validation Strategy:</strong> Uses a two-phase approach:
+ * <ul>
+ *   <li><strong>Unconfirmed (Draft) Events:</strong> Minimal validation for flexible data entry</li>
+ *   <li><strong>Confirmed Events:</strong> Full validation including field checks, time validation, and conflict detection</li>
+ * </ul></p>
+ * 
+ * <p><strong>Key Responsibilities:</strong>
+ * <ul>
+ *   <li>Event CRUD operations with domain validation</li>
+ *   <li>Recurring event solidification (virtual → physical instances)</li>
+ *   <li>Calendar view data generation (day/week views)</li>
+ *   <li>Future event propagation from recurring event changes</li>
+ *   <li>Completion status validation and time bucket integration</li>
+ * </ul></p>
+ * 
+ * <p><strong>Dependencies:</strong>
+ * <ul>
+ *   <li>{@link ConflictValidator} - Scheduling conflict detection</li>
+ *   <li>{@link RecurringEventBO} - Recurring event operations</li>
+ *   <li>{@link EventPatchHandler} - Event field updates</li>
+ *   <li>{@link LabelTimeBucketService} - Time tracking integration</li>
+ *   <li>{@link ClockProvider} - Timezone-aware time operations</li>
+ * </ul></p>
+ * 
+ * <p><strong>Authorization:</strong> Assumes all authorization and ownership checks are handled
+ * upstream in the service layer. This class focuses on business logic and domain validation.</p>
  */
 @Service
 public class EventBOImpl implements EventBO {
 
     private static final Logger logger = LoggerFactory.getLogger(EventBOImpl.class);
+    private static final ZoneId UTC = ZoneId.of("UTC");
     private final RecurringEventBO recurringEventBO;
     private final RecurrenceRuleService recurrenceRuleService;
     private final LabelTimeBucketService labelTimeBucketService;
@@ -95,6 +117,9 @@ public class EventBOImpl implements EventBO {
         return eventRepository.findById(eventId);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<Event> getConfirmedEventsForUserInRange(Long userId, ZonedDateTime windowStart, ZonedDateTime windowEnd) {
         logger.debug("Fetching confirmed events for User ID {} between {} and {}", userId, windowStart, windowEnd);
@@ -102,6 +127,9 @@ public class EventBOImpl implements EventBO {
 
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<Event> getConfirmedEventsPage(
             Long userId,
@@ -111,11 +139,14 @@ public class EventBOImpl implements EventBO {
             int limit
     ) {
         if (endTimeCursor == null || startTimeCursor == null || idCursor == null) {
+            logger.debug("Using initial pagination for user {} with limit {}", userId, limit);
             return eventRepository.findTopConfirmedByUserIdOrderByEndTimeDescStartTimeDescIdDesc(
                     userId,
                     PageRequest.of(0, limit)
             );
         } else {
+            logger.debug("Using cursor-based pagination for user {} with cursors: endTime={}, startTime={}, id={}", 
+                    userId, endTimeCursor, startTimeCursor, idCursor);
             return eventRepository.findConfirmedByUserIdBeforeCursor(
                     userId,
                     endTimeCursor,
@@ -127,6 +158,9 @@ public class EventBOImpl implements EventBO {
     }
 
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public List<Event> getUnconfirmedEventsForUser(Long userId) {
         logger.debug("Fetching unconfirmed events for User ID {}", userId);
@@ -151,6 +185,9 @@ public class EventBOImpl implements EventBO {
     }
 
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void solidifyRecurrences(
             Long userId,
@@ -158,27 +195,59 @@ public class EventBOImpl implements EventBO {
             ZonedDateTime endTime,
             ZoneId userZoneId
     ) {
+        logger.info("Solidifying recurrences for user {} between {} and {}", userId, startTime, endTime);
         List<RecurringEvent> recurrences = recurringEventBO.getConfirmedRecurringEventsForUserInRange(
                 userId, startTime.toLocalDate(), endTime.toLocalDate()
         );
-
+        
+        if (recurrences.isEmpty()) {
+            logger.debug("No recurring events found for user {} in specified time range", userId);
+            return;
+        }
+        
+        logger.debug("Found {} recurring events to solidify for user {}", recurrences.size(), userId);
         for (RecurringEvent recurrence : recurrences) {
             solidifyVirtualOccurrences(recurrence, startTime, endTime, userZoneId);
         }
+        logger.info("Completed solidification for user {}", userId);
     }
 
+    /**
+     * Solidifies virtual occurrences of a recurring event within the specified time window.
+     *
+     * <p>
+     * This method expands the recurrence rule to generate individual event instances,
+     * checking for existing events and conflicts. Events are created as confirmed if no
+     * conflicts exist, or as unconfirmed drafts if conflicts are detected.
+     * </p>
+     *
+     * @param recurrence the recurring event to solidify occurrences for
+     * @param windowStart the start of the time window for solidification
+     * @param windowEnd the end of the time window for solidification
+     * @param userZoneId the user's timezone for date calculations
+     */
     private void solidifyVirtualOccurrences(
             RecurringEvent recurrence,
             ZonedDateTime windowStart,
             ZonedDateTime windowEnd,
             ZoneId userZoneId
     ) {
+        logger.debug("Solidifying virtual occurrences for recurring event {} '{}'", 
+                recurrence.getId(), recurrence.getName());
         List<LocalDate> occurrenceDates = recurrenceRuleService.expandRecurrence(
                 recurrence.getRecurrenceRule().getParsed(),
                 windowStart.toLocalDate(),
                 windowEnd.toLocalDate(),
                 recurrence.getSkipDays()
         );
+        
+        if (occurrenceDates.isEmpty()) {
+            logger.debug("No occurrence dates found for recurring event {}", recurrence.getId());
+            return;
+        }
+        
+        logger.debug("Found {} potential occurrence dates for recurring event {}", 
+                occurrenceDates.size(), recurrence.getId());
 
         List<Event> solidifiedEvents = getAllConfirmedEventsAndSolidifiedRecurringInstanceForUserAndRecurringEventBetween(
                 recurrence.getCreator().getId(),
@@ -189,9 +258,9 @@ public class EventBOImpl implements EventBO {
 
         for (LocalDate date : occurrenceDates) {
             ZonedDateTime startTime = ZonedDateTime.of(date, recurrence.getStartTime(), userZoneId)
-                    .withZoneSameInstant(ZoneId.of("UTC"));
+                    .withZoneSameInstant(UTC);
             ZonedDateTime endTime = ZonedDateTime.of(date, recurrence.getEndTime(), userZoneId)
-                    .withZoneSameInstant(ZoneId.of("UTC"));
+                    .withZoneSameInstant(UTC);
 
             if (!endTime.isBefore(windowEnd)) {
                 continue;
@@ -201,6 +270,8 @@ public class EventBOImpl implements EventBO {
                     .anyMatch(e -> e.getStartTime().withZoneSameInstant(userZoneId).toLocalDate().equals(date));
 
             if (instanceExists) {
+                logger.debug("Event instance already exists for recurring event {} on date {}", 
+                        recurrence.getId(), date);
                 continue;
             }
 
@@ -210,6 +281,14 @@ public class EventBOImpl implements EventBO {
             Event event = hasConflict
                     ? Event.createUnconfirmedDraft(recurrence.getName(), startTime, endTime, recurrence.getCreator())
                     : Event.createEvent(recurrence.getName(), startTime, endTime, recurrence.getCreator());
+            
+            if (hasConflict) {
+                logger.debug("Creating unconfirmed draft due to conflict for recurring event {} on {}", 
+                        recurrence.getId(), date);
+            } else {
+                logger.debug("Creating confirmed event for recurring event {} on {}", 
+                        recurrence.getId(), date);
+            }
 
             event.setDescription(recurrence.getDescription());
             event.setLabel((recurrence.getLabel() != null)
@@ -238,19 +317,7 @@ public class EventBOImpl implements EventBO {
         boolean wasCompleted = contextDTO != null && contextDTO.wasCompleted();
         boolean isNowCompleted = event.isCompleted();
 
-        if (!wasCompleted && isNowCompleted) {
-            ZonedDateTime now = ZonedDateTime.now(clockProvider.getClockForUser(event.getCreator()));
-
-
-            if (event.getEndTime().isAfter(now)) {
-                throw new InvalidTimeException(
-                        INVALID_COMPLETION_STATUS,
-                        event.getStartTime(),
-                        event.getEndTime(),
-                        now
-                );
-            }
-        }
+        validateCompletionStatusChange(event, wasCompleted, isNowCompleted);
 
         Event saved = eventRepository.save(event);
 
@@ -262,10 +329,17 @@ public class EventBOImpl implements EventBO {
         return saved;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     public Event confirmEvent(Event event) {
         logger.info("Confirming event ID {}", event.getId());
+
+        if (!event.isUnconfirmed()) {
+            throw new EventAlreadyConfirmedException(event.getId());
+        }
 
         validateConfirmedEventFields(event);
         validateStartBeforeEnd(event.getStartTime(), event.getEndTime());
@@ -284,6 +358,9 @@ public class EventBOImpl implements EventBO {
         eventRepository.deleteById(eventId);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void deleteAllUnconfirmedEventsByUser(Long userId) {
         logger.info("Deleting all unconfirmed events for  User ID {}", userId);
@@ -292,6 +369,38 @@ public class EventBOImpl implements EventBO {
 
 
     // region: Private Methods
+    
+    /**
+     * Validates that completion status changes are allowed based on event timing.
+     *
+     * <p>
+     * Events can only be marked as completed if their end time has already passed.
+     * This prevents users from marking future events as completed.
+     * </p>
+     *
+     * @param event the event being updated
+     * @param wasCompleted the previous completion status
+     * @param isNowCompleted the new completion status
+     * @throws InvalidTimeException if attempting to complete a future event
+     */
+    private void validateCompletionStatusChange(Event event, boolean wasCompleted, boolean isNowCompleted) {
+        if (!wasCompleted && isNowCompleted) {
+            logger.debug("Validating completion status change for event {}", event.getId());
+            ZonedDateTime now = ZonedDateTime.now(clockProvider.getClockForUser(event.getCreator()));
+            if (event.getEndTime().isAfter(now)) {
+                logger.warn("Cannot complete future event {}: ends at {} but current time is {}", 
+                        event.getId(), event.getEndTime(), now);
+                throw new InvalidTimeException(
+                        INVALID_COMPLETION_STATUS,
+                        event.getStartTime(),
+                        event.getEndTime(),
+                        now
+                );
+            }
+            logger.debug("Event {} completion validation passed", event.getId());
+        }
+    }
+    
     private EventChangeContextDTO buildChangeContext(EventChangeContextDTO contextDTO, Event after) {
         return new EventChangeContextDTO(
                 contextDTO.userId(),
@@ -309,19 +418,28 @@ public class EventBOImpl implements EventBO {
 
     // region: Private Validation Methods
 
+    /**
+     * Validates all required fields for a confirmed event.
+     * 
+     * <p>Performs comprehensive validation including:
+     * <ul>
+     *   <li>Required field presence (name, times, label)</li>
+     *   <li>String field non-blank validation</li>
+     * </ul></p>
+     * 
+     * <p>This validation is only applied to confirmed events. Draft events bypass
+     * validation to allow flexible data entry.</p>
+     * 
+     * @param event the event to validate
+     * @throws InvalidEventStateException if any required field is missing or invalid
+     */
     private void validateConfirmedEventFields(Event event) {
-        if (event.getName() == null || event.getName().isBlank()) {
-            throw new InvalidEventStateException(MISSING_EVENT_NAME);
-        }
-        if (event.getStartTime() == null) {
-            throw new InvalidEventStateException(MISSING_EVENT_START_TIME);
-        }
-        if (event.getEndTime() == null) {
-            throw new InvalidEventStateException(MISSING_EVENT_END_TIME);
-        }
-        if (event.getLabel() == null) {
-            throw new InvalidEventStateException(MISSING_EVENT_LABEL);
-        }
+        logger.debug("Validating confirmed event fields for event {}", event.getId());
+        validateRequiredStringField(event.getName(), MISSING_EVENT_NAME);
+        validateRequiredField(event.getStartTime(), MISSING_EVENT_START_TIME);
+        validateRequiredField(event.getEndTime(), MISSING_EVENT_END_TIME);
+        validateRequiredField(event.getLabel(), MISSING_EVENT_LABEL);
+        logger.debug("Event {} field validation passed", event.getId());
     }
 
     /**
@@ -333,6 +451,7 @@ public class EventBOImpl implements EventBO {
      */
     private void validateStartBeforeEnd(ZonedDateTime start, ZonedDateTime end) {
         if (!start.isBefore(end)) {
+            logger.warn("Invalid time range: start {} is not before end {}", start, end);
             throw new InvalidTimeException(INVALID_EVENT_TIME, start, end);
         }
     }
@@ -427,6 +546,9 @@ public class EventBOImpl implements EventBO {
         return dayMap;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     public int updateFutureEventsFromRecurringEvent(RecurringEvent recurringEvent, Set<String> changedFields, ZoneId userZoneId) {
@@ -467,6 +589,21 @@ public class EventBOImpl implements EventBO {
         return updatedCount;
     }
 
+    /**
+     * Creates an EventUpdateDTO from a RecurringEvent for updating individual event instances.
+     *
+     * <p>
+     * This method constructs a partial update DTO containing only the fields that have changed
+     * in the recurring event. The DTO is used to apply consistent updates to all future
+     * event instances created from the recurring event.
+     * </p>
+     *
+     * @param recurringEvent the recurring event with updated values
+     * @param changedFields the set of field names that have changed
+     * @param occurrenceDate the specific date for this event occurrence
+     * @param userZoneId the user's timezone for time calculations
+     * @return an EventUpdateDTO containing only the changed fields
+     */
     private EventUpdateDTO createEventUpdateDTOFromRecurringEvent(
             RecurringEvent recurringEvent, 
             Set<String> changedFields, 
@@ -479,12 +616,12 @@ public class EventBOImpl implements EventBO {
         
         Optional<ZonedDateTime> startTime = changedFields.contains("startTime")
                 ? Optional.of(ZonedDateTime.of(occurrenceDate, recurringEvent.getStartTime(), userZoneId)
-                        .withZoneSameInstant(ZoneId.of("UTC")))
+                        .withZoneSameInstant(UTC))
                 : null;
         
         Optional<ZonedDateTime> endTime = changedFields.contains("endTime")
                 ? Optional.of(ZonedDateTime.of(occurrenceDate, recurringEvent.getEndTime(), userZoneId)
-                        .withZoneSameInstant(ZoneId.of("UTC")))
+                        .withZoneSameInstant(UTC))
                 : null;
         
         Optional<Long> labelId = changedFields.contains("label")
@@ -492,5 +629,33 @@ public class EventBOImpl implements EventBO {
                 : null;
         
         return new EventUpdateDTO(name, startTime, endTime, null, labelId, null);
+    }
+
+    /**
+     * Validates that a required field is not null.
+     * 
+     * @param field the field to validate
+     * @param errorCode the error code to throw if validation fails
+     * @throws InvalidEventStateException if the field is null
+     */
+    private void validateRequiredField(Object field, com.yohan.event_planner.exception.ErrorCode errorCode) {
+        if (field == null) {
+            logger.warn("Required field validation failed: {}", errorCode);
+            throw new InvalidEventStateException(errorCode);
+        }
+    }
+
+    /**
+     * Validates that a required string field is not null or blank.
+     * 
+     * @param field the string field to validate
+     * @param errorCode the error code to throw if validation fails
+     * @throws InvalidEventStateException if the field is null or blank
+     */
+    private void validateRequiredStringField(String field, com.yohan.event_planner.exception.ErrorCode errorCode) {
+        if (field == null || field.isBlank()) {
+            logger.warn("Required string field validation failed: {}", errorCode);
+            throw new InvalidEventStateException(errorCode);
+        }
     }
 }

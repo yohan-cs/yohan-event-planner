@@ -49,32 +49,120 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Concrete implementation of the {@link EventService} interface.
- *
- * <p>
- * Coordinates validation, business logic, and DTO conversion for managing {@link Event} entities.
- * This implementation enforces ownership checks via {@link OwnershipValidator} and delegates
- * domain logic to {@link EventBO}.
- * </p>
- *
- * <h2>Time Handling</h2>
+ * Implementation of {@link EventService} providing comprehensive event management functionality.
+ * 
+ * <p>This service serves as the central orchestrator for event operations, coordinating complex 
+ * business logic across multiple domains including time management, recurring events, labeling,
+ * and user authorization. It provides full CRUD operations with advanced features like view 
+ * generation, event confirmation workflows, and integration with recurring event patterns.</p>
+ * 
+ * <h2>Core Functionality</h2>
  * <ul>
- *     <li>All start and end times are stored internally in UTC.</li>
- *     <li>Original time zone IDs are stored separately to support accurate local time display.</li>
- *     <li>Time zone adjustments for response objects are based on the viewer's profile time zone.</li>
+ *   <li><strong>Event Lifecycle Management</strong>: Create, read, update, delete with state validation</li>
+ *   <li><strong>Confirmation Workflows</strong>: Support for draft → confirmed → completed transitions</li>
+ *   <li><strong>Time Management</strong>: Advanced timezone handling with UTC storage and local display</li>
+ *   <li><strong>Recurring Event Integration</strong>: Bidirectional sync with recurring event patterns</li>
  * </ul>
- *
- * <h2>Duration Handling</h2>
+ * 
+ * <h2>Advanced Time Handling</h2>
+ * <p>The service implements sophisticated time management strategies:</p>
  * <ul>
- *     <li>{@code durationMinutes} is calculated during event creation if {@code endTime} is provided.</li>
- *     <li>During update operations, {@code durationMinutes} is updated or cleared via the patch handler.</li>
- *     <li>Duration is expressed in whole minutes and stored explicitly in the {@link Event} entity.</li>
+ *   <li><strong>UTC Storage</strong>: All timestamps stored in UTC for consistency</li>
+ *   <li><strong>Timezone Preservation</strong>: Original timezone IDs maintained for accurate local display</li>
+ *   <li><strong>Duration Calculations</strong>: Automatic duration computation in minutes</li>
+ *   <li><strong>Untimed Events</strong>: Support for events without specific end times</li>
+ *   <li><strong>Multi-timezone Views</strong>: Generate views adjusted to user's current timezone</li>
  * </ul>
- *
- * <p>
- * This class is not responsible for persistence or direct repository access.
- * It delegates those concerns to the {@link EventBO}.
- * </p>
+ * 
+ * <h2>Event State Management</h2>
+ * <p>Events progress through distinct states with enforced transitions:</p>
+ * <ul>
+ *   <li><strong>Unconfirmed (Draft)</strong>: Initial state, visible only to creator</li>
+ *   <li><strong>Confirmed</strong>: Finalized events, visible to authorized users</li>
+ *   <li><strong>Completed</strong>: Past events marked as finished</li>
+ * </ul>
+ * 
+ * <h2>View Generation</h2>
+ * <p>Provides specialized views for different UI requirements:</p>
+ * <ul>
+ *   <li><strong>Day View</strong>: Single-day event aggregation with hour-by-hour breakdown</li>
+ *   <li><strong>Week View</strong>: Seven-day overview with recurring event expansion</li>
+ *   <li><strong>Filtered Views</strong>: Label-based filtering and time range restrictions</li>
+ *   <li><strong>Pagination Support</strong>: Cursor-based pagination for infinite scrolling</li>
+ * </ul>
+ * 
+ * <h2>Recurring Event Integration</h2>
+ * <p>Seamlessly integrates with recurring event patterns:</p>
+ * <ul>
+ *   <li><strong>Pattern Expansion</strong>: Generate individual events from recurring patterns</li>
+ *   <li><strong>Bulk Updates</strong>: Propagate changes to future instances</li>
+ *   <li><strong>Exception Handling</strong>: Support for modified individual occurrences</li>
+ *   <li><strong>Conflict Resolution</strong>: Validate timing conflicts across patterns</li>
+ * </ul>
+ * 
+ * <h2>Advanced Features</h2>
+ * <ul>
+ *   <li><strong>Impromptu Events</strong>: Quick creation for unplanned activities</li>
+ *   <li><strong>Bulk Operations</strong>: Efficient deletion of unconfirmed events</li>
+ *   <li><strong>Event Filtering</strong>: Complex filtering by time, labels, and completion status</li>
+ *   <li><strong>Ownership Validation</strong>: Comprehensive authorization checks</li>
+ * </ul>
+ * 
+ * <h2>Performance Optimizations</h2>
+ * <ul>
+ *   <li><strong>Blaze-Persistence Integration</strong>: Efficient complex queries via EventDAO</li>
+ *   <li><strong>Lazy Loading</strong>: Minimize database hits through strategic loading</li>
+ *   <li><strong>Cursor Pagination</strong>: Scalable pagination for large datasets</li>
+ *   <li><strong>Batch Operations</strong>: Reduce round trips for bulk updates</li>
+ * </ul>
+ * 
+ * <h2>Security and Authorization</h2>
+ * <p>Comprehensive security model ensures data protection:</p>
+ * <ul>
+ *   <li><strong>Ownership Validation</strong>: Users can only access their own events</li>
+ *   <li><strong>State-based Visibility</strong>: Unconfirmed events hidden from non-creators</li>
+ *   <li><strong>Label Authorization</strong>: Validate access to associated labels</li>
+ *   <li><strong>Operation Restrictions</strong>: Prevent unauthorized state transitions</li>
+ * </ul>
+ * 
+ * <h2>Integration Architecture</h2>
+ * <p>This service integrates with multiple system components:</p>
+ * <ul>
+ *   <li><strong>EventBO</strong>: Business logic delegation for complex operations</li>
+ *   <li><strong>LabelService</strong>: Event categorization and organization</li>
+ *   <li><strong>RecurringEventBO</strong>: Recurring pattern management</li>
+ *   <li><strong>EventDAO</strong>: Advanced query execution via Blaze-Persistence</li>
+ *   <li><strong>Time Services</strong>: Timezone conversion and clock management</li>
+ * </ul>
+ * 
+ * <h2>Error Handling</h2>
+ * <p>Comprehensive error handling for various scenarios:</p>
+ * <ul>
+ *   <li><strong>EventNotFoundException</strong>: When requested events don't exist</li>
+ *   <li><strong>EventAlreadyConfirmedException</strong>: When attempting invalid state transitions</li>
+ *   <li><strong>InvalidTimeException</strong>: For time validation failures</li>
+ *   <li><strong>Ownership Violations</strong>: When users access unauthorized events</li>
+ * </ul>
+ * 
+ * <h2>Data Consistency</h2>
+ * <p>Maintains consistency across related entities:</p>
+ * <ul>
+ *   <li><strong>Transactional Boundaries</strong>: Ensure atomic operations</li>
+ *   <li><strong>Cascade Management</strong>: Handle related entity updates</li>
+ *   <li><strong>Constraint Validation</strong>: Enforce business rules</li>
+ *   <li><strong>State Synchronization</strong>: Keep recurring events in sync</li>
+ * </ul>
+ * 
+ * @see EventService
+ * @see Event
+ * @see EventBO
+ * @see EventDAO
+ * @see RecurringEventBO
+ * @see LabelService
+ * @see EventResponseDTOFactory
+ * @author Event Planner Development Team
+ * @version 2.0.0
+ * @since 1.0.0
  */
 @Service
 public class EventServiceImpl implements EventService {

@@ -28,7 +28,7 @@ import com.yohan.event_planner.dto.RecurringEventResponseDTO;
 import com.yohan.event_planner.dto.TimeStatsDTO;
 import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.dto.UserResponseDTO;
-import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
+import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.security.CustomUserDetails;
 import com.yohan.event_planner.service.ParsedRecurrenceInput;
 import com.yohan.event_planner.service.RecurrenceRuleServiceImpl;
@@ -115,8 +115,8 @@ public class TestUtils {
         );
     }
 
-    public static RegisterRequestDTO createValidRegisterPayload() {
-        return new RegisterRequestDTO(
+    public static UserCreateDTO createValidRegisterPayload() {
+        return new UserCreateDTO(
                 VALID_USERNAME,
                 VALID_PASSWORD,
                 VALID_EMAIL,
@@ -126,9 +126,9 @@ public class TestUtils {
         );
     }
 
-    public static RegisterRequestDTO createValidRegisterPayload(String suffix) {
+    public static UserCreateDTO createValidRegisterPayload(String suffix) {
         Objects.requireNonNull(suffix, "suffix must not be null");
-        return new RegisterRequestDTO(
+        return new UserCreateDTO(
                 "user" + suffix,
                 VALID_PASSWORD,
                 "user" + suffix + "@example.com",
@@ -158,6 +158,21 @@ public class TestUtils {
         User user = createValidUserEntity();
         setUserId(user, id);
         return user;
+    }
+
+    /**
+     * Creates a test user with a specific username.
+     */
+    public static User createTestUser(String username) {
+        Objects.requireNonNull(username, "username must not be null");
+        return new User(
+                username,
+                VALID_PASSWORD,
+                username + "@example.com",
+                VALID_FIRST_NAME,
+                VALID_LAST_NAME,
+                VALID_TIMEZONE
+        );
     }
 
     /**
@@ -339,6 +354,7 @@ public class TestUtils {
                 endTimeZone,
                 event.getDescription(),
                 event.getCreator().getUsername(),
+                event.getCreator().getTimezone(),
                 labelDto,
                 event.isCompleted(),
                 event.isUnconfirmed(),
@@ -362,6 +378,7 @@ public class TestUtils {
                 null,
                 VALID_EVENT_DESCRIPTION,
                 VALID_USERNAME,
+                VALID_TIMEZONE,
                 labelDto,
                 false,
                 false,
@@ -385,6 +402,7 @@ public class TestUtils {
                 null,
                 VALID_EVENT_DESCRIPTION,
                 VALID_USERNAME,
+                VALID_TIMEZONE,
                 labelDto,
                 true,   // completed flag
                 false,
@@ -659,6 +677,7 @@ public class TestUtils {
                 endTimeZone,
                 recurringEvent.getDescription(),
                 recurringEvent.getCreator().getUsername(),
+                recurringEvent.getCreator().getTimezone(),
                 label,
                 false,
                 false,
@@ -1202,11 +1221,19 @@ public class TestUtils {
      * Creates a valid RefreshToken entity for testing.
      */
     public static RefreshToken createValidRefreshToken(Long userId) {
+        // Use real time + 1 hour to ensure token is valid during test execution
+        return createValidRefreshToken(userId, Clock.systemUTC());
+    }
+
+    /**
+     * Creates a valid RefreshToken entity for testing with the given clock.
+     */
+    public static RefreshToken createValidRefreshToken(Long userId, Clock clock) {
         RefreshToken token = new RefreshToken();
         setId(token, 1L);
         token.setUserId(userId);
         token.setTokenHash("hashed-token-" + userId);
-        token.setExpiryDate(Instant.now().plusSeconds(3600)); // 1 hour from now
+        token.setExpiryDate(clock.instant().plusSeconds(3600)); // 1 hour from clock time
         token.setRevoked(false);
         return token;
     }
@@ -1215,11 +1242,19 @@ public class TestUtils {
      * Creates an expired RefreshToken entity for testing.
      */
     public static RefreshToken createExpiredRefreshToken(Long userId) {
+        // Use real time - 1 hour to ensure token is expired during test execution
+        return createExpiredRefreshToken(userId, Clock.systemUTC());
+    }
+
+    /**
+     * Creates an expired RefreshToken entity for testing with the given clock.
+     */
+    public static RefreshToken createExpiredRefreshToken(Long userId, Clock clock) {
         RefreshToken token = new RefreshToken();
         setId(token, 2L);
         token.setUserId(userId);
         token.setTokenHash("hashed-expired-token-" + userId);
-        token.setExpiryDate(Instant.now().minusSeconds(3600)); // 1 hour ago
+        token.setExpiryDate(clock.instant().minusSeconds(3600)); // 1 hour before clock time
         token.setRevoked(false);
         return token;
     }
@@ -1228,11 +1263,19 @@ public class TestUtils {
      * Creates a revoked RefreshToken entity for testing.
      */
     public static RefreshToken createRevokedRefreshToken(Long userId) {
+        // Use real time + 1 hour for expiry, but mark as revoked
+        return createRevokedRefreshToken(userId, Clock.systemUTC());
+    }
+
+    /**
+     * Creates a revoked RefreshToken entity for testing with the given clock.
+     */
+    public static RefreshToken createRevokedRefreshToken(Long userId, Clock clock) {
         RefreshToken token = new RefreshToken();
         setId(token, 3L);
         token.setUserId(userId);
         token.setTokenHash("hashed-revoked-token-" + userId);
-        token.setExpiryDate(Instant.now().plusSeconds(3600)); // 1 hour from now
+        token.setExpiryDate(clock.instant().plusSeconds(3600)); // 1 hour from clock time
         token.setRevoked(true);
         return token;
     }

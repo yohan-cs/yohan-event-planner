@@ -68,12 +68,17 @@ public class TestDataHelper {
         TestAuthUtils.AuthResult authResult = testAuthUtils.registerAndLoginUser(suffix);
         User user = userRepository.findByUsername("user" + suffix)
                 .orElseThrow(() -> new IllegalStateException("User not found after registration"));
+        
+        // Verify the user's email for testing purposes
+        user.verifyEmail();
+        userRepository.saveAndFlush(user);
+        
         return new TestAuthUtils.AuthResult(authResult.jwt(), authResult.refreshToken(), user, authResult.userId());
     }
 
     // Helper method to create and persist a label
     public Label createAndPersistLabel(User user, String name) {
-        String uniqueName = name + "_" + System.currentTimeMillis();
+        String uniqueName = name + "_" + System.currentTimeMillis() + "_" + System.nanoTime();
         var label = TestUtils.createValidLabel(user, uniqueName);
         return labelRepository.saveAndFlush(label);
     }

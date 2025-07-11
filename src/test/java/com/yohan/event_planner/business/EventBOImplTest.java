@@ -1,20 +1,23 @@
 package com.yohan.event_planner.business;
 
-
 import com.yohan.event_planner.business.handler.EventPatchHandler;
 import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.Label;
 import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.dto.DayViewDTO;
 import com.yohan.event_planner.dto.EventChangeContextDTO;
+import com.yohan.event_planner.dto.EventResponseDTO;
+import com.yohan.event_planner.dto.LabelResponseDTO;
+import com.yohan.event_planner.dto.WeekViewDTO;
 import com.yohan.event_planner.exception.ConflictException;
+import com.yohan.event_planner.exception.EventAlreadyConfirmedException;
 import com.yohan.event_planner.exception.InvalidEventStateException;
 import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.repository.EventRepository;
 import com.yohan.event_planner.service.LabelTimeBucketService;
 import com.yohan.event_planner.service.RecurrenceRuleService;
 import com.yohan.event_planner.time.ClockProvider;
-import com.yohan.event_planner.util.TestConstants;
 import com.yohan.event_planner.util.TestUtils;
 import com.yohan.event_planner.validation.ConflictValidator;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,11 +27,14 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.IntStream;
 
 import static com.yohan.event_planner.util.TestConstants.EVENT_ID;
 import static com.yohan.event_planner.util.TestConstants.USER_ID;
@@ -49,6 +55,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -806,6 +813,22 @@ public class EventBOImplTest {
             verify(eventRepository, never()).save(any());
         }
 
+        @Test
+        void testConfirmEventThrowsExceptionWhenEventAlreadyConfirmed() {
+            // Arrange
+            User creator = TestUtils.createValidUserEntityWithId();
+            Event alreadyConfirmed = TestUtils.createValidFullDraftEvent(creator, fixedClock);
+            alreadyConfirmed.setUnconfirmed(false); // already confirmed
+            TestUtils.setEventId(alreadyConfirmed, EVENT_ID);
+
+            // Act + Assert
+            assertThrows(EventAlreadyConfirmedException.class, () -> eventBO.confirmEvent(alreadyConfirmed));
+
+            // Should not proceed to validation or saving
+            verifyNoInteractions(conflictValidator);
+            verify(eventRepository, never()).save(any());
+        }
+
     }
 
     @Nested
@@ -837,6 +860,514 @@ public class EventBOImplTest {
             verify(eventRepository).deleteAllUnconfirmedEventsByUser(userId);
         }
 
+    }
+
+    @Nested
+    class ViewGenerationTimezoneTests {
+
+        @Test
+        void testDayViewGenerationWithTimezoneEdgeCases() {
+            // Arrange
+            LocalDate selectedDate = LocalDate.of(2025, 6, 29);
+            User creator = TestUtils.createValidUserEntityWithId();
+            Label label = TestUtils.createValidLabelWithId(VALID_LABEL_ID, creator);
+            LabelResponseDTO labelDto = TestUtils.createLabelResponseDTO(label);
+            
+            // Create events that span timezone boundaries
+            List<EventResponseDTO> confirmedEvents = List.of(
+                new EventResponseDTO(
+                    1L, "Event 1", 
+                    ZonedDateTime.of(2025, 6, 28, 23, 30, 0, 0, ZoneId.of("UTC")), // 11:30 PM UTC
+                    ZonedDateTime.of(2025, 6, 29, 1, 0, 0, 0, ZoneId.of("UTC")),  // 1:00 AM UTC next day
+                    90, // durationMinutes
+                    null, null, // timezone fields
+                    "Event crossing midnight", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                ),
+                new EventResponseDTO(
+                    2L, "Event 2",
+                    ZonedDateTime.of(2025, 6, 29, 10, 0, 0, 0, ZoneId.of("UTC")),
+                    ZonedDateTime.of(2025, 6, 29, 11, 0, 0, 0, ZoneId.of("UTC")),
+                    60, // durationMinutes
+                    null, null, // timezone fields
+                    "Morning event", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                )
+            );
+            
+            List<EventResponseDTO> virtualEvents = List.of(
+                new EventResponseDTO(
+                    3L, "Virtual Event",
+                    ZonedDateTime.of(2025, 6, 29, 22, 0, 0, 0, ZoneId.of("UTC")),
+                    ZonedDateTime.of(2025, 6, 30, 0, 30, 0, 0, ZoneId.of("UTC")), // Crosses midnight
+                    150, // durationMinutes
+                    null, null, // timezone fields
+                    "Virtual event crossing midnight", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, true
+                )
+            );
+
+            // Act
+            DayViewDTO result = eventBO.generateDayViewData(selectedDate, confirmedEvents, virtualEvents);
+
+            // Assert
+            assertEquals(selectedDate, result.date());
+            assertEquals(3, result.events().size());
+            
+            // Verify events are sorted by start time
+            List<EventResponseDTO> sortedEvents = result.events();
+            assertTrue(sortedEvents.get(0).startTimeUtc().isBefore(sortedEvents.get(1).startTimeUtc()));
+            assertTrue(sortedEvents.get(1).startTimeUtc().isBefore(sortedEvents.get(2).startTimeUtc()));
+        }
+
+        @Test
+        void testWeekViewGenerationWithDifferentTimezones() {
+            // Arrange
+            Long userId = USER_ID;
+            LocalDate anchorDate = LocalDate.of(2025, 6, 25); // Wednesday - anchor within the week
+            ZoneId userZoneId = ZoneId.of("America/New_York"); // UTC-4 in summer
+            User creator = TestUtils.createValidUserEntityWithId();
+            Label label = TestUtils.createValidLabelWithId(VALID_LABEL_ID, creator);
+            LabelResponseDTO labelDto = TestUtils.createLabelResponseDTO(label);
+            
+            // Create events spanning different days in different timezones within the same week
+            List<EventResponseDTO> confirmedEvents = List.of(
+                // Event that's Saturday night in NYC (within the week June 23-29)
+                new EventResponseDTO(
+                    1L, "Late Night Event",
+                    ZonedDateTime.of(2025, 6, 29, 3, 0, 0, 0, ZoneId.of("UTC")),    // 11 PM Saturday NYC
+                    ZonedDateTime.of(2025, 6, 29, 4, 0, 0, 0, ZoneId.of("UTC")),    // 12 AM Sunday NYC
+                    60, // durationMinutes
+                    "America/New_York", "America/New_York", // timezone fields
+                    "Late night event", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                ),
+                // Event on Wednesday in NYC
+                new EventResponseDTO(
+                    2L, "Wednesday Event",
+                    ZonedDateTime.of(2025, 6, 25, 18, 0, 0, 0, ZoneId.of("UTC")),   // 2 PM Wednesday NYC
+                    ZonedDateTime.of(2025, 6, 25, 19, 0, 0, 0, ZoneId.of("UTC")),   // 3 PM Wednesday NYC
+                    60, // durationMinutes
+                    "America/New_York", "America/New_York", // timezone fields
+                    "Wednesday event", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                )
+            );
+            
+            List<EventResponseDTO> virtualEvents = List.of(
+                new EventResponseDTO(
+                    3L, "Virtual Friday Event",
+                    ZonedDateTime.of(2025, 6, 27, 17, 0, 0, 0, ZoneId.of("UTC")),   // 1 PM Friday NYC
+                    ZonedDateTime.of(2025, 6, 27, 18, 0, 0, 0, ZoneId.of("UTC")),   // 2 PM Friday NYC
+                    60, // durationMinutes
+                    null, null, // timezone fields
+                    "Virtual Friday event", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, true
+                )
+            );
+
+            // Act
+            WeekViewDTO result = eventBO.generateWeekViewData(userId, anchorDate, userZoneId, confirmedEvents, virtualEvents);
+
+            // Assert
+            assertEquals(7, result.days().size());
+            
+            // Verify week starts on Monday and ends on Sunday
+            assertEquals(LocalDate.of(2025, 6, 23), result.days().get(0).date()); // Monday
+            assertEquals(LocalDate.of(2025, 6, 29), result.days().get(6).date()); // Sunday
+            
+            // Verify events are distributed correctly across days in user timezone
+            Map<LocalDate, List<EventResponseDTO>> dayEvents = result.days().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                    DayViewDTO::date,
+                    DayViewDTO::events
+                ));
+            
+            // Wednesday should have the Wednesday event
+            List<EventResponseDTO> wednesdayEvents = dayEvents.getOrDefault(LocalDate.of(2025, 6, 25), List.of());
+            assertEquals(1, wednesdayEvents.size());
+            assertEquals("Wednesday Event", wednesdayEvents.get(0).name());
+            
+            // Friday should have the virtual event
+            List<EventResponseDTO> fridayEvents = dayEvents.getOrDefault(LocalDate.of(2025, 6, 27), List.of());
+            assertEquals(1, fridayEvents.size());
+            assertEquals("Virtual Friday Event", fridayEvents.get(0).name());
+            
+            // Sunday should have the late night event (starts Saturday 11 PM NYC, which is Sunday 3 AM UTC)
+            List<EventResponseDTO> sundayEvents = dayEvents.getOrDefault(LocalDate.of(2025, 6, 29), List.of());
+            assertEquals(1, sundayEvents.size());
+            assertEquals("Late Night Event", sundayEvents.get(0).name());
+        }
+
+        @Test
+        void testWeekViewWithEmptyEventsAcrossTimezones() {
+            // Arrange
+            Long userId = USER_ID;
+            LocalDate anchorDate = LocalDate.of(2025, 6, 29);
+            ZoneId userZoneId = ZoneId.of("Pacific/Auckland"); // UTC+12
+            
+            // Act
+            WeekViewDTO result = eventBO.generateWeekViewData(userId, anchorDate, userZoneId, List.of(), List.of());
+
+            // Assert
+            assertEquals(7, result.days().size());
+            
+            // All days should have empty event lists
+            for (DayViewDTO day : result.days()) {
+                assertTrue(day.events().isEmpty());
+            }
+        }
+    }
+
+    @Nested
+    class MultiDayEventHandlingTests {
+
+        @Test
+        void testGroupEventsByDayWithSingleDayEvents() {
+            // Arrange
+            ZoneId userZoneId = ZoneId.of("America/Los_Angeles");
+            User creator = TestUtils.createValidUserEntityWithId();
+            Label label = TestUtils.createValidLabelWithId(VALID_LABEL_ID, creator);
+            LabelResponseDTO labelDto = TestUtils.createLabelResponseDTO(label);
+            
+            List<EventResponseDTO> events = List.of(
+                new EventResponseDTO(
+                    1L, "Morning Event",
+                    ZonedDateTime.of(2025, 6, 29, 16, 0, 0, 0, ZoneId.of("UTC")), // 9 AM PDT
+                    ZonedDateTime.of(2025, 6, 29, 17, 0, 0, 0, ZoneId.of("UTC")), // 10 AM PDT
+                    60, // durationMinutes
+                    "America/Los_Angeles", "America/Los_Angeles", // timezone fields
+                    "Morning event", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                ),
+                new EventResponseDTO(
+                    2L, "Afternoon Event",
+                    ZonedDateTime.of(2025, 6, 29, 20, 0, 0, 0, ZoneId.of("UTC")), // 1 PM PDT
+                    ZonedDateTime.of(2025, 6, 29, 21, 0, 0, 0, ZoneId.of("UTC")), // 2 PM PDT
+                    60, // durationMinutes
+                    "America/Los_Angeles", "America/Los_Angeles", // timezone fields
+                    "Afternoon event", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                )
+            );
+
+            // Act
+            WeekViewDTO weekView = eventBO.generateWeekViewData(USER_ID, LocalDate.of(2025, 6, 29), userZoneId, events, List.of());
+            
+            // Assert - Check that single-day events appear only on their respective days
+            Map<LocalDate, List<EventResponseDTO>> dayEvents = weekView.days().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                    DayViewDTO::date,
+                    DayViewDTO::events
+                ));
+            
+            // June 29, 2025 should have both events
+            List<EventResponseDTO> june29Events = dayEvents.get(LocalDate.of(2025, 6, 29));
+            assertEquals(2, june29Events.size());
+            
+            // Other days should be empty
+            for (DayViewDTO day : weekView.days()) {
+                if (!day.date().equals(LocalDate.of(2025, 6, 29))) {
+                    assertTrue(day.events().isEmpty(), "Day " + day.date() + " should have no events");
+                }
+            }
+        }
+
+        @Test
+        void testGroupEventsByDayWithMultiDayEvents() {
+            // Arrange
+            ZoneId userZoneId = ZoneId.of("Europe/London");
+            User creator = TestUtils.createValidUserEntityWithId();
+            Label label = TestUtils.createValidLabelWithId(VALID_LABEL_ID, creator);
+            LabelResponseDTO labelDto = TestUtils.createLabelResponseDTO(label);
+            
+            List<EventResponseDTO> events = List.of(
+                // Event spanning 3 days
+                new EventResponseDTO(
+                    1L, "Conference",
+                    ZonedDateTime.of(2025, 6, 27, 8, 0, 0, 0, ZoneId.of("UTC")),  // Friday 8 AM UTC
+                    ZonedDateTime.of(2025, 6, 29, 17, 0, 0, 0, ZoneId.of("UTC")), // Sunday 5 PM UTC
+                    3300, // durationMinutes (55 hours)
+                    "Europe/London", "Europe/London", // timezone fields
+                    "Three-day conference", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                ),
+                // Event spanning 2 days
+                new EventResponseDTO(
+                    2L, "Workshop",
+                    ZonedDateTime.of(2025, 6, 28, 14, 0, 0, 0, ZoneId.of("UTC")), // Saturday 2 PM UTC
+                    ZonedDateTime.of(2025, 6, 29, 10, 0, 0, 0, ZoneId.of("UTC")), // Sunday 10 AM UTC
+                    1200, // durationMinutes (20 hours)
+                    "Europe/London", "Europe/London", // timezone fields
+                    "Two-day workshop", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                )
+            );
+
+            // Act
+            WeekViewDTO weekView = eventBO.generateWeekViewData(USER_ID, LocalDate.of(2025, 6, 29), userZoneId, events, List.of());
+            
+            // Assert
+            Map<LocalDate, List<EventResponseDTO>> dayEvents = weekView.days().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                    DayViewDTO::date,
+                    DayViewDTO::events
+                ));
+            
+            // Friday (June 27) should have the conference event
+            List<EventResponseDTO> fridayEvents = dayEvents.get(LocalDate.of(2025, 6, 27));
+            assertEquals(1, fridayEvents.size());
+            assertEquals("Conference", fridayEvents.get(0).name());
+            
+            // Saturday (June 28) should have both events
+            List<EventResponseDTO> saturdayEvents = dayEvents.get(LocalDate.of(2025, 6, 28));
+            assertEquals(2, saturdayEvents.size());
+            
+            // Sunday (June 29) should have both events
+            List<EventResponseDTO> sundayEvents = dayEvents.get(LocalDate.of(2025, 6, 29));
+            assertEquals(2, sundayEvents.size());
+        }
+
+        @Test
+        void testGroupEventsByDayWithMidnightCrossingEvents() {
+            // Arrange
+            ZoneId userZoneId = ZoneId.of("Asia/Tokyo"); // UTC+9
+            User creator = TestUtils.createValidUserEntityWithId();
+            Label label = TestUtils.createValidLabelWithId(VALID_LABEL_ID, creator);
+            LabelResponseDTO labelDto = TestUtils.createLabelResponseDTO(label);
+            
+            // Use anchor date June 26 (Thursday) to test within the week June 23-29
+            LocalDate anchorDate = LocalDate.of(2025, 6, 26);
+            
+            List<EventResponseDTO> events = List.of(
+                // Event that crosses midnight in Tokyo timezone (Friday night to Saturday morning)
+                new EventResponseDTO(
+                    1L, "Late Night Event",
+                    ZonedDateTime.of(2025, 6, 27, 14, 30, 0, 0, ZoneId.of("UTC")), // 11:30 PM Friday JST
+                    ZonedDateTime.of(2025, 6, 27, 16, 30, 0, 0, ZoneId.of("UTC")), // 1:30 AM Saturday JST
+                    120, // durationMinutes
+                    "Asia/Tokyo", "Asia/Tokyo", // timezone fields
+                    "Late night event", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                ),
+                // Event that starts and ends on same day in Tokyo (Thursday)
+                new EventResponseDTO(
+                    2L, "Same Day Event",
+                    ZonedDateTime.of(2025, 6, 26, 1, 0, 0, 0, ZoneId.of("UTC")),   // 10:00 AM Thursday JST
+                    ZonedDateTime.of(2025, 6, 26, 3, 0, 0, 0, ZoneId.of("UTC")),   // 12:00 PM Thursday JST
+                    120, // durationMinutes
+                    "Asia/Tokyo", "Asia/Tokyo", // timezone fields
+                    "Same day event", 
+                    creator.getUsername(), creator.getTimezone(),
+                    labelDto, false, false, false
+                )
+            );
+
+            // Act
+            WeekViewDTO weekView = eventBO.generateWeekViewData(USER_ID, anchorDate, userZoneId, events, List.of());
+            
+            // Assert
+            assertEquals(7, weekView.days().size());
+            
+            Map<LocalDate, List<EventResponseDTO>> dayEvents = weekView.days().stream()
+                .collect(java.util.stream.Collectors.toMap(
+                    DayViewDTO::date,
+                    DayViewDTO::events
+                ));
+            
+            // Thursday (June 26) should have the Same Day Event
+            List<EventResponseDTO> thursdayEvents = dayEvents.getOrDefault(LocalDate.of(2025, 6, 26), List.of());
+            assertEquals(1, thursdayEvents.size());
+            assertEquals("Same Day Event", thursdayEvents.get(0).name());
+            
+            // Friday (June 27) should have the Late Night Event (starts on Friday night JST)
+            List<EventResponseDTO> fridayEvents = dayEvents.getOrDefault(LocalDate.of(2025, 6, 27), List.of());
+            assertEquals(1, fridayEvents.size());
+            assertEquals("Late Night Event", fridayEvents.get(0).name());
+            
+            // Saturday (June 28) should also have the Late Night Event (ends on Saturday morning JST)
+            List<EventResponseDTO> saturdayEvents = dayEvents.getOrDefault(LocalDate.of(2025, 6, 28), List.of());
+            assertEquals(1, saturdayEvents.size());
+            assertEquals("Late Night Event", saturdayEvents.get(0).name());
+        }
+    }
+
+    @Nested
+    class SolidifyRecurrencesPerformanceTests {
+
+        @Test
+        void testSolidifyRecurrencesWithLargeDataset() {
+            // Arrange
+            User user = TestUtils.createValidUserEntityWithId();
+            ZoneId userZoneId = ZoneId.of(user.getTimezone());
+            ZonedDateTime startTime = ZonedDateTime.now(fixedClock).minusDays(30);
+            ZonedDateTime endTime = ZonedDateTime.now(fixedClock);
+            
+            // Create 50 recurring events (simulating a power user)
+            List<RecurringEvent> largeRecurringEventList = IntStream.range(0, 50)
+                .mapToObj(i -> TestUtils.createValidRecurringEventWithId(user, (long) i, fixedClock))
+                .toList();
+            
+            when(recurringEventBO.getConfirmedRecurringEventsForUserInRange(
+                    user.getId(),
+                    startTime.toLocalDate(),
+                    endTime.toLocalDate()
+            )).thenReturn(largeRecurringEventList);
+            
+            // Mock recurrence rule service to return 10 occurrences per recurring event
+            for (RecurringEvent recurrence : largeRecurringEventList) {
+                List<LocalDate> occurrences = IntStream.range(0, 10)
+                    .mapToObj(i -> startTime.toLocalDate().plusDays(i * 3))
+                    .toList();
+                
+                when(recurrenceRuleService.expandRecurrence(
+                    recurrence.getRecurrenceRule().getParsed(),
+                    startTime.toLocalDate(),
+                    endTime.toLocalDate(),
+                    recurrence.getSkipDays()
+                )).thenReturn(occurrences);
+            }
+            
+            // Mock repository to return empty list (no existing events)
+            when(eventRepository.findConfirmedAndRecurringDraftsByUserAndRecurrenceIdBetween(
+                any(), any(), any(), any()
+            )).thenReturn(List.of());
+            
+            // Mock event repository save to return the event
+            when(eventRepository.save(any(Event.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act - Measure performance
+            long startTimeMs = System.currentTimeMillis();
+            eventBO.solidifyRecurrences(user.getId(), startTime, endTime, userZoneId);
+            long endTimeMs = System.currentTimeMillis();
+            long executionTime = endTimeMs - startTimeMs;
+
+            // Assert
+            // Verify the method completed within reasonable time (should be < 1 second for this dataset)
+            assertTrue(executionTime < 1000, "Solidify recurrences took too long: " + executionTime + "ms");
+            
+            // Verify that recurring events were fetched
+            verify(recurringEventBO).getConfirmedRecurringEventsForUserInRange(
+                user.getId(),
+                startTime.toLocalDate(),
+                endTime.toLocalDate()
+            );
+            
+            // Verify that recurrence rules were expanded for each recurring event
+            verify(recurrenceRuleService, org.mockito.Mockito.times(50)).expandRecurrence(any(), any(), any(), any());
+            
+            // Verify that events were saved (50 recurring events × 10 occurrences each = 500 events)
+            verify(eventRepository, org.mockito.Mockito.times(500)).save(any(Event.class));
+        }
+
+        @Test
+        void testSolidifyRecurrencesWithExistingEventsPerformance() {
+            // Arrange
+            User user = TestUtils.createValidUserEntityWithId();
+            ZoneId userZoneId = ZoneId.of(user.getTimezone());
+            ZonedDateTime startTime = ZonedDateTime.now(fixedClock).minusDays(10);
+            ZonedDateTime endTime = ZonedDateTime.now(fixedClock);
+            
+            // Create 10 recurring events
+            List<RecurringEvent> recurringEvents = IntStream.range(0, 10)
+                .mapToObj(i -> TestUtils.createValidRecurringEventWithId(user, (long) i, fixedClock))
+                .toList();
+            
+            when(recurringEventBO.getConfirmedRecurringEventsForUserInRange(
+                    user.getId(),
+                    startTime.toLocalDate(),
+                    endTime.toLocalDate()
+            )).thenReturn(recurringEvents);
+            
+            // Mock recurrence rule service to return 5 occurrences per recurring event
+            for (RecurringEvent recurrence : recurringEvents) {
+                List<LocalDate> occurrences = IntStream.range(0, 5)
+                    .mapToObj(i -> startTime.toLocalDate().plusDays(i * 2))
+                    .toList();
+                
+                when(recurrenceRuleService.expandRecurrence(
+                    recurrence.getRecurrenceRule().getParsed(),
+                    startTime.toLocalDate(),
+                    endTime.toLocalDate(),
+                    recurrence.getSkipDays()
+                )).thenReturn(occurrences);
+            }
+            
+            // Mock repository to return existing events for some dates (simulating partial solidification)
+            when(eventRepository.findConfirmedAndRecurringDraftsByUserAndRecurrenceIdBetween(
+                any(), any(), any(), any()
+            )).thenReturn(IntStream.range(0, 3)
+                .mapToObj(i -> TestUtils.createValidScheduledEventWithId((long) i, user, fixedClock))
+                .toList());
+            
+            when(eventRepository.save(any(Event.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+            // Act - Measure performance
+            long startTimeMs = System.currentTimeMillis();
+            eventBO.solidifyRecurrences(user.getId(), startTime, endTime, userZoneId);
+            long endTimeMs = System.currentTimeMillis();
+            long executionTime = endTimeMs - startTimeMs;
+
+            // Assert
+            // Should complete quickly even with existing event checks
+            assertTrue(executionTime < 500, "Solidify recurrences with existing events took too long: " + executionTime + "ms");
+            
+            // Verify repository interactions
+            verify(eventRepository, org.mockito.Mockito.times(10)).findConfirmedAndRecurringDraftsByUserAndRecurrenceIdBetween(
+                any(), any(), any(), any()
+            );
+            
+            // Should save fewer events due to existing events (some dates already have events)
+            verify(eventRepository, org.mockito.Mockito.atLeast(1)).save(any(Event.class));
+            verify(eventRepository, org.mockito.Mockito.atMost(50)).save(any(Event.class));
+        }
+
+        @Test
+        void testSolidifyRecurrencesWithNoRecurringEvents() {
+            // Arrange
+            User user = TestUtils.createValidUserEntityWithId();
+            ZoneId userZoneId = ZoneId.of(user.getTimezone());
+            ZonedDateTime startTime = ZonedDateTime.now(fixedClock).minusDays(7);
+            ZonedDateTime endTime = ZonedDateTime.now(fixedClock);
+            
+            when(recurringEventBO.getConfirmedRecurringEventsForUserInRange(
+                    user.getId(),
+                    startTime.toLocalDate(),
+                    endTime.toLocalDate()
+            )).thenReturn(List.of());
+
+            // Act - Measure performance
+            long startTimeMs = System.currentTimeMillis();
+            eventBO.solidifyRecurrences(user.getId(), startTime, endTime, userZoneId);
+            long endTimeMs = System.currentTimeMillis();
+            long executionTime = endTimeMs - startTimeMs;
+
+            // Assert
+            // Should complete very quickly with no recurring events
+            assertTrue(executionTime < 50, "Solidify recurrences with no events took too long: " + executionTime + "ms");
+            
+            // Verify minimal repository interactions
+            verify(recurringEventBO).getConfirmedRecurringEventsForUserInRange(
+                user.getId(),
+                startTime.toLocalDate(),
+                endTime.toLocalDate()
+            );
+            
+            // Should not interact with other services
+            verify(recurrenceRuleService, org.mockito.Mockito.never()).expandRecurrence(any(), any(), any(), any());
+            verify(eventRepository, org.mockito.Mockito.never()).save(any(Event.class));
+        }
     }
 
 }

@@ -20,11 +20,14 @@ import static com.yohan.event_planner.util.TestConstants.USER_ID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
-
 
 public class UserBOImplTest {
 
@@ -352,6 +355,549 @@ public class UserBOImplTest {
             // Assert
             assertFalse(result);
             verify(userRepository).existsByEmail(email);
+        }
+    }
+
+    @Nested
+    class EdgeCaseTests {
+
+        @Test
+        void testGetUserById_userWithPendingDeletion_stillReturnsUser() {
+            // Arrange
+            User user = TestUtils.createValidUserEntityWithId();
+            user.markForDeletion(ZonedDateTime.now(fixedClock));
+
+            // Mocks - getUserById doesn't filter by pending deletion
+            when(userRepository.findById(user.getId())).thenReturn(Optional.of(user));
+
+            // Act
+            Optional<User> result = userBO.getUserById(user.getId());
+
+            // Assert
+            assertTrue(result.isPresent());
+            assertTrue(result.get().isPendingDeletion());
+            assertEquals(user.getId(), result.get().getId());
+            verify(userRepository).findById(user.getId());
+        }
+
+        @Test
+        void testGetAllUsers_withLargeDataset_returnsAllActiveUsers() {
+            // Arrange - simulate larger dataset
+            List<User> users = List.of(
+                TestUtils.createValidUserEntityWithId(),
+                TestUtils.createValidUserEntityWithId(),
+                TestUtils.createValidUserEntityWithId(),
+                TestUtils.createValidUserEntityWithId(),
+                TestUtils.createValidUserEntityWithId()
+            );
+
+            // Mocks
+            when(userRepository.findAllByIsPendingDeletionFalse()).thenReturn(users);
+
+            // Act
+            List<User> result = userBO.getAllUsers();
+
+            // Assert
+            assertEquals(5, result.size());
+            assertEquals(users, result);
+            verify(userRepository).findAllByIsPendingDeletionFalse();
+        }
+
+        @Test
+        void testGetUsersByRole_withLargeRoleDataset_returnsMatchingUsers() {
+            // Arrange
+            Role role = Role.USER;
+            List<User> users = List.of(
+                TestUtils.createValidUserEntityWithId(),
+                TestUtils.createValidUserEntityWithId(),
+                TestUtils.createValidUserEntityWithId()
+            );
+            users.forEach(user -> user.addRole(role));
+
+            // Mocks
+            when(userRepository.findAllByRolesAndIsPendingDeletionFalse(role)).thenReturn(users);
+
+            // Act
+            List<User> result = userBO.getUsersByRole(role);
+
+            // Assert
+            assertEquals(3, result.size());
+            assertTrue(result.stream().allMatch(u -> u.getRoles().contains(role)));
+            verify(userRepository).findAllByRolesAndIsPendingDeletionFalse(role);
+        }
+    }
+
+    @Nested 
+    class BoundaryValueTests {
+
+        @Test
+        void testGetUserById_withMinimumValidId_returnsUser() {
+            // Arrange
+            Long minId = 1L;
+            User user = TestUtils.createValidUserEntityWithId();
+            when(userRepository.findById(minId)).thenReturn(Optional.of(user));
+
+            // Act
+            Optional<User> result = userBO.getUserById(minId);
+
+            // Assert
+            assertTrue(result.isPresent());
+            verify(userRepository).findById(minId);
+        }
+
+        @Test
+        void testGetUserById_withVeryLargeId_handlesCorrectly() {
+            // Arrange
+            Long largeId = Long.MAX_VALUE;
+            when(userRepository.findById(largeId)).thenReturn(Optional.empty());
+
+            // Act
+            Optional<User> result = userBO.getUserById(largeId);
+
+            // Assert
+            assertTrue(result.isEmpty());
+            verify(userRepository).findById(largeId);
+        }
+
+        @Test
+        void testGetUserByUsername_withMinimumLengthUsername_returnsUser() {
+            // Arrange
+            String shortUsername = "a";
+            User user = TestUtils.createValidUserEntityWithId();
+            when(userRepository.findByUsernameAndIsPendingDeletionFalse(shortUsername)).thenReturn(Optional.of(user));
+
+            // Act
+            Optional<User> result = userBO.getUserByUsername(shortUsername);
+
+            // Assert
+            assertTrue(result.isPresent());
+            verify(userRepository).findByUsernameAndIsPendingDeletionFalse(shortUsername);
+        }
+
+        @Test
+        void testGetUserByUsername_withMaximumLengthUsername_handlesCorrectly() {
+            // Arrange - Very long username (255 characters)
+            String longUsername = "a".repeat(255);
+            when(userRepository.findByUsernameAndIsPendingDeletionFalse(longUsername)).thenReturn(Optional.empty());
+
+            // Act
+            Optional<User> result = userBO.getUserByUsername(longUsername);
+
+            // Assert
+            assertTrue(result.isEmpty());
+            verify(userRepository).findByUsernameAndIsPendingDeletionFalse(longUsername);
+        }
+
+        @Test
+        void testGetUserByEmail_withMinimumValidEmail_returnsUser() {
+            // Arrange
+            String shortEmail = "a@b.c";
+            User user = TestUtils.createValidUserEntityWithId();
+            when(userRepository.findByEmailAndIsPendingDeletionFalse(shortEmail)).thenReturn(Optional.of(user));
+
+            // Act
+            Optional<User> result = userBO.getUserByEmail(shortEmail);
+
+            // Assert
+            assertTrue(result.isPresent());
+            verify(userRepository).findByEmailAndIsPendingDeletionFalse(shortEmail);
+        }
+
+        @Test
+        void testGetUserByEmail_withVeryLongEmail_handlesCorrectly() {
+            // Arrange - Very long email (320 characters max according to RFC)
+            String longLocalPart = "a".repeat(64);
+            String longDomain = "b".repeat(60) + ".example.com";
+            String longEmail = longLocalPart + "@" + longDomain;
+            when(userRepository.findByEmailAndIsPendingDeletionFalse(longEmail)).thenReturn(Optional.empty());
+
+            // Act
+            Optional<User> result = userBO.getUserByEmail(longEmail);
+
+            // Assert
+            assertTrue(result.isEmpty());
+            verify(userRepository).findByEmailAndIsPendingDeletionFalse(longEmail);
+        }
+
+        @Test
+        void testGetAllUsers_withExactlyOneUser_returnsCorrectList() {
+            // Arrange
+            User singleUser = TestUtils.createValidUserEntityWithId();
+            List<User> users = List.of(singleUser);
+            when(userRepository.findAllByIsPendingDeletionFalse()).thenReturn(users);
+
+            // Act
+            List<User> result = userBO.getAllUsers();
+
+            // Assert
+            assertEquals(1, result.size());
+            assertEquals(singleUser, result.get(0));
+            verify(userRepository).findAllByIsPendingDeletionFalse();
+        }
+
+        @Test
+        void testGetUsersByRole_withSingleUserHavingRole_returnsOneUser() {
+            // Arrange
+            Role role = Role.ADMIN;
+            User user = TestUtils.createValidUserEntityWithId();
+            user.addRole(role);
+            List<User> users = List.of(user);
+            when(userRepository.findAllByRolesAndIsPendingDeletionFalse(role)).thenReturn(users);
+
+            // Act
+            List<User> result = userBO.getUsersByRole(role);
+
+            // Assert
+            assertEquals(1, result.size());
+            assertTrue(result.get(0).getRoles().contains(role));
+            verify(userRepository).findAllByRolesAndIsPendingDeletionFalse(role);
+        }
+
+        @Test
+        void testExistsByUsername_withEmptyStringUsername_returnsFalse() {
+            // Arrange
+            String emptyUsername = "";
+            when(userRepository.existsByUsername(emptyUsername)).thenReturn(false);
+
+            // Act
+            boolean result = userBO.existsByUsername(emptyUsername);
+
+            // Assert
+            assertFalse(result);
+            verify(userRepository).existsByUsername(emptyUsername);
+        }
+
+        @Test
+        void testExistsByEmail_withEmptyStringEmail_returnsFalse() {
+            // Arrange
+            String emptyEmail = "";
+            when(userRepository.existsByEmail(emptyEmail)).thenReturn(false);
+
+            // Act
+            boolean result = userBO.existsByEmail(emptyEmail);
+
+            // Assert
+            assertFalse(result);
+            verify(userRepository).existsByEmail(emptyEmail);
+        }
+    }
+
+    @Nested
+    class EnhancedExceptionScenarioTests {
+
+        @Test
+        void testCreateUser_withRepositoryException_propagatesException() {
+            // Arrange
+            User user = TestUtils.createValidUserEntityWithId();
+            RuntimeException repositoryException = new RuntimeException("Database connection failed");
+            when(userRepository.save(user)).thenThrow(repositoryException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.createUser(user));
+            assertEquals("Database connection failed", thrown.getMessage());
+            verify(userRepository).save(user);
+        }
+
+        @Test
+        void testUpdateUser_withRepositoryException_propagatesException() {
+            // Arrange
+            User user = TestUtils.createValidUserEntityWithId();
+            RuntimeException repositoryException = new RuntimeException("Constraint violation");
+            when(userRepository.save(user)).thenThrow(repositoryException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.updateUser(user));
+            assertEquals("Constraint violation", thrown.getMessage());
+            verify(userRepository).save(user);
+        }
+
+        @Test
+        void testMarkUserForDeletion_withClockProviderException_propagatesException() {
+            // Arrange
+            User user = TestUtils.createValidUserEntityWithId();
+            RuntimeException clockException = new RuntimeException("Clock provider failed");
+            when(clockProvider.getClockForUser(user)).thenThrow(clockException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.markUserForDeletion(user));
+            assertEquals("Clock provider failed", thrown.getMessage());
+            verify(clockProvider).getClockForUser(user);
+            verify(userRepository, never()).save(any(User.class));
+        }
+
+        @Test
+        void testMarkUserForDeletion_withRepositorySaveException_propagatesException() {
+            // Arrange
+            User user = TestUtils.createValidUserEntityWithId();
+            when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
+            RuntimeException saveException = new RuntimeException("Save operation failed");
+            when(userRepository.save(user)).thenThrow(saveException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.markUserForDeletion(user));
+            assertEquals("Save operation failed", thrown.getMessage());
+            verify(clockProvider).getClockForUser(user);
+            verify(userRepository).save(user);
+        }
+
+        @Test
+        void testGetUserById_withRepositoryException_propagatesException() {
+            // Arrange
+            Long userId = 123L;
+            RuntimeException repositoryException = new RuntimeException("Database query failed");
+            when(userRepository.findById(userId)).thenThrow(repositoryException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.getUserById(userId));
+            assertEquals("Database query failed", thrown.getMessage());
+            verify(userRepository).findById(userId);
+        }
+
+        @Test
+        void testGetUserByUsername_withRepositoryException_propagatesException() {
+            // Arrange
+            String username = "testuser";
+            RuntimeException repositoryException = new RuntimeException("Query timeout");
+            when(userRepository.findByUsernameAndIsPendingDeletionFalse(username)).thenThrow(repositoryException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.getUserByUsername(username));
+            assertEquals("Query timeout", thrown.getMessage());
+            verify(userRepository).findByUsernameAndIsPendingDeletionFalse(username);
+        }
+
+        @Test
+        void testGetUserByEmail_withRepositoryException_propagatesException() {
+            // Arrange
+            String email = "test@example.com";
+            RuntimeException repositoryException = new RuntimeException("Index corruption");
+            when(userRepository.findByEmailAndIsPendingDeletionFalse(email)).thenThrow(repositoryException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.getUserByEmail(email));
+            assertEquals("Index corruption", thrown.getMessage());
+            verify(userRepository).findByEmailAndIsPendingDeletionFalse(email);
+        }
+
+        @Test
+        void testGetUsersByRole_withRepositoryException_propagatesException() {
+            // Arrange
+            Role role = Role.USER;
+            RuntimeException repositoryException = new RuntimeException("Connection pool exhausted");
+            when(userRepository.findAllByRolesAndIsPendingDeletionFalse(role)).thenThrow(repositoryException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.getUsersByRole(role));
+            assertEquals("Connection pool exhausted", thrown.getMessage());
+            verify(userRepository).findAllByRolesAndIsPendingDeletionFalse(role);
+        }
+
+        @Test
+        void testGetAllUsers_withRepositoryException_propagatesException() {
+            // Arrange
+            RuntimeException repositoryException = new RuntimeException("Memory limit exceeded");
+            when(userRepository.findAllByIsPendingDeletionFalse()).thenThrow(repositoryException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.getAllUsers());
+            assertEquals("Memory limit exceeded", thrown.getMessage());
+            verify(userRepository).findAllByIsPendingDeletionFalse();
+        }
+
+        @Test
+        void testExistsByUsername_withRepositoryException_propagatesException() {
+            // Arrange
+            String username = "testuser";
+            RuntimeException repositoryException = new RuntimeException("Database locked");
+            when(userRepository.existsByUsername(username)).thenThrow(repositoryException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.existsByUsername(username));
+            assertEquals("Database locked", thrown.getMessage());
+            verify(userRepository).existsByUsername(username);
+        }
+
+        @Test
+        void testExistsByEmail_withRepositoryException_propagatesException() {
+            // Arrange
+            String email = "test@example.com";
+            RuntimeException repositoryException = new RuntimeException("Transaction rollback");
+            when(userRepository.existsByEmail(email)).thenThrow(repositoryException);
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, () -> userBO.existsByEmail(email));
+            assertEquals("Transaction rollback", thrown.getMessage());
+            verify(userRepository).existsByEmail(email);
+        }
+    }
+
+    @Nested
+    class ValidationEdgeCaseTests {
+
+        @Test
+        void testGetUserByUsername_withNullUsername_handlesGracefully() {
+            // Arrange
+            String nullUsername = null;
+            when(userRepository.findByUsernameAndIsPendingDeletionFalse(nullUsername)).thenReturn(Optional.empty());
+
+            // Act
+            Optional<User> result = userBO.getUserByUsername(nullUsername);
+
+            // Assert
+            assertTrue(result.isEmpty());
+            verify(userRepository).findByUsernameAndIsPendingDeletionFalse(nullUsername);
+        }
+
+        @Test
+        void testGetUserByEmail_withNullEmail_handlesGracefully() {
+            // Arrange
+            String nullEmail = null;
+            when(userRepository.findByEmailAndIsPendingDeletionFalse(nullEmail)).thenReturn(Optional.empty());
+
+            // Act
+            Optional<User> result = userBO.getUserByEmail(nullEmail);
+
+            // Assert
+            assertTrue(result.isEmpty());
+            verify(userRepository).findByEmailAndIsPendingDeletionFalse(nullEmail);
+        }
+
+        @Test
+        void testGetUsersByRole_withNullRole_handlesGracefully() {
+            // Arrange
+            Role nullRole = null;
+            when(userRepository.findAllByRolesAndIsPendingDeletionFalse(nullRole)).thenReturn(List.of());
+
+            // Act
+            List<User> result = userBO.getUsersByRole(nullRole);
+
+            // Assert
+            assertTrue(result.isEmpty());
+            verify(userRepository).findAllByRolesAndIsPendingDeletionFalse(nullRole);
+        }
+
+        @Test
+        void testExistsByUsername_withNullUsername_returnsFalse() {
+            // Arrange
+            String nullUsername = null;
+            when(userRepository.existsByUsername(nullUsername)).thenReturn(false);
+
+            // Act
+            boolean result = userBO.existsByUsername(nullUsername);
+
+            // Assert
+            assertFalse(result);
+            verify(userRepository).existsByUsername(nullUsername);
+        }
+
+        @Test
+        void testExistsByEmail_withNullEmail_returnsFalse() {
+            // Arrange
+            String nullEmail = null;
+            when(userRepository.existsByEmail(nullEmail)).thenReturn(false);
+
+            // Act
+            boolean result = userBO.existsByEmail(nullEmail);
+
+            // Assert
+            assertFalse(result);
+            verify(userRepository).existsByEmail(nullEmail);
+        }
+
+        @Test
+        void testGetUserByUsername_withSpecialCharacters_handlesCorrectly() {
+            // Arrange
+            String specialUsername = "user@#$%^&*()_+-=[]{}|;':\",./<>?`~";
+            User user = TestUtils.createValidUserEntityWithId();
+            when(userRepository.findByUsernameAndIsPendingDeletionFalse(specialUsername)).thenReturn(Optional.of(user));
+
+            // Act
+            Optional<User> result = userBO.getUserByUsername(specialUsername);
+
+            // Assert
+            assertTrue(result.isPresent());
+            verify(userRepository).findByUsernameAndIsPendingDeletionFalse(specialUsername);
+        }
+
+        @Test
+        void testGetUserByEmail_withInternationalCharacters_handlesCorrectly() {
+            // Arrange
+            String internationalEmail = "测试@example.com";
+            User user = TestUtils.createValidUserEntityWithId();
+            when(userRepository.findByEmailAndIsPendingDeletionFalse(internationalEmail)).thenReturn(Optional.of(user));
+
+            // Act
+            Optional<User> result = userBO.getUserByEmail(internationalEmail);
+
+            // Assert
+            assertTrue(result.isPresent());
+            verify(userRepository).findByEmailAndIsPendingDeletionFalse(internationalEmail);
+        }
+
+        @Test
+        void testCreateUser_withNullUser_propagatesNullPointerException() {
+            // Arrange
+            User nullUser = null;
+
+            // Act & Assert
+            // NPE will be thrown when trying to access user.getUsername() in logging
+            NullPointerException thrown = assertThrows(NullPointerException.class, () -> userBO.createUser(nullUser));
+            assertNotNull(thrown);
+            // Repository should never be called since NPE occurs during logging
+            verifyNoInteractions(userRepository);
+        }
+
+        @Test
+        void testUpdateUser_withNullUser_propagatesNullPointerException() {
+            // Arrange
+            User nullUser = null;
+
+            // Act & Assert
+            // NPE will be thrown when trying to access user.getId() in logging
+            NullPointerException thrown = assertThrows(NullPointerException.class, () -> userBO.updateUser(nullUser));
+            assertNotNull(thrown);
+            // Repository should never be called since NPE occurs during logging
+            verifyNoInteractions(userRepository);
+        }
+
+        @Test
+        void testMarkUserForDeletion_withNullUser_propagatesNullPointerException() {
+            // Arrange
+            User nullUser = null;
+
+            // Act & Assert
+            NullPointerException thrown = assertThrows(NullPointerException.class, () -> userBO.markUserForDeletion(nullUser));
+            assertNotNull(thrown);
+            verifyNoInteractions(userRepository);
+            verifyNoInteractions(clockProvider);
+        }
+
+        @Test
+        void testGetUserByUsername_withWhitespaceOnlyUsername_handlesCorrectly() {
+            // Arrange
+            String whitespaceUsername = "   ";
+            when(userRepository.findByUsernameAndIsPendingDeletionFalse(whitespaceUsername)).thenReturn(Optional.empty());
+
+            // Act
+            Optional<User> result = userBO.getUserByUsername(whitespaceUsername);
+
+            // Assert
+            assertTrue(result.isEmpty());
+            verify(userRepository).findByUsernameAndIsPendingDeletionFalse(whitespaceUsername);
+        }
+
+        @Test
+        void testGetUserByEmail_withWhitespaceOnlyEmail_handlesCorrectly() {
+            // Arrange
+            String whitespaceEmail = "   ";
+            when(userRepository.findByEmailAndIsPendingDeletionFalse(whitespaceEmail)).thenReturn(Optional.empty());
+
+            // Act
+            Optional<User> result = userBO.getUserByEmail(whitespaceEmail);
+
+            // Assert
+            assertTrue(result.isEmpty());
+            verify(userRepository).findByEmailAndIsPendingDeletionFalse(whitespaceEmail);
         }
     }
 }

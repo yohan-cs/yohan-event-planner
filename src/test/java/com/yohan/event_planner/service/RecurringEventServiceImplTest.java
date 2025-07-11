@@ -70,6 +70,8 @@ import static org.mockito.Mockito.when;
 
 public class RecurringEventServiceImplTest {
 
+    private static final LocalDate FIXED_TEST_DATE = LocalDate.of(2025, 6, 29);
+
     private RecurringEventBO recurringEventBO;
     private LabelService labelService;
     private RecurringEventDAO recurringEventDAO;
@@ -96,6 +98,10 @@ public class RecurringEventServiceImplTest {
         clockProvider = mock(ClockProvider.class);
 
         fixedClock = Clock.fixed(Instant.parse("2025-06-29T12:00:00Z"), ZoneId.of("UTC"));
+
+        // Mock clockProvider to return fixedClock for any zone
+        when(clockProvider.getClockForZone(any(ZoneId.class))).thenReturn(fixedClock);
+        when(clockProvider.getClockForUser(any(User.class))).thenReturn(fixedClock);
 
         recurringEventService = new RecurringEventServiceImpl(
                 recurringEventBO,
@@ -370,7 +376,7 @@ public class RecurringEventServiceImplTest {
                     TestConstants.VALID_EVENT_DESCRIPTION,
                     VALID_LABEL_ID,
                     TestConstants.VALID_WEEKLY_RECURRENCE_RULE,
-                    Set.of(LocalDate.now().plusDays(1)),
+                    Set.of(FIXED_TEST_DATE.plusDays(1)),
                     false
             );
 
@@ -408,8 +414,8 @@ public class RecurringEventServiceImplTest {
             RecurringEventCreateDTO dto = new RecurringEventCreateDTO(
                     "Draft Session",
                     null, null,
-                    LocalDate.now(),
-                    LocalDate.now().plusDays(5),
+                    FIXED_TEST_DATE,
+                    FIXED_TEST_DATE.plusDays(5),
                     null,
                     null,
                     TestConstants.VALID_WEEKLY_RECURRENCE_RULE,
@@ -441,8 +447,8 @@ public class RecurringEventServiceImplTest {
                     "No Label Session",
                     TestConstants.getValidEventStartFuture(fixedClock).toLocalTime(),
                     TestConstants.getValidEventEndFuture(fixedClock).toLocalTime(),
-                    LocalDate.now(),
-                    LocalDate.now().plusDays(1),
+                    FIXED_TEST_DATE,
+                    FIXED_TEST_DATE.plusDays(1),
                     null,
                     null, // labelId is null
                     TestConstants.VALID_WEEKLY_RECURRENCE_RULE,
@@ -472,14 +478,14 @@ public class RecurringEventServiceImplTest {
             User creator = TestUtils.createValidUserEntityWithId();
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(creator);
 
-            Set<LocalDate> skipDays = Set.of(LocalDate.now().plusDays(2));
+            Set<LocalDate> skipDays = Set.of(FIXED_TEST_DATE.plusDays(2));
 
             RecurringEventCreateDTO dto = new RecurringEventCreateDTO(
                     "Session With Skips",
                     TestConstants.getValidEventStartFuture(fixedClock).toLocalTime(),
                     TestConstants.getValidEventEndFuture(fixedClock).toLocalTime(),
-                    LocalDate.now(),
-                    LocalDate.now().plusDays(10),
+                    FIXED_TEST_DATE,
+                    FIXED_TEST_DATE.plusDays(10),
                     "Skipping some days",
                     VALID_LABEL_ID,
                     TestConstants.VALID_WEEKLY_RECURRENCE_RULE,
@@ -636,8 +642,7 @@ public class RecurringEventServiceImplTest {
                     null, // skip endDate
                     null, // skip description
                     null, // skip labelId
-                    null, // skip recurrenceRule
-                    null // skip unconfirmed
+                    null // skip recurrenceRule
             );
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(creator);
@@ -669,8 +674,7 @@ public class RecurringEventServiceImplTest {
                     null, // skip endDate
                     null, // skip description
                     null, // skip labelId
-                    null, // skip recurrenceRule
-                    null // skip unconfirmed
+                    null // skip recurrenceRule
             );
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(creator);
@@ -693,8 +697,7 @@ public class RecurringEventServiceImplTest {
 
             RecurringEventUpdateDTO dto = new RecurringEventUpdateDTO(
                     Optional.of("Attempted Update"), // attempt to update
-                    null, null, null, null, null, null, null,
-                    null
+                    null, null, null, null, null, null, null
             );
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(TestUtils.createValidUserEntityWithId());
@@ -717,8 +720,7 @@ public class RecurringEventServiceImplTest {
 
             RecurringEventUpdateDTO dto = new RecurringEventUpdateDTO(
                     Optional.of("Attempted Unauthorized Update"),
-                    null, null, null, null, null, null, null,
-                    null
+                    null, null, null, null, null, null, null
             );
 
             // Act + Assert
@@ -743,8 +745,7 @@ public class RecurringEventServiceImplTest {
                     Optional.empty(), // clear endDate
                     Optional.empty(), // clear description
                     Optional.empty(), // clear labelId
-                    Optional.empty(), // clear recurrenceRule
-                    Optional.empty()  // clear unconfirmed status
+                    Optional.empty() // clear recurrenceRule
             );
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(creator);
@@ -845,7 +846,7 @@ public class RecurringEventServiceImplTest {
             // Arrange
             User viewer = TestUtils.createValidUserEntityWithId();
             RecurringEvent event = TestUtils.createValidRecurringEventWithId(viewer, VALID_RECURRING_EVENT_ID, fixedClock);
-            LocalDate today = LocalDate.now();
+            LocalDate today = FIXED_TEST_DATE;
             Set<LocalDate> skipDays = Set.of(today.plusDays(1), today.plusDays(2));  // Valid skip days (future dates)
 
             // Mock the dependencies
@@ -876,7 +877,7 @@ public class RecurringEventServiceImplTest {
 
             // Act + Assert
             RecurringEventNotFoundException exception = assertThrows(RecurringEventNotFoundException.class, () ->
-                    recurringEventService.addSkipDays(VALID_RECURRING_EVENT_ID, Set.of(LocalDate.now().plusDays(1)))
+                    recurringEventService.addSkipDays(VALID_RECURRING_EVENT_ID, Set.of(FIXED_TEST_DATE.plusDays(1)))
             );
 
             // Assert the exception message (if your exception has a message or custom code)
@@ -888,7 +889,7 @@ public class RecurringEventServiceImplTest {
             // Arrange
             User viewer = TestUtils.createValidUserEntityWithId();
             RecurringEvent event = TestUtils.createValidRecurringEventWithId(viewer, VALID_RECURRING_EVENT_ID, fixedClock);
-            LocalDate today = LocalDate.now();
+            LocalDate today = LocalDate.now(fixedClock);
             Set<LocalDate> skipDays = Set.of(today.minusDays(1), today.plusDays(2));  // Past date (today - 1)
 
             // Mock the dependencies
@@ -912,7 +913,7 @@ public class RecurringEventServiceImplTest {
             // Arrange
             User viewer = TestUtils.createValidUserEntityWithId();
             RecurringEvent event = TestUtils.createValidRecurringEventWithId(viewer, VALID_RECURRING_EVENT_ID, fixedClock);
-            LocalDate today = LocalDate.now();
+            LocalDate today = FIXED_TEST_DATE;
             Set<LocalDate> skipDays = new HashSet<>();
             skipDays.add(today.plusDays(1));  // Valid skip day
             skipDays.add(null);  // Invalid (null) skip day
@@ -1007,7 +1008,7 @@ public class RecurringEventServiceImplTest {
 
             // Act + Assert
             assertThrows(RecurringEventNotFoundException.class, () ->
-                    recurringEventService.removeSkipDays(VALID_RECURRING_EVENT_ID, Set.of(LocalDate.now().plusDays(1)))
+                    recurringEventService.removeSkipDays(VALID_RECURRING_EVENT_ID, Set.of(FIXED_TEST_DATE.plusDays(1)))
             );  // Assert that the exception is thrown when the event is not found
 
             // Verify that no update operation is performed
@@ -1114,7 +1115,7 @@ public class RecurringEventServiceImplTest {
             // Act + Assert
             // Assert that UserOwnershipException is thrown when trying to remove skip days from an event the user doesn't own
             assertThrows(UserOwnershipException.class, () ->
-                    recurringEventService.removeSkipDays(event.getId(), Set.of(LocalDate.now().plusDays(1)))
+                    recurringEventService.removeSkipDays(event.getId(), Set.of(FIXED_TEST_DATE.plusDays(1)))
             );
 
             // Verify that the update method was not called, as the user does not own the event

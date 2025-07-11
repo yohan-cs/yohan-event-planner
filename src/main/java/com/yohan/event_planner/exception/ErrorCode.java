@@ -17,11 +17,27 @@ public enum ErrorCode {
     INVALID_PASSWORD_LENGTH,
     DUPLICATE_PASSWORD,
     WEAK_PASSWORD,
+    INVALID_RESET_TOKEN,
+    EXPIRED_RESET_TOKEN,
+    USED_RESET_TOKEN,
+    INSUFFICIENT_PASSWORD_STRENGTH,
+    COMMON_PASSWORD,
+    SIMPLE_PASSWORD_PATTERN,
 
     // Email related errors
     DUPLICATE_EMAIL,
     INVALID_EMAIL_LENGTH,
     INVALID_EMAIL_FORMAT,
+    INVALID_EMAIL_DOMAIN,
+    EMAIL_SEND_FAILED,
+    EMAIL_SENDING_FAILED,
+    EMAIL_NOT_VERIFIED,
+    
+    // Email verification related errors
+    INVALID_VERIFICATION_TOKEN,
+    EXPIRED_VERIFICATION_TOKEN,
+    USED_VERIFICATION_TOKEN,
+    VERIFICATION_FAILED,
 
     // Resource related errors
     USER_NOT_FOUND,
@@ -103,6 +119,9 @@ public enum ErrorCode {
     // JWT Authentication/Authorization errors
     UNAUTHORIZED_ACCESS,  // 401 Unauthorized
     ACCESS_DENIED,        // 403 Forbidden
+    
+    // Rate limiting errors
+    RATE_LIMIT_EXCEEDED,  // 429 Too Many Requests
 
     // Request structure / validation errors
     NULL_FIELD_NOT_ALLOWED,

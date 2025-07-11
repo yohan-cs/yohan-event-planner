@@ -27,7 +27,7 @@ public final class ApplicationConstants {
     /** Maximum length for standard text fields (descriptions) */
     public static final int STANDARD_TEXT_MAX_LENGTH = 255;
     
-    /** Maximum length for URLs (media URLs, profile pictures) */
+    /** Maximum length for standard URLs (media URLs) */
     public static final int URL_MAX_LENGTH = 512;
     
     /** Maximum length for long text fields (bio, notes) */
@@ -46,7 +46,11 @@ public final class ApplicationConstants {
     /** JWT Bearer token prefix */
     public static final String JWT_BEARER_PREFIX = "Bearer ";
     
-    /** Default JWT token expiration time in milliseconds (1 hour) */
+    /** 
+     * Default JWT token expiration time in milliseconds (1 hour).
+     * Note: Actual JWT expiration is configured via spring.app.jwtExpirationMs property.
+     * This constant is provided for reference and fallback purposes.
+     */
     public static final long DEFAULT_JWT_EXPIRATION_MS = 3600000L;
 
     // ================================

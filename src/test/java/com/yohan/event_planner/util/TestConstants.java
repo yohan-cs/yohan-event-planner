@@ -4,12 +4,13 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 
 public class TestConstants {
 
     // ========== USER CONSTANTS ==========
     public static final String VALID_USERNAME = "yungbuck";
-    public static final String VALID_PASSWORD = "BuckusIsDope123!";
+    public static final String VALID_PASSWORD = "BuckusIsDope42!";
     public static final String VALID_EMAIL = "yungbuck@email.com";
     public static final String VALID_FIRST_NAME = "Bug";
     public static final String VALID_LAST_NAME = "Woong";
@@ -66,31 +67,31 @@ public class TestConstants {
     }
 
     /**
-     * Gets a future event start time (+5 hours from clock time).
+     * Gets a future event start time (+5 hours from clock time), truncated to minute precision.
      */
     public static ZonedDateTime getValidEventStartFuture(Clock clock) {
-        return ZonedDateTime.now(clock).plusHours(5);
+        return ZonedDateTime.now(clock).plusHours(5).truncatedTo(ChronoUnit.MINUTES);
     }
 
     /**
-     * Gets a future event end time (+2 hours from future start time).
+     * Gets a future event end time (+2 hours from future start time), truncated to minute precision.
      */
     public static ZonedDateTime getValidEventEndFuture(Clock clock) {
-        return getValidEventStartFuture(clock).plusHours(2);
+        return getValidEventStartFuture(clock).plusHours(2).truncatedTo(ChronoUnit.MINUTES);
     }
 
     /**
-     * Gets a past event start time (-72 hours from clock time).
+     * Gets a past event start time (-72 hours from clock time), truncated to minute precision.
      */
     public static ZonedDateTime getValidEventStartPast(Clock clock) {
-        return ZonedDateTime.now(clock).minusHours(72);
+        return ZonedDateTime.now(clock).minusHours(72).truncatedTo(ChronoUnit.MINUTES);
     }
 
     /**
-     * Gets a past event end time (+2 hours from past start time).
+     * Gets a past event end time (+2 hours from past start time), truncated to minute precision.
      */
     public static ZonedDateTime getValidEventEndPast(Clock clock) {
-        return getValidEventStartPast(clock).plusHours(2);
+        return getValidEventStartPast(clock).plusHours(2).truncatedTo(ChronoUnit.MINUTES);
     }
 
     /**
@@ -108,10 +109,10 @@ public class TestConstants {
     }
 
     /**
-     * Gets the current UTC time from the fixed clock.
+     * Gets the current UTC time from the fixed clock, truncated to minute precision.
      */
     public static ZonedDateTime getFixedNowUtc(Clock clock) {
-        return ZonedDateTime.now(clock);
+        return ZonedDateTime.now(clock).truncatedTo(ChronoUnit.MINUTES);
     }
 
     /**

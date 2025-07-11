@@ -2,11 +2,13 @@ package com.yohan.event_planner.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.dto.auth.ForgotPasswordRequestDTO;
 import com.yohan.event_planner.dto.auth.LoginRequestDTO;
-import com.yohan.event_planner.dto.auth.LogoutRequestDTO;
-import com.yohan.event_planner.dto.auth.RefreshTokenRequestDTO;
-import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
+import com.yohan.event_planner.dto.auth.ResetPasswordRequestDTO;
+import com.yohan.event_planner.dto.auth.TokenRequestDTO;
+import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.repository.RefreshTokenRepository;
+import com.yohan.event_planner.repository.UserRepository;
 import com.yohan.event_planner.util.TestConfig;
 import com.yohan.event_planner.util.TestDataHelper;
 import com.yohan.event_planner.util.TestUtils;
@@ -24,12 +26,13 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
-@Import(TestConfig.class)
+@Import({TestConfig.class, com.yohan.event_planner.config.TestEmailConfig.class})
 @AutoConfigureMockMvc
 @TestPropertySource(locations = "classpath:application-test.properties")
 @Transactional
@@ -43,23 +46,32 @@ class AuthControllerIntegrationTest {
     private TestDataHelper testDataHelper;
     @Autowired
     private RefreshTokenRepository refreshTokenRepository;
+    @Autowired
+    private UserRepository userRepository;
 
     @Nested
     class RegisterTests {
 
         @Test
-        void testRegister_ShouldCreateUser() throws Exception {
-            RegisterRequestDTO registerDTO = TestUtils.createValidRegisterPayload("auth1");
+        void testRegister_ShouldCreateUserAndSendVerificationEmail() throws Exception {
+            UserCreateDTO registerDTO = TestUtils.createValidRegisterPayload("auth1");
 
             mockMvc.perform(post("/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(registerDTO)))
-                    .andExpect(status().isCreated());
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.token").doesNotExist()) // No token until verified
+                    .andExpect(jsonPath("$.refreshToken").doesNotExist()) // No refresh token until verified
+                    .andExpect(jsonPath("$.userId").exists())
+                    .andExpect(jsonPath("$.username").value(registerDTO.username()))
+                    .andExpect(jsonPath("$.email").value(registerDTO.email()))
+                    .andExpect(jsonPath("$.timezone").value(registerDTO.timezone()))
+                    .andExpect(jsonPath("$.message").value(containsString("check your email")));
         }
 
         @Test
         void testRegister_DuplicateUsername_ShouldReturnConflict() throws Exception {
-            RegisterRequestDTO registerDTO = TestUtils.createValidRegisterPayload("auth2");
+            UserCreateDTO registerDTO = TestUtils.createValidRegisterPayload("auth2");
 
             // First registration should succeed
             mockMvc.perform(post("/auth/register")
@@ -76,7 +88,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testRegister_InvalidEmail_ShouldReturnBadRequest() throws Exception {
-            RegisterRequestDTO registerDTO = new RegisterRequestDTO(
+            UserCreateDTO registerDTO = new UserCreateDTO(
                     "validuser",
                     "ValidPassword123!",
                     "invalid-email", // Invalid email format
@@ -97,13 +109,19 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testLogin_ValidCredentials_ShouldReturnTokensAndUserInfo() throws Exception {
-            RegisterRequestDTO registerDTO = TestUtils.createValidRegisterPayload("auth3");
+            UserCreateDTO registerDTO = TestUtils.createValidRegisterPayload("auth3");
 
             // Register user first
             mockMvc.perform(post("/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(registerDTO)))
                     .andExpect(status().isCreated());
+
+            // Verify the user's email for testing purposes
+            User user = userRepository.findByUsername(registerDTO.username())
+                    .orElseThrow(() -> new IllegalStateException("User not found after registration"));
+            user.verifyEmail();
+            userRepository.saveAndFlush(user);
 
             LoginRequestDTO loginDTO = new LoginRequestDTO(registerDTO.username(), registerDTO.password());
 
@@ -121,13 +139,19 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testLogin_InvalidPassword_ShouldReturnUnauthorized() throws Exception {
-            RegisterRequestDTO registerDTO = TestUtils.createValidRegisterPayload("auth4");
+            UserCreateDTO registerDTO = TestUtils.createValidRegisterPayload("auth4");
 
             // Register user first
             mockMvc.perform(post("/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(registerDTO)))
                     .andExpect(status().isCreated());
+
+            // Verify the user's email for testing purposes
+            User user = userRepository.findByUsername(registerDTO.username())
+                    .orElseThrow(() -> new IllegalStateException("User not found after registration"));
+            user.verifyEmail();
+            userRepository.saveAndFlush(user);
 
             LoginRequestDTO loginDTO = new LoginRequestDTO(registerDTO.username(), "wrongpassword");
 
@@ -151,13 +175,19 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testLogin_ShouldCreateRefreshTokenInDatabase() throws Exception {
-            RegisterRequestDTO registerDTO = TestUtils.createValidRegisterPayload("auth5");
+            UserCreateDTO registerDTO = TestUtils.createValidRegisterPayload("auth5");
 
             // Register user first
             mockMvc.perform(post("/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(registerDTO)))
                     .andExpect(status().isCreated());
+
+            // Verify the user's email for testing purposes
+            User user = userRepository.findByUsername(registerDTO.username())
+                    .orElseThrow(() -> new IllegalStateException("User not found after registration"));
+            user.verifyEmail();
+            userRepository.saveAndFlush(user);
 
             LoginRequestDTO loginDTO = new LoginRequestDTO(registerDTO.username(), registerDTO.password());
 
@@ -190,7 +220,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testRefreshToken_ValidToken_ShouldReturnNewTokenPair() throws Exception {
-            RefreshTokenRequestDTO refreshDTO = new RefreshTokenRequestDTO(refreshToken);
+            TokenRequestDTO refreshDTO = new TokenRequestDTO(refreshToken);
 
             mockMvc.perform(post("/auth/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -204,7 +234,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testRefreshToken_ShouldRevokeOldToken() throws Exception {
-            RefreshTokenRequestDTO refreshDTO = new RefreshTokenRequestDTO(refreshToken);
+            TokenRequestDTO refreshDTO = new TokenRequestDTO(refreshToken);
 
             // First refresh should succeed
             mockMvc.perform(post("/auth/refresh")
@@ -221,7 +251,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testRefreshToken_InvalidToken_ShouldReturnUnauthorized() throws Exception {
-            RefreshTokenRequestDTO refreshDTO = new RefreshTokenRequestDTO("invalid-refresh-token");
+            TokenRequestDTO refreshDTO = new TokenRequestDTO("invalid-refresh-token");
 
             mockMvc.perform(post("/auth/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -231,7 +261,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testRefreshToken_EmptyToken_ShouldReturnBadRequest() throws Exception {
-            RefreshTokenRequestDTO refreshDTO = new RefreshTokenRequestDTO("");
+            TokenRequestDTO refreshDTO = new TokenRequestDTO("");
 
             mockMvc.perform(post("/auth/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -241,7 +271,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testRefreshToken_NullToken_ShouldReturnBadRequest() throws Exception {
-            RefreshTokenRequestDTO refreshDTO = new RefreshTokenRequestDTO(null);
+            TokenRequestDTO refreshDTO = new TokenRequestDTO(null);
 
             mockMvc.perform(post("/auth/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -267,7 +297,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testLogout_ValidRefreshToken_ShouldSucceed() throws Exception {
-            LogoutRequestDTO logoutDTO = new LogoutRequestDTO(refreshToken);
+            TokenRequestDTO logoutDTO = new TokenRequestDTO(refreshToken);
 
             mockMvc.perform(post("/auth/logout")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -277,7 +307,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testLogout_ShouldRevokeRefreshToken() throws Exception {
-            LogoutRequestDTO logoutDTO = new LogoutRequestDTO(refreshToken);
+            TokenRequestDTO logoutDTO = new TokenRequestDTO(refreshToken);
 
             // Logout should succeed
             mockMvc.perform(post("/auth/logout")
@@ -286,7 +316,7 @@ class AuthControllerIntegrationTest {
                     .andExpect(status().isOk());
 
             // Attempting to refresh with the same token should fail
-            RefreshTokenRequestDTO refreshDTO = new RefreshTokenRequestDTO(refreshToken);
+            TokenRequestDTO refreshDTO = new TokenRequestDTO(refreshToken);
             mockMvc.perform(post("/auth/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(refreshDTO)))
@@ -295,7 +325,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testLogout_InvalidRefreshToken_ShouldStillSucceed() throws Exception {
-            LogoutRequestDTO logoutDTO = new LogoutRequestDTO("invalid-refresh-token");
+            TokenRequestDTO logoutDTO = new TokenRequestDTO("invalid-refresh-token");
 
             // Logout should succeed even with invalid token (graceful handling)
             mockMvc.perform(post("/auth/logout")
@@ -306,7 +336,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testLogout_EmptyToken_ShouldReturnBadRequest() throws Exception {
-            LogoutRequestDTO logoutDTO = new LogoutRequestDTO("");
+            TokenRequestDTO logoutDTO = new TokenRequestDTO("");
 
             mockMvc.perform(post("/auth/logout")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -316,7 +346,7 @@ class AuthControllerIntegrationTest {
 
         @Test
         void testLogout_NullToken_ShouldReturnBadRequest() throws Exception {
-            LogoutRequestDTO logoutDTO = new LogoutRequestDTO(null);
+            TokenRequestDTO logoutDTO = new TokenRequestDTO(null);
 
             mockMvc.perform(post("/auth/logout")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -331,11 +361,17 @@ class AuthControllerIntegrationTest {
         @Test
         void testCompleteAuthFlow_RegisterLoginRefreshLogout() throws Exception {
             // 1. Register
-            RegisterRequestDTO registerDTO = TestUtils.createValidRegisterPayload("fullflow");
+            UserCreateDTO registerDTO = TestUtils.createValidRegisterPayload("fullflow");
             mockMvc.perform(post("/auth/register")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(registerDTO)))
                     .andExpect(status().isCreated());
+
+            // Verify the user's email for testing purposes
+            User user = userRepository.findByUsername(registerDTO.username())
+                    .orElseThrow(() -> new IllegalStateException("User not found after registration"));
+            user.verifyEmail();
+            userRepository.saveAndFlush(user);
 
             // 2. Login
             LoginRequestDTO loginDTO = new LoginRequestDTO(registerDTO.username(), registerDTO.password());
@@ -350,7 +386,7 @@ class AuthControllerIntegrationTest {
             String initialRefreshToken = loginResponseObj.get("refreshToken").asText();
 
             // 3. Refresh tokens
-            RefreshTokenRequestDTO refreshDTO = new RefreshTokenRequestDTO(initialRefreshToken);
+            TokenRequestDTO refreshDTO = new TokenRequestDTO(initialRefreshToken);
             MvcResult refreshResult = mockMvc.perform(post("/auth/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(refreshDTO)))
@@ -365,7 +401,7 @@ class AuthControllerIntegrationTest {
             assertThat(newRefreshToken).isNotEqualTo(initialRefreshToken);
 
             // 4. Logout with new refresh token
-            LogoutRequestDTO logoutDTO = new LogoutRequestDTO(newRefreshToken);
+            TokenRequestDTO logoutDTO = new TokenRequestDTO(newRefreshToken);
             mockMvc.perform(post("/auth/logout")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(logoutDTO)))
@@ -374,8 +410,169 @@ class AuthControllerIntegrationTest {
             // 5. Verify token is revoked
             mockMvc.perform(post("/auth/refresh")
                             .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(new RefreshTokenRequestDTO(newRefreshToken))))
+                            .content(objectMapper.writeValueAsString(new TokenRequestDTO(newRefreshToken))))
                     .andExpect(status().isUnauthorized());
+        }
+    }
+
+    @Nested
+    class PasswordResetTests {
+
+        @Test
+        void testForgotPassword_ValidEmail_ShouldReturnStandardResponse() throws Exception {
+            // First register a user
+            UserCreateDTO registerDTO = TestUtils.createValidRegisterPayload("passwordreset1");
+            mockMvc.perform(post("/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(registerDTO)))
+                    .andExpect(status().isCreated());
+
+            ForgotPasswordRequestDTO forgotPasswordDTO = new ForgotPasswordRequestDTO(registerDTO.email());
+
+            mockMvc.perform(post("/auth/forgot-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(forgotPasswordDTO)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").exists());
+        }
+
+        @Test
+        void testForgotPassword_NonExistentEmail_ShouldReturnSameResponse() throws Exception {
+            ForgotPasswordRequestDTO forgotPasswordDTO = new ForgotPasswordRequestDTO("nonexistent@example.com");
+
+            // Should return same response for security (anti-enumeration)
+            mockMvc.perform(post("/auth/forgot-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(forgotPasswordDTO)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.message").exists());
+        }
+
+        @Test
+        void testForgotPassword_InvalidEmail_ShouldReturnBadRequest() throws Exception {
+            ForgotPasswordRequestDTO forgotPasswordDTO = new ForgotPasswordRequestDTO("invalid-email-format");
+
+            mockMvc.perform(post("/auth/forgot-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(forgotPasswordDTO)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testForgotPassword_EmptyEmail_ShouldReturnBadRequest() throws Exception {
+            ForgotPasswordRequestDTO forgotPasswordDTO = new ForgotPasswordRequestDTO("");
+
+            mockMvc.perform(post("/auth/forgot-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(forgotPasswordDTO)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testResetPassword_InvalidToken_ShouldReturnUnauthorized() throws Exception {
+            ResetPasswordRequestDTO resetPasswordDTO = new ResetPasswordRequestDTO(
+                    "invalid-token-12345",
+                    "C0mpl3x&Rand0m!P@ssw0rd"
+            );
+
+            mockMvc.perform(post("/auth/reset-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(resetPasswordDTO)))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        void testResetPassword_EmptyToken_ShouldReturnBadRequest() throws Exception {
+            ResetPasswordRequestDTO resetPasswordDTO = new ResetPasswordRequestDTO(
+                    "",
+                    "NewSecurePassword123!"
+            );
+
+            mockMvc.perform(post("/auth/reset-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(resetPasswordDTO)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testResetPassword_WeakPassword_ShouldReturnBadRequest() throws Exception {
+            ResetPasswordRequestDTO resetPasswordDTO = new ResetPasswordRequestDTO(
+                    "some-token",
+                    "weak" // Password too weak
+            );
+
+            mockMvc.perform(post("/auth/reset-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(resetPasswordDTO)))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testResetPassword_EmptyPassword_ShouldReturnBadRequest() throws Exception {
+            ResetPasswordRequestDTO resetPasswordDTO = new ResetPasswordRequestDTO(
+                    "some-token",
+                    ""
+            );
+
+            mockMvc.perform(post("/auth/reset-password")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(resetPasswordDTO)))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Nested
+    class LoggingVerificationTests {
+
+        @Test
+        void testLogin_ShouldProduceExpectedLogEntries() throws Exception {
+            // This test ensures logging is working - specific log verification
+            // would require additional test configuration for log capture
+            UserCreateDTO registerDTO = TestUtils.createValidRegisterPayload("loggingtest1");
+
+            // Register user first
+            mockMvc.perform(post("/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(registerDTO)))
+                    .andExpect(status().isCreated());
+
+            // Verify the user's email for testing purposes
+            User user = userRepository.findByUsername(registerDTO.username())
+                    .orElseThrow(() -> new IllegalStateException("User not found after registration"));
+            user.verifyEmail();
+            userRepository.saveAndFlush(user);
+
+            LoginRequestDTO loginDTO = new LoginRequestDTO(registerDTO.username(), registerDTO.password());
+
+            // Successful login should generate INFO logs
+            mockMvc.perform(post("/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(loginDTO)))
+                    .andExpect(status().isOk());
+
+            // Failed login should generate WARN logs
+            LoginRequestDTO failedLoginDTO = new LoginRequestDTO(registerDTO.username(), "wrongpassword");
+            mockMvc.perform(post("/auth/login")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(failedLoginDTO)))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        void testRegister_ShouldProduceExpectedLogEntries() throws Exception {
+            UserCreateDTO registerDTO = TestUtils.createValidRegisterPayload("loggingtest2");
+
+            // Successful registration should generate INFO logs
+            mockMvc.perform(post("/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(registerDTO)))
+                    .andExpect(status().isCreated());
+
+            // Duplicate registration should generate WARN logs
+            mockMvc.perform(post("/auth/register")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(registerDTO)))
+                    .andExpect(status().isConflict());
         }
     }
 }

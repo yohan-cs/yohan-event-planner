@@ -136,7 +136,7 @@ class RecurrenceRuleServiceImplTest {
             Set<DayOfWeek> allDays = EnumSet.allOf(DayOfWeek.class);
             var parsed = new ParsedRecurrenceInput(RecurrenceFrequency.DAILY, allDays, null);
 
-            LocalDate start = LocalDate.now();
+            LocalDate start = LocalDate.of(2025, 6, 29);
             LocalDate end = start.plusDays(4);
 
             // Act

@@ -35,7 +35,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
-@Import(TestConfig.class)
+@Import({TestConfig.class, com.yohan.event_planner.config.TestEmailConfig.class})
 @AutoConfigureMockMvc
 @TestPropertySource(locations = "classpath:application-test.properties")
 @Transactional
@@ -61,10 +61,11 @@ class EventControllerIntegrationTest {
 
         @Test
         void testCreateEvent_ShouldCreateAndReturnEvent() throws Exception {
+            ZonedDateTime fixedTime = ZonedDateTime.parse("2025-06-29T12:00:00Z");
             EventCreateDTO dto = new EventCreateDTO(
                     "New Event",
-                    ZonedDateTime.now().plusDays(1),
-                    ZonedDateTime.now().plusDays(1).plusHours(1),
+                    fixedTime.plusDays(1),
+                    fixedTime.plusDays(1).plusHours(1),
                     "Test description",
                     null,
                     false // isDraft set to false for a confirmed scheduled event

@@ -30,6 +30,130 @@ import java.util.Objects;
 import static com.yohan.event_planner.exception.ErrorCode.DUPLICATE_EVENT_RECAP;
 import static com.yohan.event_planner.exception.ErrorCode.RECAP_ON_INCOMPLETE_EVENT;
 
+/**
+ * Implementation of {@link EventRecapService} providing comprehensive event recap management.
+ * 
+ * <p>This service manages event recaps - multimedia documentation of completed events that
+ * capture experiences, outcomes, and reflections. Recaps support rich content including text
+ * summaries, photos, videos, and audio recordings, enabling users to document and reflect
+ * on their activities comprehensively.</p>
+ * 
+ * <h2>Core Functionality</h2>
+ * <ul>
+ *   <li><strong>Recap Lifecycle</strong>: Create, read, update, delete with state validation</li>
+ *   <li><strong>Media Integration</strong>: Manage multimedia content through RecapMediaService</li>
+ *   <li><strong>State Workflows</strong>: Support draft → confirmed recap transitions</li>
+ *   <li><strong>Event Validation</strong>: Ensure recaps only exist for appropriate events</li>
+ * </ul>
+ * 
+ * <h2>Recap State Management</h2>
+ * <p>Event recaps follow a structured lifecycle:</p>
+ * <ul>
+ *   <li><strong>Draft State</strong>: Initial recap creation, allows modifications</li>
+ *   <li><strong>Confirmed State</strong>: Finalized recaps, locked from further changes</li>
+ *   <li><strong>State Transitions</strong>: Enforced progression from draft to confirmed</li>
+ *   <li><strong>Validation Rules</strong>: Business rules govern state changes</li>
+ * </ul>
+ * 
+ * <h2>Event State Requirements</h2>
+ * <p>Recaps can only be created for events in appropriate states:</p>
+ * <ul>
+ *   <li><strong>Confirmed Events Only</strong>: Prevents recaps on unconfirmed/draft events</li>
+ *   <li><strong>One Recap Per Event</strong>: Enforces unique recap constraint per event</li>
+ *   <li><strong>State Validation</strong>: Validates event state before recap operations</li>
+ *   <li><strong>Business Rule Enforcement</strong>: Maintains data integrity</li>
+ * </ul>
+ * 
+ * <h2>Media Content Management</h2>
+ * <p>Recaps support rich multimedia content:</p>
+ * <ul>
+ *   <li><strong>Text Content</strong>: Structured text summaries and reflections</li>
+ *   <li><strong>Image Gallery</strong>: Photo documentation of events</li>
+ *   <li><strong>Video Content</strong>: Video recordings and highlights</li>
+ *   <li><strong>Audio Recordings</strong>: Voice notes and audio documentation</li>
+ *   <li><strong>Media Ordering</strong>: Maintain display sequence for narrative flow</li>
+ * </ul>
+ * 
+ * <h2>Integration Architecture</h2>
+ * <p>The service integrates with multiple system components:</p>
+ * <ul>
+ *   <li><strong>RecapMediaService</strong>: Manages multimedia content and ordering</li>
+ *   <li><strong>EventBO</strong>: Validates event state and retrieves event data</li>
+ *   <li><strong>Security Framework</strong>: Enforces ownership and authorization</li>
+ *   <li><strong>Mapping Layer</strong>: Converts between entities and DTOs</li>
+ * </ul>
+ * 
+ * <h2>Security and Ownership</h2>
+ * <p>Comprehensive security model protects recap data:</p>
+ * <ul>
+ *   <li><strong>Event Ownership</strong>: Recaps can only be created by event owners</li>
+ *   <li><strong>Transitive Security</strong>: Recap access controlled through event ownership</li>
+ *   <li><strong>State-based Permissions</strong>: Different permissions for draft vs confirmed</li>
+ *   <li><strong>Media Authorization</strong>: Media operations validated through recap ownership</li>
+ * </ul>
+ * 
+ * <h2>Business Rules</h2>
+ * <ul>
+ *   <li><strong>Unique Constraint</strong>: One recap per event maximum</li>
+ *   <li><strong>Event State Requirement</strong>: Only confirmed events can have recaps</li>
+ *   <li><strong>Confirmation Immutability</strong>: Confirmed recaps cannot be modified</li>
+ *   <li><strong>Cascading Deletion</strong>: Event deletion removes associated recaps</li>
+ * </ul>
+ * 
+ * <h2>Workflow Support</h2>
+ * <p>Supports comprehensive recap workflows:</p>
+ * <ul>
+ *   <li><strong>Draft Creation</strong>: Initial recap creation with media placeholders</li>
+ *   <li><strong>Content Addition</strong>: Progressive content building with media uploads</li>
+ *   <li><strong>Review Process</strong>: Draft state allows content refinement</li>
+ *   <li><strong>Confirmation</strong>: Finalize recap and lock content</li>
+ * </ul>
+ * 
+ * <h2>Performance Considerations</h2>
+ * <ul>
+ *   <li><strong>Transactional Boundaries</strong>: Ensure consistency across media operations</li>
+ *   <li><strong>Lazy Loading</strong>: Optimize entity loading for better performance</li>
+ *   <li><strong>Media Delegation</strong>: Efficient media operations through specialized service</li>
+ *   <li><strong>State Caching</strong>: Cache validation results where appropriate</li>
+ * </ul>
+ * 
+ * <h2>Error Handling</h2>
+ * <p>Comprehensive error handling for various scenarios:</p>
+ * <ul>
+ *   <li><strong>EventRecapNotFoundException</strong>: When requested recaps don't exist</li>
+ *   <li><strong>EventRecapAlreadyConfirmedException</strong>: When modifying confirmed recaps</li>
+ *   <li><strong>EventRecapException</strong>: For business rule violations (duplicates)</li>
+ *   <li><strong>InvalidEventStateException</strong>: When events are in wrong state for recaps</li>
+ * </ul>
+ * 
+ * <h2>Use Cases</h2>
+ * <p>Primary use cases for event recaps:</p>
+ * <ul>
+ *   <li><strong>Event Documentation</strong>: Capture memories and outcomes</li>
+ *   <li><strong>Reflection</strong>: Post-event analysis and learning</li>
+ *   <li><strong>Sharing</strong>: Share experiences with others</li>
+ *   <li><strong>Progress Tracking</strong>: Document achievement and growth</li>
+ * </ul>
+ * 
+ * <h2>Data Consistency</h2>
+ * <p>Maintains consistency across recap relationships:</p>
+ * <ul>
+ *   <li><strong>Event-Recap Consistency</strong>: Ensure valid event-recap relationships</li>
+ *   <li><strong>Media Synchronization</strong>: Keep media content in sync with recaps</li>
+ *   <li><strong>State Consistency</strong>: Maintain valid state transitions</li>
+ *   <li><strong>Ownership Integrity</strong>: Ensure ownership relationships remain valid</li>
+ * </ul>
+ * 
+ * @see EventRecapService
+ * @see EventRecap
+ * @see Event
+ * @see RecapMediaService
+ * @see EventRecapRepository
+ * @see EventRecapMapper
+ * @author Event Planner Development Team
+ * @version 2.0.0
+ * @since 1.0.0
+ */
 @Service
 @Transactional
 public class EventRecapServiceImpl implements EventRecapService {

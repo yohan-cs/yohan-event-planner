@@ -1,5 +1,10 @@
-# Ignore Maven build output
-target/
+# Ignore Maven build output (except JAR files)
+target/classes/
+target/test-classes/
+target/maven-*
+target/generated-*
+target/surefire-*
+!target/*.jar
 
 # Ignore environment config
 .env
