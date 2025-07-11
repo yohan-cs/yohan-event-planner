@@ -10,18 +10,107 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Repository interface for managing {@link User} entities.
- *
- * <p>
- * Extends {@link JpaRepository} to provide standard CRUD operations,
- * along with custom query methods for retrieving users by username,
- * email, and role, as well as existence checks.
- * </p>
- *
- * <p>
- * This repository does not enforce any access control or authorization.
- * All such concerns must be handled at the service or business layer.
- * </p>
+ * Repository interface for managing {@link User} entities with comprehensive query support.
+ * 
+ * <p>This repository provides sophisticated data access functionality for user management,
+ * including unique constraint queries, role-based filtering, deletion lifecycle management,
+ * and existence verification. It supports the complete user lifecycle from registration
+ * through soft deletion and permanent cleanup operations.</p>
+ * 
+ * <h2>Core Query Categories</h2>
+ * <ul>
+ *   <li><strong>Identity Queries</strong>: Find users by username, email, and ID</li>
+ *   <li><strong>Uniqueness Verification</strong>: Check username and email availability</li>
+ *   <li><strong>Role-based Queries</strong>: Filter users by assigned roles</li>
+ *   <li><strong>Deletion Lifecycle</strong>: Manage soft deletion and cleanup processes</li>
+ *   <li><strong>Active User Filtering</strong>: Exclude pending deletion users from results</li>
+ * </ul>
+ * 
+ * <h2>Identity and Uniqueness Management</h2>
+ * <p>Comprehensive support for user identity constraints:</p>
+ * <ul>
+ *   <li><strong>Username Uniqueness</strong>: Ensure globally unique usernames</li>
+ *   <li><strong>Email Uniqueness</strong>: Prevent duplicate email registrations</li>
+ *   <li><strong>Existence Checks</strong>: Efficient availability verification</li>
+ *   <li><strong>Case Sensitivity</strong>: Handle username and email case requirements</li>
+ * </ul>
+ * 
+ * <h2>Soft Deletion Support</h2>
+ * <p>Advanced user lifecycle management:</p>
+ * <ul>
+ *   <li><strong>Pending Deletion State</strong>: Mark users for delayed deletion</li>
+ *   <li><strong>Active User Filtering</strong>: Exclude deleted users from standard queries</li>
+ *   <li><strong>Scheduled Cleanup</strong>: Find users eligible for permanent deletion</li>
+ *   <li><strong>Restoration Support</strong>: Query patterns support user reactivation</li>
+ * </ul>
+ * 
+ * <h2>Role-based Access Patterns</h2>
+ * <p>Support for role-based user management:</p>
+ * <ul>
+ *   <li><strong>Role Filtering</strong>: Query users by assigned roles</li>
+ *   <li><strong>Administrative Queries</strong>: Support for admin functionality</li>
+ *   <li><strong>Multi-role Support</strong>: Handle users with multiple roles</li>
+ *   <li><strong>Role Validation</strong>: Support role-based authorization</li>
+ * </ul>
+ * 
+ * <h2>Performance Optimization</h2>
+ * <ul>
+ *   <li><strong>Indexed Queries</strong>: Utilize database indexes for username/email</li>
+ *   <li><strong>Existence Checks</strong>: Efficient boolean queries without data transfer</li>
+ *   <li><strong>Filtered Queries</strong>: Automatic filtering of deleted users</li>
+ *   <li><strong>Batch Operations</strong>: Support bulk operations where applicable</li>
+ * </ul>
+ * 
+ * <h2>Security Considerations</h2>
+ * <p>Repository design supports security enforcement:</p>
+ * <ul>
+ *   <li><strong>No Built-in Authorization</strong>: Security enforced at service layer</li>
+ *   <li><strong>Privacy Support</strong>: Query patterns respect user privacy needs</li>
+ *   <li><strong>Deletion Privacy</strong>: Automatic exclusion of deleted users</li>
+ *   <li><strong>Data Integrity</strong>: Maintain referential integrity constraints</li>
+ * </ul>
+ * 
+ * <h2>Integration Points</h2>
+ * <p>This repository integrates with:</p>
+ * <ul>
+ *   <li><strong>UserService</strong>: Primary service layer integration</li>
+ *   <li><strong>AuthService</strong>: Authentication and registration support</li>
+ *   <li><strong>Security Framework</strong>: User lookup for authentication</li>
+ *   <li><strong>Cleanup Jobs</strong>: Scheduled deletion processing</li>
+ * </ul>
+ * 
+ * <h2>Query Patterns</h2>
+ * <p>Common query patterns supported:</p>
+ * <ul>
+ *   <li><strong>Lookup by Identity</strong>: Username and email-based queries</li>
+ *   <li><strong>Registration Validation</strong>: Uniqueness verification</li>
+ *   <li><strong>Active User Lists</strong>: Filtered user collections</li>
+ *   <li><strong>Cleanup Operations</strong>: Scheduled deletion processing</li>
+ * </ul>
+ * 
+ * <h2>Data Consistency</h2>
+ * <ul>
+ *   <li><strong>Unique Constraints</strong>: Enforce username and email uniqueness</li>
+ *   <li><strong>State Consistency</strong>: Maintain deletion state integrity</li>
+ *   <li><strong>Role Consistency</strong>: Proper role assignment handling</li>
+ *   <li><strong>Timestamp Accuracy</strong>: Reliable deletion scheduling</li>
+ * </ul>
+ * 
+ * <h2>Important Notes</h2>
+ * <ul>
+ *   <li><strong>Service Layer Security</strong>: Authorization must be enforced at service layer</li>
+ *   <li><strong>Soft Deletion</strong>: Default queries should exclude pending deletion users</li>
+ *   <li><strong>Case Sensitivity</strong>: Username/email comparisons are case-sensitive</li>
+ *   <li><strong>Null Safety</strong>: Proper handling of optional parameters</li>
+ * </ul>
+ * 
+ * @see User
+ * @see UserService
+ * @see AuthService
+ * @see Role
+ * @author Event Planner Development Team
+ * @version 2.0.0
+ * @since 1.0.0
  */
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
@@ -103,6 +192,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
      * @return a list of users eligible for permanent deletion
      */
     List<User> findAllByIsPendingDeletionTrueAndScheduledDeletionDateBefore(ZonedDateTime cutoffTime);
+
+    /**
+     * Retrieves all users who have not verified their email and were created before the given time.
+     *
+     * @param cutoffTime the cutoff time for unverified account cleanup
+     * @return a list of unverified users eligible for cleanup
+     */
+    List<User> findAllByEmailVerifiedFalseAndCreatedAtBefore(ZonedDateTime cutoffTime);
 
     /**
      * Deletes the user entity with the specified ID.

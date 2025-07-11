@@ -29,6 +29,73 @@ import java.util.stream.Collectors;
 import static com.yohan.event_planner.exception.ErrorCode.DUPLICATE_LABEL;
 import static com.yohan.event_planner.exception.ErrorCode.SYSTEM_MANAGED_LABEL;
 
+/**
+ * Implementation of {@link LabelService} providing comprehensive label management functionality.
+ * 
+ * <p>This service manages user-defined labels for event categorization, enforcing business rules around
+ * ownership, uniqueness, and system-managed entities. Labels serve as the primary categorization mechanism
+ * in the event planning system, supporting event organization, time tracking, and analytics.</p>
+ * 
+ * <h2>Core Functionality</h2>
+ * <ul>
+ *   <li><strong>CRUD Operations</strong>: Full create, read, update, delete lifecycle management</li>
+ *   <li><strong>Ownership Validation</strong>: Ensures users can only access their own labels</li>
+ *   <li><strong>Uniqueness Enforcement</strong>: Prevents duplicate label names per user</li>
+ *   <li><strong>System Protection</strong>: Blocks modification of system-managed labels (e.g., "Unlabeled")</li>
+ * </ul>
+ * 
+ * <h2>Business Rules</h2>
+ * <ul>
+ *   <li><strong>Per-User Uniqueness</strong>: Each user can have only one label with a given name</li>
+ *   <li><strong>System Label Protection</strong>: Default "Unlabeled" label cannot be modified or deleted</li>
+ *   <li><strong>Ownership Isolation</strong>: Users cannot access labels owned by other users</li>
+ *   <li><strong>Cascading Operations</strong>: Label deletion affects associated events and time buckets</li>
+ * </ul>
+ * 
+ * <h2>System Integration</h2>
+ * <p>This service integrates with multiple system components:</p>
+ * <ul>
+ *   <li><strong>Event Management</strong>: Labels categorize events and recurring events</li>
+ *   <li><strong>Time Tracking</strong>: Labels generate time statistics through bucket aggregation</li>
+ *   <li><strong>Badge System</strong>: Multiple labels can be grouped under badges for analytics</li>
+ *   <li><strong>Search & Filtering</strong>: Labels enable event discovery and organization</li>
+ * </ul>
+ * 
+ * <h2>Special Label Handling</h2>
+ * <p>The service provides special handling for the system-managed "Unlabeled" label:</p>
+ * <ul>
+ *   <li>Automatically excluded from user label listings</li>
+ *   <li>Cannot be updated or deleted by users</li>
+ *   <li>Serves as default categorization for uncategorized events</li>
+ *   <li>Maintained per-user for consistency</li>
+ * </ul>
+ * 
+ * <h2>Error Handling</h2>
+ * <p>The service throws specific exceptions for different failure scenarios:</p>
+ * <ul>
+ *   <li><strong>LabelNotFoundException</strong>: When requested labels don't exist</li>
+ *   <li><strong>LabelOwnershipException</strong>: When users attempt to access others' labels</li>
+ *   <li><strong>LabelException</strong>: For duplicate name violations</li>
+ *   <li><strong>SystemManagedEntityException</strong>: For protected system label modifications</li>
+ * </ul>
+ * 
+ * <h2>Performance Considerations</h2>
+ * <ul>
+ *   <li>Efficient batch operations for label validation</li>
+ *   <li>Optimized queries for user-specific label retrieval</li>
+ *   <li>Lazy loading of user relationships to minimize database hits</li>
+ *   <li>Transactional boundaries for consistency</li>
+ * </ul>
+ * 
+ * @see LabelService
+ * @see Label
+ * @see LabelRepository
+ * @see LabelMapper
+ * @see OwnershipValidator
+ * @author Event Planner Development Team
+ * @version 2.0.0
+ * @since 1.0.0
+ */
 @Service
 public class LabelServiceImpl implements LabelService {
 

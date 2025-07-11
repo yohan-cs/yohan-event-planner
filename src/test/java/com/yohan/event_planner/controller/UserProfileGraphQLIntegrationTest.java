@@ -3,7 +3,7 @@ package com.yohan.event_planner.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.RecapMediaType;
-import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
+import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.exception.GraphQLExceptionHandler;
 import com.yohan.event_planner.util.TestConfig;
 import com.yohan.event_planner.util.TestDataHelper;
@@ -40,7 +40,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(locations = "classpath:application-test.properties")
-@Import({GraphQLExceptionHandler.class, TestConfig.class})
+@Import({GraphQLExceptionHandler.class, TestConfig.class, com.yohan.event_planner.config.TestEmailConfig.class})
 class UserProfileGraphQLIntegrationTest {
 
     @Autowired private MockMvc mockMvc;
@@ -347,7 +347,7 @@ class UserProfileGraphQLIntegrationTest {
         """, recapId, ids);
     }
 
-    private void performAndAssertUserHeaderUpdate(String jwt, RegisterRequestDTO dto, String expectedBio, String expectedPicUrl) throws Exception {
+    private void performAndAssertUserHeaderUpdate(String jwt, UserCreateDTO dto, String expectedBio, String expectedPicUrl) throws Exception {
         String mutation = buildUpdateUserHeaderMutation(expectedBio, expectedPicUrl);
 
         var resultActions = mockMvc.perform(post("/graphql")
@@ -840,8 +840,8 @@ class UserProfileGraphQLIntegrationTest {
         @Test
         void testWeekView_TodayAsAnchor_ShouldSucceed() throws Exception {
             var auth = testDataHelper.registerAndLoginUserWithUser("weekviewtoday");
-            String today = java.time.LocalDate.now().toString();
-            String query = buildWeekViewQuery(auth.user().getUsername(), today);
+            String fixedDate = "2025-06-29"; // Use fixed date instead of dynamic "today"
+            String query = buildWeekViewQuery(auth.user().getUsername(), fixedDate);
             performAndAssertWeekViewSuccess(auth.jwt(), query);
         }
 

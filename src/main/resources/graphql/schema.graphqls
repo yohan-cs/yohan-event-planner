@@ -144,6 +144,8 @@ type EventResponse {
   durationMinutes: Int
   startTimeZone: String
   endTimeZone: String
+  creatorUsername: String!
+  creatorTimezone: String!
   label: Label
   isCompleted: Boolean!
   unconfirmed: Boolean!

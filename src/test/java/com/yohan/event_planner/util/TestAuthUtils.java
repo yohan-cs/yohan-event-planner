@@ -3,8 +3,9 @@ package com.yohan.event_planner.util;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.dto.auth.LoginRequestDTO;
-import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
+import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.repository.UserRepository;
 import com.yohan.event_planner.security.CustomUserDetails;
 import com.yohan.event_planner.security.JwtUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,12 +24,14 @@ public class TestAuthUtils {
     private final JwtUtils jwtUtils;
     private final MockMvc mockMvc;
     private final ObjectMapper objectMapper;
+    private final UserRepository userRepository;
 
     @Autowired
-    public TestAuthUtils(JwtUtils jwtUtils, MockMvc mockMvc, ObjectMapper objectMapper) {
+    public TestAuthUtils(JwtUtils jwtUtils, MockMvc mockMvc, ObjectMapper objectMapper, UserRepository userRepository) {
         this.jwtUtils = jwtUtils;
         this.mockMvc = mockMvc;
         this.objectMapper = objectMapper;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -47,22 +50,28 @@ public class TestAuthUtils {
      * Returns complete authentication information including refresh token.
      */
     public AuthResult registerAndLoginUser(String usernameSuffix) throws Exception {
-        RegisterRequestDTO registerDTO = createValidRegisterPayload(usernameSuffix);
+        UserCreateDTO registerDTO = createValidRegisterPayload(usernameSuffix);
         return registerAndLogin(registerDTO);
     }
 
     /**
-     * Registers and logs in a new user using a custom RegisterRequestDTO.
+     * Registers and logs in a new user using a custom UserCreateDTO.
      * Returns complete authentication information including refresh token.
      *
      * @param registerDTO the registration request
      * @return AuthResult with JWT, refresh token, and user ID
      */
-    public AuthResult registerAndLogin(RegisterRequestDTO registerDTO) throws Exception {
+    public AuthResult registerAndLogin(UserCreateDTO registerDTO) throws Exception {
         mockMvc.perform(post("/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(registerDTO)))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isCreated());
+
+        // Verify the user's email for testing purposes
+        User user = userRepository.findByUsername(registerDTO.username())
+                .orElseThrow(() -> new IllegalStateException("User not found after registration"));
+        user.verifyEmail();
+        userRepository.saveAndFlush(user);
 
         LoginRequestDTO loginDTO = new LoginRequestDTO(registerDTO.username(), registerDTO.password());
 

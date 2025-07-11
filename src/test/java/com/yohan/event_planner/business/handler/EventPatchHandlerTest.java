@@ -19,6 +19,7 @@ import java.util.Optional;
 
 import static com.yohan.event_planner.exception.ErrorCode.EVENT_NOT_CONFIRMED;
 import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_END_TIME;
+import static com.yohan.event_planner.exception.ErrorCode.MISSING_EVENT_NAME;
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_LABEL_ACCESS;
 import static com.yohan.event_planner.util.TestConstants.EVENT_ID;
 import static com.yohan.event_planner.util.TestConstants.FUTURE_LABEL_ID;
@@ -44,6 +45,42 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 
+/**
+ * Comprehensive test suite for {@link EventPatchHandler} focusing on:
+ * 
+ * <h3>Skip vs Clear Semantics</h3>
+ * <p>Tests the sophisticated Optional field handling where:
+ * <ul>
+ *   <li><strong>null</strong> = skip field (no change)</li>
+ *   <li><strong>Optional.empty()</strong> = clear field (set to null)</li>
+ *   <li><strong>Optional.of(value)</strong> = update field (set to value)</li>
+ * </ul>
+ * 
+ * <h3>Field-Specific Behavior</h3>
+ * <p>Tests individual field patching logic including:
+ * <ul>
+ *   <li>Name, start time, end time, description patching</li>
+ *   <li>Label patching with "Unlabeled" resolution</li>
+ *   <li>Completion validation and state transitions</li>
+ * </ul>
+ * 
+ * <h3>Multi-Field Scenarios</h3>
+ * <p>Tests complex scenarios with multiple field updates including:
+ * <ul>
+ *   <li>Partial update failures and rollback behavior</li>
+ *   <li>Service interaction failures during patching</li>
+ *   <li>Ownership validation failures</li>
+ *   <li>Complete event transformations</li>
+ * </ul>
+ * 
+ * <h3>Edge Cases</h3>
+ * <p>Tests boundary conditions and error scenarios:
+ * <ul>
+ *   <li>Completing events with missing required fields</li>
+ *   <li>Draft event completion restrictions</li>
+ *   <li>Return value accuracy for change detection</li>
+ * </ul>
+ */
 public class EventPatchHandlerTest {
 
     private LabelService labelService;
@@ -540,6 +577,279 @@ public class EventPatchHandlerTest {
             assertFalse(result);
             assertTrue(event.isCompleted());
         }
+        // endregion
+
+        // region --- Skip vs Clear Semantics Tests ---
+
+        @Test
+        void testSkipVsClearSemantics_allFieldsSkipped() {
+            // Arrange
+            Event event = createValidScheduledEventWithId(EVENT_ID, user, clock);
+            event.setLabel(createValidLabelWithId(VALID_LABEL_ID, user));
+            event.setDescription("Original description");
+            
+            String originalName = event.getName();
+            ZonedDateTime originalStart = event.getStartTime();
+            ZonedDateTime originalEnd = event.getEndTime();
+            String originalDescription = event.getDescription();
+            Long originalLabelId = event.getLabel().getId();
+            boolean originalCompleted = event.isCompleted();
+
+            // All fields null = skip all
+            EventUpdateDTO dto = new EventUpdateDTO(null, null, null, null, null, null);
+
+            // Act
+            boolean result = eventPatchHandler.applyPatch(event, dto);
+
+            // Assert - no changes made
+            assertFalse(result);
+            assertEquals(originalName, event.getName());
+            assertEquals(originalStart, event.getStartTime());
+            assertEquals(originalEnd, event.getEndTime());
+            assertEquals(originalDescription, event.getDescription());
+            assertEquals(originalLabelId, event.getLabel().getId());
+            assertEquals(originalCompleted, event.isCompleted());
+        }
+
+        @Test
+        void testSkipVsClearSemantics_allOptionalFieldsCleared() {
+            // Arrange
+            Event event = createValidScheduledEventWithId(EVENT_ID, user, clock);
+            event.setLabel(createValidLabelWithId(VALID_LABEL_ID, user));
+            event.setDescription("Original description");
+
+            Label unlabeled = createValidLabelWithId(UNLABELED_LABEL_ID, user);
+            when(labelService.getLabelEntityById(UNLABELED_LABEL_ID)).thenReturn(unlabeled);
+
+            // All Optional fields empty = clear all
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    Optional.empty(),      // clear name
+                    Optional.empty(),      // clear start time
+                    Optional.empty(),      // clear end time
+                    Optional.empty(),      // clear description
+                    Optional.empty(),      // clear label (sets to unlabeled)
+                    null                   // skip completion
+            );
+
+            // Act
+            boolean result = eventPatchHandler.applyPatch(event, dto);
+
+            // Assert - all Optional fields cleared
+            assertTrue(result);
+            assertNull(event.getName());
+            assertNull(event.getStartTime());
+            assertNull(event.getEndTime());
+            assertNull(event.getDescription());
+            assertEquals(UNLABELED_LABEL_ID, event.getLabel().getId()); // cleared to unlabeled
+            assertFalse(event.isCompleted()); // unchanged (was skipped)
+        }
+
+        @Test
+        void testSkipVsClearSemantics_mixedSkipClearUpdate() {
+            // Arrange
+            Event event = createValidScheduledEventWithId(EVENT_ID, user, clock);
+            event.setLabel(createValidLabelWithId(VALID_LABEL_ID, user));
+            event.setDescription("Original description");
+
+            ZonedDateTime newStart = getValidEventStartFuture(clock).plusHours(2);
+            Label newLabel = createValidLabelWithId(FUTURE_LABEL_ID, user);
+            when(labelService.getLabelEntityById(FUTURE_LABEL_ID)).thenReturn(newLabel);
+
+            // Mixed: skip some, clear some, update some
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    Optional.of("New Name"),    // update name
+                    Optional.of(newStart),      // update start time
+                    null,                       // skip end time
+                    Optional.empty(),           // clear description
+                    Optional.of(FUTURE_LABEL_ID), // update label
+                    true                        // update completion
+            );
+
+            // Act
+            boolean result = eventPatchHandler.applyPatch(event, dto);
+
+            // Assert - verify mixed behavior
+            assertTrue(result);
+            assertEquals("New Name", event.getName());           // updated
+            assertEquals(newStart.toInstant(), event.getStartTime().toInstant()); // updated (compare instants for UTC storage)
+            assertEquals(getValidEventEndFuture(clock).toInstant(), event.getEndTime().toInstant()); // unchanged (skipped)
+            assertNull(event.getDescription());                 // cleared
+            assertEquals(FUTURE_LABEL_ID, event.getLabel().getId()); // updated
+            assertTrue(event.isCompleted());                    // updated
+        }
+
+        @Test
+        void testSkipVsClearSemantics_noActualChanges() {
+            // Arrange
+            Event event = createValidScheduledEventWithId(EVENT_ID, user, clock);
+            event.setLabel(createValidLabelWithId(VALID_LABEL_ID, user));
+            event.setDescription(null); // already null
+            event.setCompleted(false);  // already false
+
+            // Set values to same as current - should result in no changes
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    Optional.of(event.getName()),      // same name
+                    Optional.of(event.getStartTime()), // same start time
+                    Optional.of(event.getEndTime()),   // same end time
+                    Optional.empty(),                  // already null
+                    Optional.of(event.getLabel().getId()), // same label
+                    false                              // same completion
+            );
+
+            // Act
+            boolean result = eventPatchHandler.applyPatch(event, dto);
+
+            // Assert - no changes made despite fields being present
+            assertFalse(result);
+        }
+
+        // endregion
+
+        // region --- Multi-Field Update Scenarios ---
+
+        @Test
+        void testMultiFieldUpdate_clearingRequiredFieldsThenTryingToComplete() {
+            // Arrange
+            Event event = createValidScheduledEventWithId(EVENT_ID, user, clock);
+            event.setLabel(createValidLabelWithId(VALID_LABEL_ID, user));
+
+            // Clear name and try to complete - should fail
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    Optional.empty(),  // clear name
+                    null,              // keep start time
+                    null,              // keep end time
+                    null,              // keep description
+                    null,              // keep label
+                    true               // try to complete
+            );
+
+            // Act + Assert
+            InvalidEventStateException ex = assertThrows(InvalidEventStateException.class,
+                    () -> eventPatchHandler.applyPatch(event, dto));
+            assertEquals(MISSING_EVENT_NAME, ex.getErrorCode());
+        }
+
+        @Test
+        void testMultiFieldUpdate_labelServiceFailureDuringMultiFieldUpdate() {
+            // Arrange
+            Event event = createValidScheduledEventWithId(EVENT_ID, user, clock);
+            event.setLabel(createValidLabelWithId(VALID_LABEL_ID, user));
+
+            // Mock label service failure
+            when(labelService.getLabelEntityById(FUTURE_LABEL_ID))
+                    .thenThrow(new RuntimeException("Label service failed"));
+
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    Optional.of("New Name"),        // update name
+                    null,                           // keep start time
+                    null,                           // keep end time
+                    Optional.of("New Description"), // update description
+                    Optional.of(FUTURE_LABEL_ID),   // update label (will fail)
+                    null                            // keep completion
+            );
+
+            // Act + Assert
+            assertThrows(RuntimeException.class, () -> eventPatchHandler.applyPatch(event, dto));
+            
+            // Event should be partially updated (name and description changed, label failed)
+            assertEquals("New Name", event.getName());
+            assertEquals("New Description", event.getDescription());
+            assertEquals(VALID_LABEL_ID, event.getLabel().getId()); // unchanged due to failure
+        }
+
+        @Test
+        void testMultiFieldUpdate_ownershipValidationFailure() {
+            // Arrange
+            Event event = createValidScheduledEventWithId(EVENT_ID, user, clock);
+            event.setLabel(createValidLabelWithId(VALID_LABEL_ID, user));
+
+            Label unauthorizedLabel = createValidLabelWithId(FUTURE_LABEL_ID, user);
+            when(labelService.getLabelEntityById(FUTURE_LABEL_ID)).thenReturn(unauthorizedLabel);
+            doThrow(new LabelOwnershipException(UNAUTHORIZED_LABEL_ACCESS, FUTURE_LABEL_ID))
+                    .when(ownershipValidator).validateLabelOwnership(user.getId(), unauthorizedLabel);
+
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    Optional.of("New Name"),        // update name
+                    null,                           // keep start time
+                    null,                           // keep end time
+                    Optional.of("New Description"), // update description
+                    Optional.of(FUTURE_LABEL_ID),   // update label (will fail ownership)
+                    null                            // keep completion
+            );
+
+            // Act + Assert
+            assertThrows(LabelOwnershipException.class, () -> eventPatchHandler.applyPatch(event, dto));
+            
+            // Event should be partially updated (name and description changed, label failed)
+            assertEquals("New Name", event.getName());
+            assertEquals("New Description", event.getDescription());
+            assertEquals(VALID_LABEL_ID, event.getLabel().getId()); // unchanged due to failure
+        }
+
+        @Test
+        void testMultiFieldUpdate_completeEventTransformation() {
+            // Arrange - create draft event
+            Event draftEvent = createEmptyDraftEvent(user);
+            draftEvent.setLabel(createValidLabelWithId(VALID_LABEL_ID, user));
+
+            ZonedDateTime startTime = getValidEventStartFuture(clock);
+            ZonedDateTime endTime = getValidEventEndFuture(clock);
+
+            // Transform draft to complete event in one patch
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    Optional.of("Completed Event"),
+                    Optional.of(startTime),
+                    Optional.of(endTime),
+                    Optional.of("Event description"),
+                    null,  // keep current label
+                    null   // keep as draft (can't complete draft directly)
+            );
+
+            // Act
+            boolean result = eventPatchHandler.applyPatch(draftEvent, dto);
+
+            // Assert - event transformed but still draft
+            assertTrue(result);
+            assertEquals("Completed Event", draftEvent.getName());
+            assertEquals(startTime.toInstant(), draftEvent.getStartTime().toInstant());
+            assertEquals(endTime.toInstant(), draftEvent.getEndTime().toInstant());
+            assertEquals("Event description", draftEvent.getDescription());
+            assertTrue(draftEvent.isUnconfirmed()); // still draft
+            assertFalse(draftEvent.isCompleted());
+        }
+
+        @Test
+        void testMultiFieldUpdate_simultaneousTimeAndLabelChanges() {
+            // Arrange
+            Event event = createValidScheduledEventWithId(EVENT_ID, user, clock);
+            event.setLabel(createValidLabelWithId(VALID_LABEL_ID, user));
+
+            ZonedDateTime newStart = getValidEventStartFuture(clock).plusHours(3);
+            ZonedDateTime newEnd = getValidEventEndFuture(clock).plusHours(3);
+            Label newLabel = createValidLabelWithId(FUTURE_LABEL_ID, user);
+            when(labelService.getLabelEntityById(FUTURE_LABEL_ID)).thenReturn(newLabel);
+
+            EventUpdateDTO dto = new EventUpdateDTO(
+                    null,                           // keep name
+                    Optional.of(newStart),          // update start time
+                    Optional.of(newEnd),            // update end time
+                    null,                           // keep description
+                    Optional.of(FUTURE_LABEL_ID),   // update label
+                    true                            // complete event
+            );
+
+            // Act
+            boolean result = eventPatchHandler.applyPatch(event, dto);
+
+            // Assert - all changes applied
+            assertTrue(result);
+            assertEquals(newStart.toInstant(), event.getStartTime().toInstant());
+            assertEquals(newEnd.toInstant(), event.getEndTime().toInstant());
+            assertEquals(FUTURE_LABEL_ID, event.getLabel().getId());
+            assertTrue(event.isCompleted());
+            verify(ownershipValidator).validateLabelOwnership(user.getId(), newLabel);
+        }
+
         // endregion
     }
 

@@ -1290,6 +1290,7 @@ public class EventServiceImplTest {
                     null,
                     "desc",
                     user.getUsername(),
+                    user.getTimezone(),
                     null,
                     false,
                     false,

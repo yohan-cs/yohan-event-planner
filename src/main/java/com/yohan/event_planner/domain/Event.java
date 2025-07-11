@@ -19,6 +19,7 @@ import jakarta.persistence.Table;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
 /**
@@ -39,6 +40,7 @@ import java.util.Objects;
  *     <li>Start and end times are stored internally in UTC.</li>
  *     <li>The original time zone ID is stored separately for accurate UI display.</li>
  *     <li>Time zones are extracted from {@link ZonedDateTime} inputs when setting time fields.</li>
+ *     <li>All timestamps are automatically truncated to minute precision (seconds and nanoseconds removed).</li>
  * </ul>
  *
  * <h2>Duration Handling</h2>
@@ -194,7 +196,7 @@ public class Event {
     public void setStartTime(ZonedDateTime startTime) {
         if (startTime != null) {
             this.startTimezone = startTime.getZone().getId();
-            this.startTime = startTime.withZoneSameInstant(ZoneOffset.UTC);
+            this.startTime = startTime.truncatedTo(ChronoUnit.MINUTES).withZoneSameInstant(ZoneOffset.UTC);
         } else {
             this.startTimezone = null;
             this.startTime = null;
@@ -205,7 +207,7 @@ public class Event {
     public void setEndTime(ZonedDateTime endTime) {
         if (endTime != null) {
             this.endTimezone = endTime.getZone().getId();
-            this.endTime = endTime.withZoneSameInstant(ZoneOffset.UTC);
+            this.endTime = endTime.truncatedTo(ChronoUnit.MINUTES).withZoneSameInstant(ZoneOffset.UTC);
         } else {
             this.endTimezone = null;
             this.endTime = null;

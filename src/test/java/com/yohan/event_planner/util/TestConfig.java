@@ -15,9 +15,12 @@ import com.yohan.event_planner.time.ClockProvider;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
+import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+
+import static org.mockito.Mockito.mock;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -33,8 +36,8 @@ public class TestConfig {
     }
 
     @Bean
-    public TestAuthUtils testAuthUtils(JwtUtils jwtUtils, MockMvc mockMvc, ObjectMapper objectMapper) {
-        return new TestAuthUtils(jwtUtils, mockMvc, objectMapper);
+    public TestAuthUtils testAuthUtils(JwtUtils jwtUtils, MockMvc mockMvc, ObjectMapper objectMapper, UserRepository userRepository) {
+        return new TestAuthUtils(jwtUtils, mockMvc, objectMapper, userRepository);
     }
 
     @Bean

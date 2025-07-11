@@ -42,6 +42,8 @@ import static org.mockito.Mockito.when;
 
 class ConflictValidatorImplTest {
 
+    private static final LocalDate FIXED_TEST_DATE = LocalDate.of(2025, 6, 29);
+
     private EventRepository eventRepository;
     private RecurringEventRepository recurringEventRepository;
     private RecurrenceRuleService recurrenceRuleService;
@@ -125,7 +127,7 @@ class ConflictValidatorImplTest {
         void validateNoConflicts_multiDayEventDetectsRecurringConflict() {
             // Arrange
             User creator = TestUtils.createValidUserEntityWithId();
-            ZonedDateTime startTime = ZonedDateTime.of(LocalDate.now(), LocalTime.of(22, 0), ZoneId.of(VALID_TIMEZONE));
+            ZonedDateTime startTime = ZonedDateTime.of(FIXED_TEST_DATE, LocalTime.of(22, 0), ZoneId.of(VALID_TIMEZONE));
             ZonedDateTime endTime = startTime.plusDays(1).withHour(6);
 
             Event multiDayEvent = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
@@ -156,7 +158,7 @@ class ConflictValidatorImplTest {
         void validateNoConflicts_multiDayEventNoTimeOverlap_doesNotThrow() {
             // Arrange
             User creator = TestUtils.createValidUserEntityWithId();
-            ZonedDateTime startTime = ZonedDateTime.of(LocalDate.now(), LocalTime.of(22, 0), ZoneId.of(VALID_TIMEZONE));
+            ZonedDateTime startTime = ZonedDateTime.of(FIXED_TEST_DATE, LocalTime.of(22, 0), ZoneId.of(VALID_TIMEZONE));
             ZonedDateTime endTime = startTime.plusDays(1).withHour(6);
 
             Event multiDayEvent = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
@@ -182,7 +184,7 @@ class ConflictValidatorImplTest {
         void validateNoConflicts_normalEventOvernightOverlapsRecurringEvent_throwsConflict() {
             // Arrange
             User creator = TestUtils.createValidUserEntityWithId();
-            ZonedDateTime startTime = ZonedDateTime.of(LocalDate.now(), LocalTime.of(22, 0), ZoneId.of(VALID_TIMEZONE));
+            ZonedDateTime startTime = ZonedDateTime.of(FIXED_TEST_DATE, LocalTime.of(22, 0), ZoneId.of(VALID_TIMEZONE));
             ZonedDateTime endTime = startTime.plusHours(10); // Ends next day at 8 AM
 
             Event overnightEvent = TestUtils.createValidScheduledEventWithId(EVENT_ID, creator, fixedClock);
@@ -298,10 +300,10 @@ class ConflictValidatorImplTest {
             RecurringEvent newEvent = TestUtils.createValidRecurringEventWithId(creator, VALID_RECURRING_EVENT_ID + 1, fixedClock);
             RecurringEvent existingEvent = TestUtils.createValidRecurringEventWithId(creator, VALID_RECURRING_EVENT_ID, fixedClock);
 
-            newEvent.setStartDate(LocalDate.now().plusDays(10));
-            newEvent.setEndDate(LocalDate.now().plusDays(15));
-            existingEvent.setStartDate(LocalDate.now());
-            existingEvent.setEndDate(LocalDate.now().plusDays(5));
+            newEvent.setStartDate(FIXED_TEST_DATE.plusDays(10));
+            newEvent.setEndDate(FIXED_TEST_DATE.plusDays(15));
+            existingEvent.setStartDate(FIXED_TEST_DATE);
+            existingEvent.setEndDate(FIXED_TEST_DATE.plusDays(5));
 
             when(recurringEventRepository.findOverlappingRecurringEvents(any(), any(), any(), any(), any()))
                     .thenReturn(List.of(existingEvent));
@@ -317,7 +319,7 @@ class ConflictValidatorImplTest {
             RecurringEvent newEvent = TestUtils.createValidRecurringEventWithId(creator, VALID_RECURRING_EVENT_ID + 1, fixedClock);
             RecurringEvent existingEvent = TestUtils.createValidRecurringEventWithId(creator, VALID_RECURRING_EVENT_ID, fixedClock);
 
-            LocalDate startDate = LocalDate.now();
+            LocalDate startDate = FIXED_TEST_DATE;
             LocalDate endDate = startDate.plusDays(60);
 
             newEvent.setStartDate(startDate);
@@ -366,13 +368,13 @@ class ConflictValidatorImplTest {
             // Infinite event with far future end date
             RecurringEvent infiniteEvent = TestUtils.createValidRecurringEventWithId(creator, VALID_RECURRING_EVENT_ID + 1, fixedClock);
             infiniteEvent.setEndDate(TimeUtils.FAR_FUTURE_DATE); // Infinite
-            infiniteEvent.setStartDate(LocalDate.now());
+            infiniteEvent.setStartDate(FIXED_TEST_DATE);
             infiniteEvent.setRecurrenceRule(recurrenceRuleVO);
 
             // Finite event with a specific end date
             RecurringEvent finiteEvent = TestUtils.createValidRecurringEventWithId(creator, VALID_RECURRING_EVENT_ID, fixedClock);
-            finiteEvent.setStartDate(LocalDate.now());
-            finiteEvent.setEndDate(LocalDate.now().plusDays(10)); // Overlapping finite range
+            finiteEvent.setStartDate(FIXED_TEST_DATE);
+            finiteEvent.setEndDate(FIXED_TEST_DATE.plusDays(10)); // Overlapping finite range
             finiteEvent.setRecurrenceRule(recurrenceRuleVO);
 
             // Mock the repository to return the finite event as an overlapping event
@@ -421,13 +423,13 @@ class ConflictValidatorImplTest {
 
             // Finite event with specific start and end dates
             RecurringEvent finiteEvent = TestUtils.createValidRecurringEventWithId(creator, VALID_RECURRING_EVENT_ID + 1, fixedClock);
-            finiteEvent.setStartDate(LocalDate.now());
-            finiteEvent.setEndDate(LocalDate.now().plusDays(10)); // Finite event
+            finiteEvent.setStartDate(FIXED_TEST_DATE);
+            finiteEvent.setEndDate(FIXED_TEST_DATE.plusDays(10)); // Finite event
             finiteEvent.setRecurrenceRule(recurrenceRuleVO);
 
             // Infinite event with far future end date
             RecurringEvent infiniteEvent = TestUtils.createValidRecurringEventWithId(creator, VALID_RECURRING_EVENT_ID, fixedClock);
-            infiniteEvent.setStartDate(LocalDate.now());
+            infiniteEvent.setStartDate(FIXED_TEST_DATE);
             infiniteEvent.setEndDate(TimeUtils.FAR_FUTURE_DATE); // Infinite event
             infiniteEvent.setRecurrenceRule(recurrenceRuleVO);
 
@@ -457,11 +459,11 @@ class ConflictValidatorImplTest {
             RecurrenceRuleVO recurrenceRuleVO = TestUtils.createValidWeeklyRecurrenceRuleVO(Set.of(DayOfWeek.MONDAY), fixedClock);
 
             RecurringEvent recurringEvent = TestUtils.createValidRecurringEventWithId(creator, 1L, fixedClock);
-            recurringEvent.setStartDate(LocalDate.now());
-            recurringEvent.setEndDate(LocalDate.now().plusDays(10));
+            recurringEvent.setStartDate(FIXED_TEST_DATE);
+            recurringEvent.setEndDate(FIXED_TEST_DATE.plusDays(10));
             recurringEvent.setRecurrenceRule(recurrenceRuleVO);
 
-            Set<LocalDate> skipDaysToRemove = Set.of(LocalDate.now().plusDays(2)); // Skip day to remove
+            Set<LocalDate> skipDaysToRemove = Set.of(FIXED_TEST_DATE.plusDays(2)); // Skip day to remove
 
             // No conflicts, return empty list of overlapping events
             when(recurringEventRepository.findOverlappingRecurringEvents(any(), any(), any(), any(), any()))
@@ -478,23 +480,23 @@ class ConflictValidatorImplTest {
             RecurrenceRuleVO recurrenceRuleVO = TestUtils.createValidWeeklyRecurrenceRuleVO(Set.of(DayOfWeek.MONDAY), fixedClock);
 
             RecurringEvent recurringEvent = TestUtils.createValidRecurringEventWithId(creator, 1L, fixedClock);
-            recurringEvent.setStartDate(LocalDate.now());
-            recurringEvent.setEndDate(LocalDate.now().plusDays(10));
+            recurringEvent.setStartDate(FIXED_TEST_DATE);
+            recurringEvent.setEndDate(FIXED_TEST_DATE.plusDays(10));
             recurringEvent.setRecurrenceRule(recurrenceRuleVO);
 
             RecurringEvent conflictingEvent = TestUtils.createValidRecurringEventWithId(creator, 2L, fixedClock);
-            conflictingEvent.setStartDate(LocalDate.now());
-            conflictingEvent.setEndDate(LocalDate.now().plusDays(10));
+            conflictingEvent.setStartDate(FIXED_TEST_DATE);
+            conflictingEvent.setEndDate(FIXED_TEST_DATE.plusDays(10));
             conflictingEvent.setRecurrenceRule(recurrenceRuleVO);
 
-            Set<LocalDate> skipDaysToRemove = Set.of(LocalDate.now().plusDays(2)); // Skip day to remove
+            Set<LocalDate> skipDaysToRemove = Set.of(FIXED_TEST_DATE.plusDays(2)); // Skip day to remove
 
             // Simulate a conflict with the conflicting event
             when(recurringEventRepository.findOverlappingRecurringEvents(any(), any(), any(), any(), any()))
                     .thenReturn(Collections.singletonList(conflictingEvent));
 
             // Mock occursOn to simulate that the skip day is part of the conflicting event's recurrence rule
-            when(recurrenceRuleService.occursOn(any(), eq(LocalDate.now().plusDays(2))))
+            when(recurrenceRuleService.occursOn(any(), eq(FIXED_TEST_DATE.plusDays(2))))
                     .thenReturn(true); // The skip day should be part of the existing event's recurrence rule
 
             // Act + Assert
@@ -508,11 +510,11 @@ class ConflictValidatorImplTest {
             RecurrenceRuleVO recurrenceRuleVO = TestUtils.createValidWeeklyRecurrenceRuleVO(Set.of(DayOfWeek.MONDAY), fixedClock);
 
             RecurringEvent recurringEvent = TestUtils.createValidRecurringEventWithId(creator, 1L, fixedClock);
-            recurringEvent.setStartDate(LocalDate.now());
-            recurringEvent.setEndDate(LocalDate.now().plusDays(10));
+            recurringEvent.setStartDate(FIXED_TEST_DATE);
+            recurringEvent.setEndDate(FIXED_TEST_DATE.plusDays(10));
             recurringEvent.setRecurrenceRule(recurrenceRuleVO);
 
-            Set<LocalDate> skipDaysToRemove = Set.of(LocalDate.now().plusDays(2)); // Skip day to remove
+            Set<LocalDate> skipDaysToRemove = Set.of(FIXED_TEST_DATE.plusDays(2)); // Skip day to remove
 
             // Simulate no conflicts
             when(recurringEventRepository.findOverlappingRecurringEvents(any(), any(), any(), any(), any()))
@@ -520,7 +522,7 @@ class ConflictValidatorImplTest {
 
             // Mock expandRecurrence to simulate that the skip day is valid and doesn't cause a conflict
             when(recurrenceRuleService.expandRecurrence(any(), any(), any(), any()))
-                    .thenReturn(List.of(LocalDate.now().plusDays(2)));
+                    .thenReturn(List.of(FIXED_TEST_DATE.plusDays(2)));
 
             // Act + Assert
             assertDoesNotThrow(() -> conflictValidator.validateNoConflictsForSkipDays(recurringEvent, skipDaysToRemove));
@@ -533,16 +535,16 @@ class ConflictValidatorImplTest {
             RecurrenceRuleVO recurrenceRuleVO = TestUtils.createValidWeeklyRecurrenceRuleVO(Set.of(DayOfWeek.TUESDAY), fixedClock);
 
             RecurringEvent recurringEvent = TestUtils.createValidRecurringEventWithId(creator, 1L, fixedClock);
-            recurringEvent.setStartDate(LocalDate.now());
-            recurringEvent.setEndDate(LocalDate.now().plusDays(10));
+            recurringEvent.setStartDate(FIXED_TEST_DATE);
+            recurringEvent.setEndDate(FIXED_TEST_DATE.plusDays(10));
             recurringEvent.setRecurrenceRule(recurrenceRuleVO);
 
             RecurringEvent conflictingEvent = TestUtils.createValidRecurringEventWithId(creator, 2L, fixedClock);
-            conflictingEvent.setStartDate(LocalDate.now());
-            conflictingEvent.setEndDate(LocalDate.now().plusDays(10));
+            conflictingEvent.setStartDate(FIXED_TEST_DATE);
+            conflictingEvent.setEndDate(FIXED_TEST_DATE.plusDays(10));
             conflictingEvent.setRecurrenceRule(recurrenceRuleVO);
 
-            Set<LocalDate> skipDaysToRemove = Set.of(LocalDate.now().plusDays(2)); // Skip day to remove
+            Set<LocalDate> skipDaysToRemove = Set.of(FIXED_TEST_DATE.plusDays(2)); // Skip day to remove
 
             // Simulate no overlap due to different recurrence days
             when(recurringEventRepository.findOverlappingRecurringEvents(any(), any(), any(), any(), any()))
@@ -550,7 +552,7 @@ class ConflictValidatorImplTest {
 
             // Mock expandRecurrence to simulate no overlap
             when(recurrenceRuleService.expandRecurrence(any(), any(), any(), any()))
-                    .thenReturn(List.of(LocalDate.now().plusDays(3))); // No overlap with skip day
+                    .thenReturn(List.of(FIXED_TEST_DATE.plusDays(3))); // No overlap with skip day
 
             // Act + Assert
             assertDoesNotThrow(() -> conflictValidator.validateNoConflictsForSkipDays(recurringEvent, skipDaysToRemove));

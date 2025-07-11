@@ -21,6 +21,7 @@ import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Optional;
@@ -28,6 +29,7 @@ import java.util.Set;
 
 import static com.yohan.event_planner.util.TestConstants.VALID_EVENT_DESCRIPTION;
 import static com.yohan.event_planner.util.TestConstants.VALID_WEEKLY_RECURRENCE_RULE;
+import static com.yohan.event_planner.util.TestConstants.getFixedTodayUserZone;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -37,7 +39,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
-@Import(TestConfig.class)
+@Import({TestConfig.class, com.yohan.event_planner.config.TestEmailConfig.class})
 @AutoConfigureMockMvc
 @TestPropertySource(locations = "classpath:application-test.properties")
 @Transactional
@@ -48,6 +50,7 @@ class RecurringEventControllerIntegrationTest {
     @Autowired private TestDataHelper testDataHelper;
     @Autowired private UserRepository userRepository;
     @Autowired private RecurringEventRepository recurringEventRepository;
+    @Autowired private Clock clock;
 
     private String jwt;
     private User user;
@@ -143,8 +146,7 @@ class RecurringEventControllerIntegrationTest {
                     null,                         // No change to endDate
                     Optional.of("Updated description"),    // Updated description
                     null,                         // No change to labelId
-                    null,                         // No change to recurrenceRule
-                    null                           // No change to unconfirmed status
+                    null                         // No change to recurrenceRule
             );
 
             mockMvc.perform(patch("/recurringevents/{id}", recurringEvent.getId())
@@ -180,8 +182,7 @@ class RecurringEventControllerIntegrationTest {
                     null,               // No change to endDate
                     null,   // No change to description
                     null,               // No change to labelId
-                    null,               // No change to recurrenceRule
-                    null                // No change to unconfirmed status
+                    null               // No change to recurrenceRule
             );
 
             mockMvc.perform(patch("/recurringevents/{id}", recurringEvent.getId())
@@ -286,7 +287,7 @@ class RecurringEventControllerIntegrationTest {
             // Create recurring event using TestDataHelper
             RecurringEvent recurringEvent = testDataHelper.createAndPersistRecurringEvent(user, "Recurring Event with Skip Days");
 
-            Set<LocalDate> skipDays = Set.of(LocalDate.now().plusDays(1), LocalDate.now().plusDays(2));
+            Set<LocalDate> skipDays = Set.of(getFixedTodayUserZone(clock).plusDays(1), getFixedTodayUserZone(clock).plusDays(2));
 
             mockMvc.perform(post("/recurringevents/{id}/skipdays", recurringEvent.getId())
                             .header("Authorization", "Bearer " + jwt)
@@ -302,7 +303,7 @@ class RecurringEventControllerIntegrationTest {
             // Create recurring event using TestDataHelper
             RecurringEvent recurringEvent = testDataHelper.createAndPersistRecurringEvent(user, "Recurring Event with Skip Days");
 
-            Set<LocalDate> skipDaysToRemove = Set.of(LocalDate.now().plusDays(1));
+            Set<LocalDate> skipDaysToRemove = Set.of(getFixedTodayUserZone(clock).plusDays(1));
 
             mockMvc.perform(delete("/recurringevents/{id}/skipdays", recurringEvent.getId())
                             .header("Authorization", "Bearer " + jwt)
@@ -318,7 +319,7 @@ class RecurringEventControllerIntegrationTest {
             // Create recurring event using TestDataHelper
             RecurringEvent recurringEvent = testDataHelper.createAndPersistRecurringEvent(user, "Recurring Event with Multiple Skip Days");
 
-            Set<LocalDate> skipDays = Set.of(LocalDate.now().plusDays(1), LocalDate.now().plusDays(2), LocalDate.now().plusDays(3));
+            Set<LocalDate> skipDays = Set.of(getFixedTodayUserZone(clock).plusDays(1), getFixedTodayUserZone(clock).plusDays(2), getFixedTodayUserZone(clock).plusDays(3));
 
             mockMvc.perform(post("/recurringevents/{id}/skipdays", recurringEvent.getId())
                             .header("Authorization", "Bearer " + jwt)

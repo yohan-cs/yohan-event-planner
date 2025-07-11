@@ -470,5 +470,412 @@ public class UserPatchHandlerTest {
         }
 
         // endregion
+
+        // region --- Multi-Field Update Tests ---
+
+        @Test
+        void testPatchMultipleFieldsSuccess() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            String newUsername = "newuser";
+            String newEmail = "new@example.com";
+            String newFirstName = "NewFirst";
+            String newLastName = "NewLast";
+            String newTimezone = "Europe/London";
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    newUsername,
+                    null, // Don't change password
+                    newEmail,
+                    newFirstName,
+                    newLastName,
+                    newTimezone
+            );
+
+            // Mocks
+            when(userBO.existsByUsername(newUsername.toLowerCase())).thenReturn(false);
+            when(userBO.existsByEmail(newEmail.toLowerCase())).thenReturn(false);
+
+            // Act
+            boolean updated = userPatchHandler.applyPatch(existingUser, dto);
+
+            // Assert
+            assertTrue(updated, "Patch should return true when multiple fields are changed.");
+            assertEquals(newUsername.toLowerCase(), existingUser.getUsername());
+            assertEquals(newEmail.toLowerCase(), existingUser.getEmail());
+            assertEquals(newFirstName, existingUser.getFirstName());
+            assertEquals(newLastName, existingUser.getLastName());
+            assertEquals(newTimezone, existingUser.getTimezone());
+
+            verify(userBO).existsByUsername(newUsername.toLowerCase());
+            verify(userBO).existsByEmail(newEmail.toLowerCase());
+        }
+
+        @Test
+        void testPatchMultipleFieldsPartialFailure() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            String newUsername = "newuser";
+            String duplicateEmail = "taken@example.com";
+            String newFirstName = "NewFirst";
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    newUsername,
+                    null,
+                    duplicateEmail,
+                    newFirstName,
+                    null,
+                    null
+            );
+
+            // Mocks - username is valid but email is taken
+            when(userBO.existsByUsername(newUsername.toLowerCase())).thenReturn(false);
+            when(userBO.existsByEmail(duplicateEmail.toLowerCase())).thenReturn(true);
+
+            // Store original values
+            String originalUsername = existingUser.getUsername();
+            String originalEmail = existingUser.getEmail();
+            String originalFirstName = existingUser.getFirstName();
+
+            // Act & Assert
+            assertThrows(EmailException.class, () -> userPatchHandler.applyPatch(existingUser, dto));
+
+            // Verify atomic behavior - no changes applied
+            assertEquals(originalUsername, existingUser.getUsername(), "Username should not be updated on failure.");
+            assertEquals(originalEmail, existingUser.getEmail(), "Email should not be updated on failure.");
+            assertEquals(originalFirstName, existingUser.getFirstName(), "First name should not be updated on failure.");
+        }
+
+        @Test
+        void testPatchCredentialsAndPersonalInfoSimultaneously() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            String newUsername = "updateduser";
+            String newPassword = "newSecurePassword123";
+            String newEmail = "updated@example.com";
+            String newFirstName = "UpdatedFirst";
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    newUsername,
+                    newPassword,
+                    newEmail,
+                    newFirstName,
+                    null, // Don't change last name
+                    null  // Don't change timezone
+            );
+
+            // Mocks
+            when(userBO.existsByUsername(newUsername.toLowerCase())).thenReturn(false);
+            when(userBO.existsByEmail(newEmail.toLowerCase())).thenReturn(false);
+            when(passwordBO.isMatch(newPassword, existingUser.getHashedPassword())).thenReturn(false);
+            when(passwordBO.encryptPassword(newPassword)).thenReturn("hashedNewPassword");
+
+            String originalLastName = existingUser.getLastName();
+            String originalTimezone = existingUser.getTimezone();
+
+            // Act
+            boolean updated = userPatchHandler.applyPatch(existingUser, dto);
+
+            // Assert
+            assertTrue(updated, "Patch should return true when credentials and personal info are changed.");
+            assertEquals(newUsername.toLowerCase(), existingUser.getUsername());
+            assertEquals("hashedNewPassword", existingUser.getHashedPassword());
+            assertEquals(newEmail.toLowerCase(), existingUser.getEmail());
+            assertEquals(newFirstName, existingUser.getFirstName());
+            // Unchanged fields should remain the same
+            assertEquals(originalLastName, existingUser.getLastName());
+            assertEquals(originalTimezone, existingUser.getTimezone());
+
+            verify(passwordBO).encryptPassword(newPassword);
+        }
+
+        // endregion
+
+        // region --- Normalization Edge Case Tests ---
+
+        @Test
+        void testUsernameNormalizationWithMixedCase() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            String mixedCaseUsername = "TestUser123";
+            String expectedNormalized = "testuser123";
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    mixedCaseUsername,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+
+            // Mocks
+            when(userBO.existsByUsername(expectedNormalized)).thenReturn(false);
+
+            // Act
+            boolean updated = userPatchHandler.applyPatch(existingUser, dto);
+
+            // Assert
+            assertTrue(updated, "Patch should return true when username is normalized and changed.");
+            assertEquals(expectedNormalized, existingUser.getUsername(), "Username should be normalized to lowercase.");
+            verify(userBO).existsByUsername(expectedNormalized);
+        }
+
+        @Test
+        void testEmailNormalizationWithMixedCase() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            String mixedCaseEmail = "Test@Example.COM";
+            String expectedNormalized = "test@example.com";
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    null,
+                    null,
+                    mixedCaseEmail,
+                    null,
+                    null,
+                    null
+            );
+
+            // Mocks
+            when(userBO.existsByEmail(expectedNormalized)).thenReturn(false);
+
+            // Act
+            boolean updated = userPatchHandler.applyPatch(existingUser, dto);
+
+            // Assert
+            assertTrue(updated, "Patch should return true when email is normalized and changed.");
+            assertEquals(expectedNormalized, existingUser.getEmail(), "Email should be normalized to lowercase.");
+            verify(userBO).existsByEmail(expectedNormalized);
+        }
+
+        @Test
+        void testNormalizationWithNoChangeAfterNormalization() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            existingUser.setUsername("testuser");
+            existingUser.setEmail("test@example.com");
+
+            // Try to update with mixed case that normalizes to existing values
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    "TestUser", // Normalizes to "testuser" (same as current)
+                    null,
+                    "Test@Example.Com", // Normalizes to "test@example.com" (same as current)
+                    null,
+                    null,
+                    null
+            );
+
+            // Act
+            boolean updated = userPatchHandler.applyPatch(existingUser, dto);
+
+            // Assert
+            assertFalse(updated, "Patch should return false when normalized values are unchanged.");
+            assertEquals("testuser", existingUser.getUsername());
+            assertEquals("test@example.com", existingUser.getEmail());
+            
+            // Verify no uniqueness checks were performed since values are unchanged
+            verify(userBO, never()).existsByUsername(any());
+            verify(userBO, never()).existsByEmail(any());
+        }
+
+        // endregion
+
+        // region --- Exception Message Validation Tests ---
+
+        @Test
+        void testUsernameExceptionContainsOriginalValue() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            String originalCaseUsername = "DuplicateUser";
+            String normalizedUsername = "duplicateuser";
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    originalCaseUsername,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+
+            when(userBO.existsByUsername(normalizedUsername)).thenReturn(true);
+
+            // Act & Assert
+            UsernameException exception = assertThrows(UsernameException.class, 
+                    () -> userPatchHandler.applyPatch(existingUser, dto));
+
+            // Verify exception contains original (non-normalized) username
+            assertTrue(exception.getMessage().contains(originalCaseUsername),
+                      "Exception should contain original username value, not normalized version");
+        }
+
+        @Test
+        void testEmailExceptionContainsOriginalValue() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            String originalCaseEmail = "Duplicate@Example.COM";
+            String normalizedEmail = "duplicate@example.com";
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    null,
+                    null,
+                    originalCaseEmail,
+                    null,
+                    null,
+                    null
+            );
+
+            when(userBO.existsByEmail(normalizedEmail)).thenReturn(true);
+
+            // Act & Assert
+            EmailException exception = assertThrows(EmailException.class, 
+                    () -> userPatchHandler.applyPatch(existingUser, dto));
+
+            // Verify exception contains original (non-normalized) email
+            assertTrue(exception.getMessage().contains(originalCaseEmail),
+                      "Exception should contain original email value, not normalized version");
+        }
+
+        // endregion
+
+        // region --- Boundary Value Tests ---
+
+        @Test
+        void testPatchWithMinLengthValues() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            
+            // Create values at minimum allowed lengths based on ApplicationConstants
+            String minUsername = "abc"; // Minimum 3 characters
+            String minFirstName = "A"; // Minimum 1 character
+            String minLastName = "B"; // Minimum 1 character
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    minUsername,
+                    null,
+                    null,
+                    minFirstName,
+                    minLastName,
+                    null
+            );
+
+            // Mocks
+            when(userBO.existsByUsername(minUsername)).thenReturn(false);
+
+            // Act
+            boolean updated = userPatchHandler.applyPatch(existingUser, dto);
+
+            // Assert
+            assertTrue(updated, "Patch should succeed with minimum length values.");
+            assertEquals(minUsername, existingUser.getUsername());
+            assertEquals(minFirstName, existingUser.getFirstName());
+            assertEquals(minLastName, existingUser.getLastName());
+        }
+
+        @Test
+        void testPatchPasswordMinAndMaxLength() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            String minLengthPassword = "12345678"; // Minimum 8 characters
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    null,
+                    minLengthPassword,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+
+            // Mocks
+            when(passwordBO.isMatch(minLengthPassword, existingUser.getHashedPassword())).thenReturn(false);
+            when(passwordBO.encryptPassword(minLengthPassword)).thenReturn("hashedMinPassword");
+
+            // Act
+            boolean updated = userPatchHandler.applyPatch(existingUser, dto);
+
+            // Assert
+            assertTrue(updated, "Patch should succeed with minimum length password.");
+            assertEquals("hashedMinPassword", existingUser.getHashedPassword());
+            verify(passwordBO).encryptPassword(minLengthPassword);
+        }
+
+        @Test
+        void testPatchWithLongValidValues() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            
+            // Create reasonably long values (but within limits)
+            String longUsername = "a".repeat(25); // Near max of 30
+            String longEmail = "test" + "a".repeat(20) + "@example.com";
+            String longFirstName = "First" + "n".repeat(40); // Near max of 50
+            String longLastName = "Last" + "n".repeat(41); // Near max of 50
+            String longPassword = "SecurePassword" + "1".repeat(50); // Well within 72 char limit
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    longUsername,
+                    longPassword,
+                    longEmail,
+                    longFirstName,
+                    longLastName,
+                    "America/New_York"
+            );
+
+            // Mocks
+            when(userBO.existsByUsername(longUsername)).thenReturn(false);
+            when(userBO.existsByEmail(longEmail.toLowerCase())).thenReturn(false);
+            when(passwordBO.isMatch(longPassword, existingUser.getHashedPassword())).thenReturn(false);
+            when(passwordBO.encryptPassword(longPassword)).thenReturn("hashedLongPassword");
+
+            // Act
+            boolean updated = userPatchHandler.applyPatch(existingUser, dto);
+
+            // Assert
+            assertTrue(updated, "Patch should succeed with long but valid values.");
+            assertEquals(longUsername, existingUser.getUsername());
+            assertEquals(longEmail.toLowerCase(), existingUser.getEmail());
+            assertEquals(longFirstName, existingUser.getFirstName());
+            assertEquals(longLastName, existingUser.getLastName());
+            assertEquals("hashedLongPassword", existingUser.getHashedPassword());
+        }
+
+        @Test
+        void testPatchWithSpecialCharactersInAllowedFields() {
+            // Arrange
+            User existingUser = TestUtils.createValidUserEntityWithId();
+            
+            // Test special characters in fields that allow them
+            String usernameWithDots = "user.name_123";
+            String emailWithSpecialChars = "user+tag@example-domain.co.uk";
+            String firstNameWithSpaces = "Jean-Paul";
+            String lastNameWithApostrophe = "O'Connor";
+
+            UserUpdateDTO dto = new UserUpdateDTO(
+                    usernameWithDots,
+                    null,
+                    emailWithSpecialChars,
+                    firstNameWithSpaces,
+                    lastNameWithApostrophe,
+                    null
+            );
+
+            // Mocks
+            when(userBO.existsByUsername(usernameWithDots)).thenReturn(false);
+            when(userBO.existsByEmail(emailWithSpecialChars.toLowerCase())).thenReturn(false);
+
+            // Act
+            boolean updated = userPatchHandler.applyPatch(existingUser, dto);
+
+            // Assert
+            assertTrue(updated, "Patch should succeed with special characters in allowed fields.");
+            assertEquals(usernameWithDots, existingUser.getUsername());
+            assertEquals(emailWithSpecialChars.toLowerCase(), existingUser.getEmail());
+            assertEquals(firstNameWithSpaces, existingUser.getFirstName());
+            assertEquals(lastNameWithApostrophe, existingUser.getLastName());
+        }
+
+        // endregion
+
     }
 }

@@ -1,11 +1,11 @@
 package com.yohan.event_planner.service;
 
+import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.dto.auth.LoginRequestDTO;
 import com.yohan.event_planner.dto.auth.LoginResponseDTO;
-import com.yohan.event_planner.dto.auth.LogoutRequestDTO;
-import com.yohan.event_planner.dto.auth.RefreshTokenRequestDTO;
 import com.yohan.event_planner.dto.auth.RefreshTokenResponseDTO;
-import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
+import com.yohan.event_planner.dto.auth.RegisterResponseDTO;
+import com.yohan.event_planner.dto.auth.TokenRequestDTO;
 
 /**
  * Service interface for handling user authentication operations such as login, registration, token refresh, and logout.
@@ -17,11 +17,11 @@ import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
  * </p>
  *
  * @see com.yohan.event_planner.dto.auth.LoginRequestDTO
- * @see com.yohan.event_planner.dto.auth.RegisterRequestDTO
+ * @see com.yohan.event_planner.dto.UserCreateDTO
  * @see com.yohan.event_planner.dto.auth.LoginResponseDTO
- * @see com.yohan.event_planner.dto.auth.RefreshTokenRequestDTO
+ * @see com.yohan.event_planner.dto.auth.RegisterResponseDTO
+ * @see com.yohan.event_planner.dto.auth.TokenRequestDTO
  * @see com.yohan.event_planner.dto.auth.RefreshTokenResponseDTO
- * @see com.yohan.event_planner.dto.auth.LogoutRequestDTO
  */
 public interface AuthService {
 
@@ -41,17 +41,26 @@ public interface AuthService {
     LoginResponseDTO login(LoginRequestDTO request);
 
     /**
-     * Registers a new user account with the provided details.
+     * Registers a new user account and automatically logs them in.
      *
      * <p>
-     * This method performs uniqueness checks and creates the user if validation passes.
-     * Implementations should handle password encoding and other setup steps.
+     * This method combines user registration with immediate authentication, providing
+     * a seamless user experience. Upon successful registration, the user receives
+     * authentication tokens and can immediately access the application without a
+     * separate login step.
      * </p>
      *
-     * @param request the registration request DTO containing user details
+     * <p>
+     * The method performs validation and uniqueness checks before creating the user account,
+     * then automatically authenticates the newly created user and generates authentication
+     * tokens for immediate access.
+     * </p>
+     *
+     * @param request the user creation DTO containing user details
+     * @return a {@link RegisterResponseDTO} containing JWT access token, refresh token, and user information
      * @throws com.yohan.event_planner.exception.ConflictException if the username or email is already taken
      */
-    void register(RegisterRequestDTO request);
+    RegisterResponseDTO register(UserCreateDTO request);
 
     /**
      * Refreshes an access token using a valid refresh token.
@@ -62,11 +71,11 @@ public interface AuthService {
      * to implement one-time use security.
      * </p>
      *
-     * @param request the refresh token request DTO containing the refresh token
+     * @param request the token request DTO containing the refresh token
      * @return a {@link RefreshTokenResponseDTO} containing new access and refresh tokens
      * @throws com.yohan.event_planner.exception.UnauthorizedException if the refresh token is invalid or expired
      */
-    RefreshTokenResponseDTO refreshToken(RefreshTokenRequestDTO request);
+    RefreshTokenResponseDTO refreshToken(TokenRequestDTO request);
 
     /**
      * Logs out a user by invalidating their refresh token.
@@ -77,8 +86,8 @@ public interface AuthService {
      * access and refresh tokens after logout.
      * </p>
      *
-     * @param request the logout request DTO containing the refresh token to revoke
+     * @param request the token request DTO containing the refresh token to revoke
      */
-    void logout(LogoutRequestDTO request);
+    void logout(TokenRequestDTO request);
 }
 

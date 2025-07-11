@@ -23,6 +23,91 @@ import java.util.List;
 
 import static java.util.stream.Collectors.toSet;
 
+/**
+ * Implementation of {@link RecapMediaService} providing comprehensive media management for event recaps.
+ * 
+ * <p>This service manages multimedia attachments (images, videos, audio) associated with event recaps,
+ * following an Instagram-style approach where media items are tightly coupled to their parent recap.
+ * It provides full CRUD operations with emphasis on ordering, bulk operations, and ownership validation.</p>
+ * 
+ * <h2>Core Functionality</h2>
+ * <ul>
+ *   <li><strong>Media Lifecycle</strong>: Create, read, update, delete individual media items</li>
+ *   <li><strong>Bulk Operations</strong>: Add multiple items, replace all recap media</li>
+ *   <li><strong>Ordering Management</strong>: Explicit ordering with reordering capabilities</li>
+ *   <li><strong>Ownership Validation</strong>: Ensure users can only access their own media</li>
+ * </ul>
+ * 
+ * <h2>Media Types and Storage</h2>
+ * <p>Supports three primary media types with external storage strategy:</p>
+ * <ul>
+ *   <li><strong>IMAGE</strong>: Static images (photos, screenshots, graphics)</li>
+ *   <li><strong>VIDEO</strong>: Video content with optional duration tracking</li>
+ *   <li><strong>AUDIO</strong>: Audio recordings with optional duration tracking</li>
+ * </ul>
+ * 
+ * <h2>Ordering Strategy</h2>
+ * <p>Media items maintain explicit ordering within recaps:</p>
+ * <ul>
+ *   <li><strong>Sequential Ordering</strong>: Items ordered by mediaOrder field (0, 1, 2, ...)</li>
+ *   <li><strong>Flexible Assignment</strong>: Manual order specification or automatic assignment</li>
+ *   <li><strong>Reordering Support</strong>: Complete reordering through ordered ID lists</li>
+ *   <li><strong>Consistency Validation</strong>: Ensures all media items are included in reorder operations</li>
+ * </ul>
+ * 
+ * <h2>Bulk Operations</h2>
+ * <p>Efficient operations for managing multiple media items:</p>
+ * <ul>
+ *   <li><strong>Batch Addition</strong>: Add multiple media items in single transaction</li>
+ *   <li><strong>Complete Replacement</strong>: Replace all recap media atomically</li>
+ *   <li><strong>Automatic Ordering</strong>: Assign sequential orders when not specified</li>
+ *   <li><strong>Mixed Order Handling</strong>: Support both explicit and automatic ordering</li>
+ * </ul>
+ * 
+ * <h2>Security and Ownership</h2>
+ * <p>Comprehensive ownership validation ensures data security:</p>
+ * <ul>
+ *   <li><strong>Recap-Level Validation</strong>: Verify ownership through parent recap's event</li>
+ *   <li><strong>Media-Level Validation</strong>: Direct media access validated through recap chain</li>
+ *   <li><strong>Transitive Ownership</strong>: Media ownership derived from event ownership</li>
+ *   <li><strong>Consistent Authorization</strong>: All operations validate current user permissions</li>
+ * </ul>
+ * 
+ * <h2>Performance Considerations</h2>
+ * <ul>
+ *   <li><strong>Batch Operations</strong>: Minimize database round trips for bulk operations</li>
+ *   <li><strong>Efficient Ordering</strong>: Optimized queries for ordered media retrieval</li>
+ *   <li><strong>Transactional Boundaries</strong>: Ensure consistency across multi-step operations</li>
+ *   <li><strong>Lazy Loading</strong>: Minimize unnecessary entity loading</li>
+ * </ul>
+ * 
+ * <h2>Error Handling</h2>
+ * <p>Comprehensive error handling for various failure scenarios:</p>
+ * <ul>
+ *   <li><strong>EventRecapNotFoundException</strong>: When parent recap doesn't exist</li>
+ *   <li><strong>RecapMediaNotFoundException</strong>: When requested media doesn't exist</li>
+ *   <li><strong>IncompleteRecapMediaReorderListException</strong>: When reorder lists are incomplete</li>
+ *   <li><strong>Ownership Violations</strong>: When users access others' media</li>
+ * </ul>
+ * 
+ * <h2>Integration Points</h2>
+ * <p>This service integrates with:</p>
+ * <ul>
+ *   <li><strong>Event Recap System</strong>: Manages media attachments for recaps</li>
+ *   <li><strong>External Storage</strong>: Handles URL-based media references</li>
+ *   <li><strong>Security Framework</strong>: Validates user permissions for all operations</li>
+ *   <li><strong>Mapping Layer</strong>: Converts between entities and DTOs</li>
+ * </ul>
+ * 
+ * @see RecapMediaService
+ * @see RecapMedia
+ * @see EventRecap
+ * @see RecapMediaRepository
+ * @see RecapMediaMapper
+ * @author Event Planner Development Team
+ * @version 2.0.0
+ * @since 1.0.0
+ */
 @Service
 @Transactional
 public class RecapMediaServiceImpl implements RecapMediaService {

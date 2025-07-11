@@ -140,6 +140,26 @@ public class User {
     private java.time.ZonedDateTime scheduledDeletionDate;
 
     /**
+     * Indicates whether the user's email address has been verified.
+     *
+     * <p>Users must verify their email before they can log in and use the application.
+     * This field is set to false by default and updated to true when the user
+     * successfully verifies their email through the verification link.</p>
+     */
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified = false;
+
+    /**
+     * The timestamp when this user account was created.
+     *
+     * <p>This field is automatically set to the current time when the user is first created.
+     * It is used for account lifecycle management, including cleanup of unverified accounts
+     * that have exceeded the verification time limit.</p>
+     */
+    @Column(name = "created_at", nullable = false)
+    private java.time.ZonedDateTime createdAt;
+
+    /**
      * Default constructor required by JPA.
      */
     protected User() {
@@ -163,6 +183,7 @@ public class User {
         this.firstName = firstName;
         this.lastName = lastName;
         this.timezone = timezone;
+        this.createdAt = ZonedDateTime.now();
     }
 
     // --- Getters ---
@@ -216,6 +237,14 @@ public class User {
 
     public Optional<ZonedDateTime> getScheduledDeletionDate() {
         return Optional.ofNullable(scheduledDeletionDate);
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerified;
+    }
+
+    public ZonedDateTime getCreatedAt() {
+        return createdAt;
     }
 
     // --- Setters ---
@@ -277,6 +306,14 @@ public class User {
     public void unmarkForDeletion() {
         this.isPendingDeletion = false;
         this.scheduledDeletionDate = null;
+    }
+
+    /**
+     * Marks the user's email as verified.
+     * This allows the user to log in and use the application.
+     */
+    public void verifyEmail() {
+        this.emailVerified = true;
     }
 
     // --- Equality & Hashing ---

@@ -9,9 +9,13 @@ import com.yohan.event_planner.mapper.UserMapper;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -21,13 +25,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * REST controller for managing the authenticated user's account.
- *
- * <p>
- * Provides endpoints for retrieving, updating, and deleting the currently authenticated user.
- * </p>
- */
+@Tag(name = "User Management", description = "User profile and account management")
 @RestController
 @RequestMapping("/settings")
 @SecurityRequirement(name = "Bearer Authentication")
@@ -50,47 +48,51 @@ public class UserSettingsController {
         this.authenticatedUserProvider = authenticatedUserProvider;
     }
 
-    /**
-     * Returns the profile of the currently authenticated user.
-     *
-     * @return the user's profile as a {@link UserResponseDTO}
-     */
-    @Operation(summary = "Get profile of the authenticated user")
+    @Operation(
+            summary = "Get profile of the authenticated user",
+            description = "Retrieve the current user's profile information including username, email, and account settings"
+    )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "User profile returned successfully"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized")
+            @ApiResponse(
+                    responseCode = "200", 
+                    description = "User profile returned successfully",
+                    content = @Content(schema = @Schema(implementation = UserResponseDTO.class))
+            ),
+            @ApiResponse(responseCode = "401", description = "Unauthorized - JWT token required")
     })
     @GetMapping
     public ResponseEntity<UserResponseDTO> getSettings() {
         return ResponseEntity.ok(userService.getUserSettings());
     }
 
-    /**
-     * Applies a partial update to the authenticated user's profile.
-     *
-     * @param updateDTO the fields to update
-     * @return the updated user profile
-     */
-    @Operation(summary = "Update authenticated user's profile")
+    @Operation(
+            summary = "Update authenticated user's profile",
+            description = "Perform partial updates to the user's profile including username, email, and display preferences"
+    )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Profile updated successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid input"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized")
+            @ApiResponse(
+                    responseCode = "200", 
+                    description = "Profile updated successfully",
+                    content = @Content(schema = @Schema(implementation = UserResponseDTO.class))
+            ),
+            @ApiResponse(responseCode = "400", description = "Invalid input data (validation failure)"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized - JWT token required"),
+            @ApiResponse(responseCode = "409", description = "Username or email already in use")
     })
     @PatchMapping
-    public ResponseEntity<UserResponseDTO> updateSettings(@RequestBody @Valid UserUpdateDTO updateDTO) {
+    public ResponseEntity<UserResponseDTO> updateSettings(
+            @Parameter(description = "User profile update data", required = true)
+            @RequestBody @Valid UserUpdateDTO updateDTO) {
         return ResponseEntity.ok(userService.updateUserSettings(updateDTO));
     }
 
-    /**
-     * Deletes the authenticated user's account.
-     *
-     * @return 204 No Content if successful
-     */
-    @Operation(summary = "Delete authenticated user's account")
+    @Operation(
+            summary = "Delete authenticated user's account",
+            description = "Permanently mark the user account for deletion. This will soft-delete the user and all associated data."
+    )
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "204", description = "Account deleted"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized")
+            @ApiResponse(responseCode = "204", description = "Account successfully marked for deletion"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized - JWT token required")
     })
     @DeleteMapping
     public ResponseEntity<Void> deleteAccount() {

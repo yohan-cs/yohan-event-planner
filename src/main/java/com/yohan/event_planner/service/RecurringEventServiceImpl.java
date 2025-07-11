@@ -374,7 +374,8 @@ RecurringEventServiceImpl implements RecurringEventService {
 
         ownershipValidator.validateRecurringEventOwnership(viewer.getId(), recurringEvent);
 
-        LocalDate today = LocalDate.now();
+        ZoneId creatorZone = ZoneId.of(recurringEvent.getCreator().getTimezone());
+        LocalDate today = LocalDate.now(clockProvider.getClockForZone(creatorZone));
 
         // Identify any invalid dates (null or past dates)
         Set<LocalDate> invalidDates = skipDaysToAdd.stream()
@@ -437,8 +438,10 @@ RecurringEventServiceImpl implements RecurringEventService {
         );
 
         // Filter skip days to only include today or future dates
+        ZoneId creatorZone = ZoneId.of(recurringEvent.getCreator().getTimezone());
+        LocalDate today = LocalDate.now(clockProvider.getClockForZone(creatorZone));
         Set<LocalDate> visibleSkipDays = recurringEvent.getSkipDays().stream()
-                .filter(date -> !date.isBefore(LocalDate.now()))
+                .filter(date -> !date.isBefore(today))
                 .collect(Collectors.toSet());
 
         return new RecurringEventResponseDTO(

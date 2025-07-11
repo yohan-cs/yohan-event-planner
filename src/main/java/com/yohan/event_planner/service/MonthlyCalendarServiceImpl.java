@@ -28,6 +28,138 @@ import java.util.stream.Stream;
 
 import static com.yohan.event_planner.domain.enums.TimeBucketType.MONTH;
 
+/**
+ * Implementation of {@link MonthlyCalendarService} providing calendar view generation and statistics.
+ * 
+ * <p>This service orchestrates the creation of monthly calendar views by aggregating data from
+ * events, recurring events, and time bucket statistics. It provides comprehensive month-based
+ * views that combine scheduled events with time tracking analytics, enabling users to visualize
+ * both their planned activities and actual time allocation patterns.</p>
+ * 
+ * <h2>Core Functionality</h2>
+ * <ul>
+ *   <li><strong>Monthly Statistics</strong>: Generate label-specific time statistics for calendar months</li>
+ *   <li><strong>Event Aggregation</strong>: Combine regular and recurring events for monthly views</li>
+ *   <li><strong>Date Identification</strong>: Identify dates with events for calendar highlighting</li>
+ *   <li><strong>Label Filtering</strong>: Support label-specific calendar views and statistics</li>
+ * </ul>
+ * 
+ * <h2>Calendar View Generation</h2>
+ * <p>The service creates comprehensive monthly calendar views:</p>
+ * <ul>
+ *   <li><strong>Event Expansion</strong>: Expand recurring patterns into individual occurrences</li>
+ *   <li><strong>Date Aggregation</strong>: Collect all dates with events for a given month</li>
+ *   <li><strong>Multi-source Integration</strong>: Combine events from multiple sources</li>
+ *   <li><strong>Timezone Handling</strong>: Convert times to user's local timezone for display</li>
+ * </ul>
+ * 
+ * <h2>Time Bucket Statistics</h2>
+ * <p>Provides detailed time tracking statistics for calendar integration:</p>
+ * <ul>
+ *   <li><strong>Monthly Buckets</strong>: Aggregate time data by calendar month</li>
+ *   <li><strong>Label-specific Stats</strong>: Generate statistics for individual labels</li>
+ *   <li><strong>Duration Calculations</strong>: Calculate total time spent on labeled activities</li>
+ *   <li><strong>Historical Analysis</strong>: Support for historical month queries</li>
+ * </ul>
+ * 
+ * <h2>Recurring Event Integration</h2>
+ * <p>Seamlessly integrates recurring events into calendar views:</p>
+ * <ul>
+ *   <li><strong>Pattern Expansion</strong>: Generate occurrences from recurrence rules</li>
+ *   <li><strong>Month Boundaries</strong>: Respect calendar month boundaries for expansion</li>
+ *   <li><strong>Timezone Conversion</strong>: Handle timezone differences in recurring patterns</li>
+ *   <li><strong>Exception Handling</strong>: Process skip dates and modified occurrences</li>
+ * </ul>
+ * 
+ * <h2>Multi-source Event Aggregation</h2>
+ * <p>Combines events from multiple sources for complete calendar views:</p>
+ * <ul>
+ *   <li><strong>Regular Events</strong>: Include one-time and confirmed events</li>
+ *   <li><strong>Recurring Events</strong>: Expand and include recurring patterns</li>
+ *   <li><strong>Deduplication</strong>: Ensure unique dates in result sets</li>
+ *   <li><strong>Sorted Results</strong>: Return dates in chronological order</li>
+ * </ul>
+ * 
+ * <h2>Label-based Filtering</h2>
+ * <p>Supports focused views based on event labeling:</p>
+ * <ul>
+ *   <li><strong>Label-specific Views</strong>: Show only events with specific labels</li>
+ *   <li><strong>Statistics Correlation</strong>: Match event data with time tracking</li>
+ *   <li><strong>Ownership Validation</strong>: Ensure users only see their own labeled events</li>
+ *   <li><strong>Performance Optimization</strong>: Efficient queries for filtered data</li>
+ * </ul>
+ * 
+ * <h2>Performance Optimizations</h2>
+ * <ul>
+ *   <li><strong>Efficient Queries</strong>: Optimized database queries for month-based data</li>
+ *   <li><strong>Stream Processing</strong>: Use Java streams for efficient data processing</li>
+ *   <li><strong>Lazy Evaluation</strong>: Minimize unnecessary computations</li>
+ *   <li><strong>Caching Opportunities</strong>: Structure for potential caching implementations</li>
+ * </ul>
+ * 
+ * <h2>Integration Architecture</h2>
+ * <p>This service integrates with multiple system components:</p>
+ * <ul>
+ *   <li><strong>RecurringEventBO</strong>: Access recurring event patterns and expansion</li>
+ *   <li><strong>RecurrenceRuleService</strong>: Generate occurrences from rules</li>
+ *   <li><strong>LabelTimeBucketRepository</strong>: Retrieve time tracking statistics</li>
+ *   <li><strong>EventRepository</strong>: Access regular event data</li>
+ *   <li><strong>Security Framework</strong>: Validate ownership and access rights</li>
+ * </ul>
+ * 
+ * <h2>Timezone Considerations</h2>
+ * <p>Handles complex timezone scenarios for accurate calendar views:</p>
+ * <ul>
+ *   <li><strong>User Timezone</strong>: Convert all times to user's current timezone</li>
+ *   <li><strong>UTC Storage</strong>: Work with UTC-stored event times internally</li>
+ *   <li><strong>Date Boundaries</strong>: Respect month boundaries in user's timezone</li>
+ *   <li><strong>Recurring Patterns</strong>: Handle timezone-aware recurring events</li>
+ * </ul>
+ * 
+ * <h2>Security and Authorization</h2>
+ * <p>Comprehensive security model ensures data protection:</p>
+ * <ul>
+ *   <li><strong>User Isolation</strong>: Users only see their own events and statistics</li>
+ *   <li><strong>Label Ownership</strong>: Validate label access before generating views</li>
+ *   <li><strong>Event Filtering</strong>: Filter events by ownership automatically</li>
+ *   <li><strong>Statistical Privacy</strong>: Protect time tracking data from unauthorized access</li>
+ * </ul>
+ * 
+ * <h2>Error Handling</h2>
+ * <ul>
+ *   <li><strong>LabelNotFoundException</strong>: When requested labels don't exist</li>
+ *   <li><strong>Ownership Violations</strong>: When users access unauthorized data</li>
+ *   <li><strong>Date Validation</strong>: Handle invalid month/year combinations</li>
+ *   <li><strong>Timezone Errors</strong>: Graceful handling of timezone conversion issues</li>
+ * </ul>
+ * 
+ * <h2>Use Cases</h2>
+ * <p>Primary use cases for monthly calendar service:</p>
+ * <ul>
+ *   <li><strong>Calendar Views</strong>: Generate monthly calendar displays for UI</li>
+ *   <li><strong>Time Analysis</strong>: Provide time tracking insights by month</li>
+ *   <li><strong>Activity Planning</strong>: Help users understand their monthly patterns</li>
+ *   <li><strong>Progress Tracking</strong>: Monitor goal achievement over time</li>
+ * </ul>
+ * 
+ * <h2>Data Consistency</h2>
+ * <p>Ensures consistent data across multiple sources:</p>
+ * <ul>
+ *   <li><strong>Event Synchronization</strong>: Keep regular and recurring events in sync</li>
+ *   <li><strong>Statistics Alignment</strong>: Ensure time buckets match actual events</li>
+ *   <li><strong>Timezone Consistency</strong>: Maintain consistent timezone handling</li>
+ *   <li><strong>Date Boundary Respect</strong>: Respect calendar month boundaries accurately</li>
+ * </ul>
+ * 
+ * @see MonthlyCalendarService
+ * @see RecurringEventBO
+ * @see RecurrenceRuleService
+ * @see LabelTimeBucketRepository
+ * @see EventRepository
+ * @author Event Planner Development Team
+ * @version 2.0.0
+ * @since 1.0.0
+ */
 @Service
 public class MonthlyCalendarServiceImpl implements MonthlyCalendarService{
 

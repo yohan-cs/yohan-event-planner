@@ -63,14 +63,17 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Handles all email-related exceptions such as duplicates or invalid format.
+     * Handles all email-related exceptions such as duplicates, invalid format, and verification failures.
      */
     @ExceptionHandler(EmailException.class)
     public ResponseEntity<ErrorResponse> handleEmailException(EmailException ex) {
         logger.warn("EmailException [{}]: {}", ex.getErrorCode(), ex.getMessage());
         HttpStatus status = switch (ex.getErrorCode()) {
             case DUPLICATE_EMAIL -> HttpStatus.CONFLICT;
-            case INVALID_EMAIL_FORMAT -> HttpStatus.BAD_REQUEST;
+            case INVALID_EMAIL_FORMAT, INVALID_EMAIL_LENGTH, INVALID_EMAIL_DOMAIN -> HttpStatus.BAD_REQUEST;
+            case EMAIL_NOT_VERIFIED -> HttpStatus.UNAUTHORIZED;
+            case INVALID_VERIFICATION_TOKEN, EXPIRED_VERIFICATION_TOKEN, USED_VERIFICATION_TOKEN, VERIFICATION_FAILED -> HttpStatus.UNAUTHORIZED;
+            case EMAIL_SEND_FAILED, EMAIL_SENDING_FAILED -> HttpStatus.INTERNAL_SERVER_ERROR;
             default -> HttpStatus.BAD_REQUEST;
         };
         return buildErrorResponse(status, ex);
@@ -134,6 +137,7 @@ public class GlobalExceptionHandler {
         logger.warn("PasswordException [{}]: {}", ex.getErrorCode(), ex.getMessage());
         HttpStatus status = switch (ex.getErrorCode()) {
             case WEAK_PASSWORD, INVALID_PASSWORD_LENGTH -> HttpStatus.BAD_REQUEST;
+            case INVALID_RESET_TOKEN, EXPIRED_RESET_TOKEN, USED_RESET_TOKEN -> HttpStatus.UNAUTHORIZED;
             default -> HttpStatus.BAD_REQUEST;
         };
         return buildErrorResponse(status, ex);
@@ -197,6 +201,29 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleUnauthorizedException(UnauthorizedException ex) {
         logger.warn("UnauthorizedException [{}]: {}", ex.getErrorCode(), ex.getMessage());
         return buildErrorResponse(HttpStatus.UNAUTHORIZED, ex);
+    }
+
+    /**
+     * Handles {@link RateLimitExceededException}, thrown when a client exceeds the configured rate limits.
+     */
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ErrorResponse> handleRateLimitExceededException(RateLimitExceededException ex) {
+        logger.warn("RateLimitExceededException for operation '{}': {}/{} attempts, retry in {} seconds", 
+                   ex.getOperation(), ex.getCurrentAttempts(), ex.getMaxAttempts(), ex.getRetryAfterSeconds());
+        
+        ErrorResponse errorResponse = new ErrorResponse(
+                HttpStatus.TOO_MANY_REQUESTS.value(), 
+                ex.getMessage(), 
+                ErrorCode.RATE_LIMIT_EXCEEDED.name(),
+                System.currentTimeMillis()
+        );
+        
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
+                .header("X-RateLimit-Limit", String.valueOf(ex.getMaxAttempts()))
+                .header("X-RateLimit-Remaining", String.valueOf(ex.getMaxAttempts() - ex.getCurrentAttempts()))
+                .header("X-RateLimit-Reset", String.valueOf(System.currentTimeMillis() / 1000 + ex.getRetryAfterSeconds()))
+                .body(errorResponse);
     }
 
     /**

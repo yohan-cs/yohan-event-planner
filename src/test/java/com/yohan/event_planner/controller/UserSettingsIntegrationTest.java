@@ -32,7 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
-@Import(TestConfig.class)
+@Import({TestConfig.class, com.yohan.event_planner.config.TestEmailConfig.class})
 @AutoConfigureMockMvc
 @TestPropertySource(locations = "classpath:application-test.properties")
 @Transactional
@@ -61,8 +61,9 @@ class UserSettingsIntegrationTest {
             Field field = User.class.getDeclaredField("scheduledDeletionDate");
             field.setAccessible(true);
 
-            // Set to 48 hours in the past, ensuring it's always a fixed interval
-            ZonedDateTime dateInPast = ZonedDateTime.now().minusHours(48);
+            // Set to 48 hours before a fixed time
+            ZonedDateTime fixedTime = ZonedDateTime.parse("2025-06-29T12:00:00Z");
+            ZonedDateTime dateInPast = fixedTime.minusHours(48);
             field.set(user, dateInPast);
         } catch (Exception e) {
             throw new RuntimeException("Failed to set scheduledDeletionDate via reflection", e);
@@ -148,7 +149,8 @@ class UserSettingsIntegrationTest {
         @Test
         void testHardDeleteEligibility_ShouldMarkForHardDeletion() throws Exception {
             // Arrange: mark user for deletion with a time far enough in the past
-            ZonedDateTime deletionDateInPast = ZonedDateTime.now().minusDays(31); // exceeds your 30-day grace period
+            ZonedDateTime fixedTime = ZonedDateTime.parse("2025-06-29T12:00:00Z");
+            ZonedDateTime deletionDateInPast = fixedTime.minusDays(31); // exceeds 30-day grace period
             user.markForDeletion(deletionDateInPast);
 
             // Persist the change to the database
@@ -156,7 +158,7 @@ class UserSettingsIntegrationTest {
             userRepository.flush(); // Ensures immediate persistence
 
             // Act: fetch users eligible for hard deletion
-            ZonedDateTime now = ZonedDateTime.now();
+            ZonedDateTime now = fixedTime;
             List<User> eligibleForHardDeletion = userRepository.findAllByIsPendingDeletionTrueAndScheduledDeletionDateBefore(now);
 
             // Assert: user should now be eligible for hard deletion

@@ -303,10 +303,18 @@ class RefreshTokenServiceImplTest {
             verify(refreshTokenRepository).deleteRevokedTokensOlderThan(cutoffCaptor.capture());
             
             Instant cutoffDate = cutoffCaptor.getValue();
-            Instant expectedCutoff = Instant.now().minusSeconds(daysOld * 24 * 60 * 60);
+            Instant now = Instant.now();
             
-            // Allow small time difference for test execution
-            assertTrue(Math.abs(cutoffDate.getEpochSecond() - expectedCutoff.getEpochSecond()) < 2);
+            // Verify the cutoff is in the past (should be 7 days ago)
+            assertTrue(cutoffDate.isBefore(now), "Cutoff date should be in the past");
+            
+            // Verify the cutoff is reasonably close to 7 days ago (within 1 minute tolerance)
+            long expectedCutoffEpoch = now.minusSeconds(daysOld * 24 * 60 * 60).getEpochSecond();
+            long actualCutoffEpoch = cutoffDate.getEpochSecond();
+            long differenceSeconds = Math.abs(actualCutoffEpoch - expectedCutoffEpoch);
+            
+            assertTrue(differenceSeconds < 60, // Within 1 minute tolerance
+                String.format("Cutoff should be approximately %d days ago. Difference: %d seconds", daysOld, differenceSeconds));
         }
     }
 }

@@ -4,7 +4,6 @@ import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.dto.UserResponseDTO;
 import com.yohan.event_planner.dto.UserUpdateDTO;
-import com.yohan.event_planner.dto.auth.RegisterRequestDTO;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
@@ -17,8 +16,7 @@ import org.mapstruct.NullValuePropertyMappingStrategy;
  * <p>
  * This mapper handles transformations for:
  * <ul>
- *     <li>User registration (external API input)</li>
- *     <liInternal user creation flow</li>
+ *     <li>Internal user creation flow</li>
  *     <li>Partial user updates (patching)</li>
  *     <li>User response serialization</li>
  * </ul>
@@ -55,19 +53,6 @@ public interface UserMapper {
     @Mapping(target = "hashedPassword", ignore = true)
     User toEntity(UserCreateDTO dto);
 
-    /**
-     * Maps a {@link RegisterRequestDTO} (public-facing API input)
-     * to a {@link UserCreateDTO} (internal creation model).
-     *
-     * <p>
-     * This conversion supports architectural separation between external inputs
-     * and internal service logic, allowing more flexible evolution of both layers.
-     * </p>
-     *
-     * @param request the client-provided registration input
-     * @return a {@link UserCreateDTO} suitable for internal user creation
-     */
-    UserCreateDTO toCreateDTO(RegisterRequestDTO request);
 
     /**
      * Applies the non-null fields from a {@link UserUpdateDTO} to an existing {@link User} entity.
