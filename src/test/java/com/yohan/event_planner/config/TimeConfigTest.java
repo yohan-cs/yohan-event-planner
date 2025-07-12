@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TimeConfigTest {
@@ -117,12 +118,12 @@ class TimeConfigTest {
         }
 
         @Test
-        void testClockProvider_withNullClock_handlesGracefully() {
+        void testClockProvider_withNullClock_throwsNullPointerException() {
             // Act & Assert
-            assertDoesNotThrow(() -> {
-                ClockProvider clockProvider = timeConfig.clockProvider(null);
-                assertNotNull(clockProvider, "ClockProvider should be created even with null Clock");
+            NullPointerException exception = assertThrows(NullPointerException.class, () -> {
+                timeConfig.clockProvider(null);
             });
+            assertEquals("Base clock cannot be null", exception.getMessage());
         }
     }
 

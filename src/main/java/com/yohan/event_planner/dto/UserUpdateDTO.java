@@ -20,8 +20,8 @@ public record UserUpdateDTO(
 
         /** Optional new username. Must be 3–30 characters if present. */
         @Pattern(
-                regexp = "^[a-z0-9]+(?:[._][a-z0-9]+)*$",
-                message = "Username must be lowercase and may contain letters, numbers, periods, or underscores, without leading, trailing, or consecutive special characters"
+                regexp = "^[a-zA-Z0-9]+(?:[._][a-zA-Z0-9]+)*$",
+                message = "Username may contain letters, numbers, periods, or underscores, without leading, trailing, or consecutive special characters"
         )
         @Size(min = ApplicationConstants.USERNAME_MIN_LENGTH, max = ApplicationConstants.USERNAME_MAX_LENGTH, message = "Username must be between " + ApplicationConstants.USERNAME_MIN_LENGTH + " and " + ApplicationConstants.USERNAME_MAX_LENGTH + " characters")
         String username,

@@ -12,9 +12,9 @@ import jakarta.validation.constraints.NotBlank;
  */
 public record LoginRequestDTO(
 
-        /** Username used for login. Required. */
-        @NotBlank(message = "Username is required")
-        String username,
+        /** Email used for login. Required. */
+        @NotBlank(message = "Email is required")
+        String email,
 
         /** Password used for login. Required. */
         @NotBlank(message = "Password is required")

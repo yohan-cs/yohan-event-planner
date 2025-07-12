@@ -83,9 +83,130 @@ public final class ApplicationConstants {
     public static final int RECAP_NOTES_MAX_LENGTH = 5000;
 
     // ================================
+    // Rate Limiting Constants
+    // ================================
+    
+    /** Maximum registration attempts per time window */
+    public static final int MAX_REGISTRATION_ATTEMPTS = 5;
+    
+    /** Time window for registration rate limiting in hours */
+    public static final long REGISTRATION_WINDOW_HOURS = 1;
+    
+    /** Cache name for registration rate limiting */
+    public static final String REGISTRATION_CACHE = "registration-rate-limit";
+
+    /** Maximum login attempts per time window */
+    public static final int MAX_LOGIN_ATTEMPTS = 10;
+    
+    /** Time window for login rate limiting in hours (15 minutes) */
+    public static final double LOGIN_WINDOW_HOURS = 0.25;
+    
+    /** Cache name for login rate limiting */
+    public static final String LOGIN_CACHE = "login-rate-limit";
+
+    /** Maximum password reset requests per time window */
+    public static final int MAX_PASSWORD_RESET_ATTEMPTS = 3;
+    
+    /** Time window for password reset rate limiting in hours */
+    public static final long PASSWORD_RESET_WINDOW_HOURS = 1;
+    
+    /** Cache name for password reset rate limiting */
+    public static final String PASSWORD_RESET_CACHE = "password-reset-rate-limit";
+
+    /** Maximum email verification attempts per time window */
+    public static final int MAX_EMAIL_VERIFICATION_ATTEMPTS = 5;
+    
+    /** Time window for email verification rate limiting in hours (30 minutes) */
+    public static final double EMAIL_VERIFICATION_WINDOW_HOURS = 0.5;
+    
+    /** Cache name for email verification rate limiting */
+    public static final String EMAIL_VERIFICATION_CACHE = "email-verification-rate-limit";
+
+    // ================================
+    // Email Validation Constants
+    // ================================
+    
+    /** Maximum email address length according to RFC 5321 */
+    public static final int MAX_EMAIL_LENGTH = 254;
+    
+    /** Maximum domain name length according to RFC 1035 */
+    public static final int MAX_DOMAIN_LENGTH = 253;
+
+    // ================================
+    // Date Calculation Constants
+    // ================================
+    
+    /** Multiplier for year component in YYYYMMDD date format */
+    public static final int DATE_YEAR_MULTIPLIER = 10000;
+    
+    /** Multiplier for month component in YYYYMMDD date format */
+    public static final int DATE_MONTH_MULTIPLIER = 100;
+
+    // ================================
+    // Email Subject Constants
+    // ================================
+    
+    /** Subject line for email verification emails */
+    public static final String EMAIL_VERIFICATION_SUBJECT = "Ayoboyo – Verify Your Email Address";
+    
+    /** Subject line for password reset emails */
+    public static final String PASSWORD_RESET_SUBJECT = "Ayoboyo – Reset Your Password";
+    
+    /** Subject line for welcome emails */
+    public static final String WELCOME_EMAIL_SUBJECT = "Welcome to Ayoboyo!";
+    
+    /** Subject line for password change confirmation emails */
+    public static final String PASSWORD_CHANGE_SUBJECT = "Ayoboyo – Your Password Was Changed";
+
+    // ================================
+    // Password Reset Constants
+    // ================================
+    
+    /** Minimum delay in milliseconds for timing attack prevention */
+    public static final int PASSWORD_RESET_MIN_SIMULATION_DELAY_MS = 100;
+    
+    /** Maximum delay in milliseconds for timing attack prevention */
+    public static final int PASSWORD_RESET_MAX_SIMULATION_DELAY_MS = 300;
+    
+    /** Default token expiry time in minutes if configuration is invalid */
+    public static final int PASSWORD_RESET_DEFAULT_TOKEN_EXPIRY_MINUTES = 30;
+    
+    /** Length of password reset tokens */
+    public static final int PASSWORD_RESET_TOKEN_LENGTH = 64;
+    
+    /** Character set used for password reset token generation */
+    public static final String PASSWORD_RESET_TOKEN_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+    // ================================
+    // Pagination Constants
+    // ================================
+    
+    /** Default page number for pagination (0-based) */
+    public static final int DEFAULT_PAGE_NUMBER = 0;
+    
+    /** Default page size for pagination */
+    public static final int DEFAULT_PAGE_SIZE = 10;
+    
+    /** Maximum allowed page size for pagination */
+    public static final int MAX_PAGE_SIZE = 100;
+    
+    /** Minimum allowed page size for pagination */
+    public static final int MIN_PAGE_SIZE = 1;
+
+    // ================================
     // Substring Operations
     // ================================
     
     /** Length of the Bearer prefix for substring operations */
     public static final int JWT_BEARER_PREFIX_LENGTH = 7;
+
+    // ================================
+    // GraphQL Controller Constants
+    // ================================
+    
+    /** Return value for successful GraphQL mutations that return Boolean */
+    public static final Boolean GRAPHQL_OPERATION_SUCCESS = Boolean.TRUE;
+    
+    /** Error message for invalid datetime format in GraphQL operations */
+    public static final String INVALID_DATETIME_FORMAT_MESSAGE = "Unexpected value type for ZonedDateTime field";
 }

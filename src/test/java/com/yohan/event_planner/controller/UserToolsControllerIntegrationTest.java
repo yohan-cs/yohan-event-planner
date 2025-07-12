@@ -82,6 +82,37 @@ class UserToolsControllerIntegrationTest {
                             .contentType(MediaType.APPLICATION_JSON))
                     .andExpect(status().isUnauthorized());
         }
+
+        @Test
+        void testGetUserTools_WithEmptyTools_ShouldReturnEmptyLists() throws Exception {
+            // Create a new user with no badges or labels
+            var authEmpty = testDataHelper.registerAndLoginUserWithUser("emptyuser");
+            
+            mockMvc.perform(get("/usertools")
+                            .header("Authorization", "Bearer " + authEmpty.jwt())
+                            .contentType(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.badges").isArray())
+                    .andExpect(jsonPath("$.badges.length()").value(0))
+                    .andExpect(jsonPath("$.labels").isArray())
+                    .andExpect(jsonPath("$.labels.length()").value(0));
+        }
+
+        @Test
+        void testGetUserTools_WithInvalidToken_ShouldReturnUnauthorized() throws Exception {
+            mockMvc.perform(get("/usertools")
+                            .header("Authorization", "Bearer invalid.jwt.token")
+                            .contentType(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        void testGetUserTools_WithMalformedToken_ShouldReturnUnauthorized() throws Exception {
+            mockMvc.perform(get("/usertools")
+                            .header("Authorization", "Bearer malformed-token")
+                            .contentType(MediaType.APPLICATION_JSON))
+                    .andExpect(status().isUnauthorized());
+        }
     }
     // endregion
 

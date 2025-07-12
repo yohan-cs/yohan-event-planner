@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -339,6 +340,59 @@ public class RecapMediaServiceImplTest {
             verifyNoInteractions(recapMediaMapper);
         }
 
+        @Test
+        void handlesImplicitOrderWhenNoExistingMedia() {
+            // Arrange
+            Long recapId = 1L;
+
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            // Create DTO with mediaOrder = null to test implicit order starting from 0
+            RecapMediaCreateDTO dto = new RecapMediaCreateDTO(
+                    "https://example.com/first-media.jpg",
+                    RecapMediaType.IMAGE,
+                    null,
+                    null // <-- mediaOrder = null to trigger countByRecapId
+            );
+
+            int existingMediaCount = 0; // No existing media
+
+            RecapMedia media = new RecapMedia(
+                    recap,
+                    dto.mediaUrl(),
+                    dto.mediaType(),
+                    dto.durationSeconds(),
+                    existingMediaCount // Should get order 0
+            );
+
+            RecapMediaResponseDTO expectedResponse = TestUtils.createValidImageRecapMediaResponseDTO();
+
+            when(recapRepository.findById(recapId)).thenReturn(Optional.of(recap));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            doNothing().when(ownershipValidator).validateEventOwnership(viewer.getId(), recap.getEvent());
+            when(recapMediaRepository.countByRecapId(recapId)).thenReturn(existingMediaCount);
+            when(recapMediaRepository.save(any(RecapMedia.class))).thenReturn(media);
+            when(recapMediaMapper.toResponseDTO(any())).thenReturn(expectedResponse);
+
+            // Act
+            RecapMediaResponseDTO result = recapMediaService.addRecapMedia(recapId, dto);
+
+            // Assert
+            assertNotNull(result);
+            RecapMediaResponseDTOAssertions.assertRecapMediaResponseDTOEquals(expectedResponse, result);
+
+            verify(recapRepository).findById(recapId);
+            verify(authenticatedUserProvider).getCurrentUser();
+            verify(ownershipValidator).validateEventOwnership(viewer.getId(), recap.getEvent());
+            verify(recapMediaRepository).countByRecapId(recapId); // Should be called for implicit order
+            verify(recapMediaRepository).save(argThat(savedMedia -> 
+                savedMedia.getMediaOrder() == 0 // Should be assigned order 0
+            ));
+            verify(recapMediaMapper).toResponseDTO(any());
+        }
+
     }
 
     @Nested
@@ -424,33 +478,7 @@ public class RecapMediaServiceImplTest {
             verifyNoInteractions(recapMediaRepository);
         }
 
-        @Test
-        void returnsImmediatelyWhenMediaListIsEmpty() {
-            // Arrange
-            User viewer = TestUtils.createValidUserEntityWithId();
-            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
-            EventRecap recap = TestUtils.createValidEventRecap(event);
 
-            // Act
-            recapMediaService.addMediaItemsToRecap(recap, List.of());
-
-            // Assert
-            verifyNoInteractions(recapMediaRepository);
-        }
-
-        @Test
-        void returnsImmediatelyWhenMediaListIsNull() {
-            // Arrange
-            User viewer = TestUtils.createValidUserEntityWithId();
-            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
-            EventRecap recap = TestUtils.createValidEventRecap(event);
-
-            // Act
-            recapMediaService.addMediaItemsToRecap(recap, null);
-
-            // Assert
-            verifyNoInteractions(recapMediaRepository);
-        }
 
         @Test
         void addsAllMediaWithExplicitOrdersOnly() {
@@ -578,6 +606,111 @@ public class RecapMediaServiceImplTest {
 
                 // Check explicit order remains and implicit gets assigned starting from existingMediaCount
                 return first.getMediaOrder() == 4 && second.getMediaOrder() == existingMediaCount;
+            }));
+        }
+
+        @Test
+        void handlesLargeMediaListCorrectly() {
+            // Arrange
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            // Create a large list of media items (25 items)
+            List<RecapMediaCreateDTO> largeMediaList = new ArrayList<>();
+            for (int i = 0; i < 25; i++) {
+                largeMediaList.add(new RecapMediaCreateDTO(
+                        "https://example.com/media" + i + ".jpg",
+                        RecapMediaType.IMAGE,
+                        null,
+                        null // All implicit orders
+                ));
+            }
+
+            int existingMediaCount = 5;
+            when(recapMediaRepository.countByRecapId(recap.getId())).thenReturn(existingMediaCount);
+
+            // Act
+            recapMediaService.addMediaItemsToRecap(recap, largeMediaList);
+
+            // Assert
+            verify(recapMediaRepository).countByRecapId(recap.getId());
+            verify(recapMediaRepository).saveAll(argThat(entities -> {
+                if (!(entities instanceof List)) return false;
+                List<?> list = (List<?>) entities;
+                if (list.size() != 25) return false;
+
+                // Verify sequential ordering starting from existingMediaCount
+                for (int i = 0; i < 25; i++) {
+                    RecapMedia media = (RecapMedia) list.get(i);
+                    if (media.getMediaOrder() != existingMediaCount + i) {
+                        return false;
+                    }
+                }
+                return true;
+            }));
+        }
+
+        @Test
+        void handlesOrderCollisionsInMixedScenario() {
+            // Arrange
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            // Create scenario where explicit order might collide with implicit assignment
+            RecapMediaCreateDTO explicitFirst = new RecapMediaCreateDTO(
+                    "https://example.com/explicit.jpg",
+                    RecapMediaType.IMAGE,
+                    null,
+                    3 // Explicit order = 3
+            );
+
+            RecapMediaCreateDTO implicit1 = new RecapMediaCreateDTO(
+                    "https://example.com/implicit1.jpg",
+                    RecapMediaType.IMAGE,
+                    null,
+                    null // Will get implicit order starting from current count
+            );
+
+            RecapMediaCreateDTO explicitSecond = new RecapMediaCreateDTO(
+                    "https://example.com/explicit2.jpg",
+                    RecapMediaType.IMAGE,
+                    null,
+                    1 // Explicit order = 1
+            );
+
+            RecapMediaCreateDTO implicit2 = new RecapMediaCreateDTO(
+                    "https://example.com/implicit2.jpg",
+                    RecapMediaType.IMAGE,
+                    null,
+                    null // Will get next implicit order
+            );
+
+            List<RecapMediaCreateDTO> mediaList = List.of(explicitFirst, implicit1, explicitSecond, implicit2);
+
+            int existingMediaCount = 2; // Implicit orders will start from 2
+            when(recapMediaRepository.countByRecapId(recap.getId())).thenReturn(existingMediaCount);
+
+            // Act
+            recapMediaService.addMediaItemsToRecap(recap, mediaList);
+
+            // Assert
+            verify(recapMediaRepository).countByRecapId(recap.getId());
+            verify(recapMediaRepository).saveAll(argThat(entities -> {
+                if (!(entities instanceof List)) return false;
+                List<?> list = (List<?>) entities;
+                if (list.size() != 4) return false;
+
+                RecapMedia first = (RecapMedia) list.get(0);  // explicit order 3
+                RecapMedia second = (RecapMedia) list.get(1); // implicit order 2
+                RecapMedia third = (RecapMedia) list.get(2);  // explicit order 1
+                RecapMedia fourth = (RecapMedia) list.get(3); // implicit order 3
+
+                return first.getMediaOrder() == 3 &&    // explicit
+                       second.getMediaOrder() == 2 &&   // implicit starts from existingMediaCount
+                       third.getMediaOrder() == 1 &&    // explicit
+                       fourth.getMediaOrder() == 3;     // implicit continues from 2 -> 3
             }));
         }
 
@@ -751,18 +884,20 @@ public class RecapMediaServiceImplTest {
         }
 
         @Test
-        void updatesNothingWhenAllFieldsNull() {
+        void optimizesByNotSavingWhenNoChangesDetected() {
             // Arrange
             Long mediaId = 1L;
 
             RecapMedia media = TestUtils.createValidImageRecapMediaWithId(mediaId);
+            String originalUrl = media.getMediaUrl();
+            RecapMediaType originalType = media.getMediaType();
+            Integer originalDuration = media.getDurationSeconds();
 
             RecapMediaUpdateDTO dto = new RecapMediaUpdateDTO(null, null, null);
 
             when(recapMediaRepository.findById(mediaId)).thenReturn(Optional.of(media));
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(media.getRecap().getEvent().getCreator());
             doNothing().when(ownershipValidator).validateEventOwnership(anyLong(), any());
-            when(recapMediaRepository.save(media)).thenReturn(media);
 
             RecapMediaResponseDTO expectedResponse = TestUtils.createValidImageRecapMediaResponseDTO();
             when(recapMediaMapper.toResponseDTO(media)).thenReturn(expectedResponse);
@@ -774,10 +909,15 @@ public class RecapMediaServiceImplTest {
             assertNotNull(result);
             RecapMediaResponseDTOAssertions.assertRecapMediaResponseDTOEquals(expectedResponse, result);
 
+            // Verify no changes were made to the entity
+            assertEquals(originalUrl, media.getMediaUrl());
+            assertEquals(originalType, media.getMediaType());
+            assertEquals(originalDuration, media.getDurationSeconds());
+
             verify(recapMediaRepository).findById(mediaId);
             verify(authenticatedUserProvider).getCurrentUser();
             verify(ownershipValidator).validateEventOwnership(anyLong(), any());
-            verify(recapMediaRepository).save(media);
+            verify(recapMediaRepository, never()).save(any()); // Critical: save should NOT be called
             verify(recapMediaMapper).toResponseDTO(media);
         }
 
@@ -1058,6 +1198,278 @@ public class RecapMediaServiceImplTest {
             verify(ownershipValidator).validateEventOwnership(viewer.getId(), event);
             verify(recapMediaRepository).findByRecapId(recapId);
             verifyNoMoreInteractions(recapMediaRepository);
+        }
+
+        @Test
+        void reordersEmptyMediaListSuccessfully() {
+            // Arrange
+            Long recapId = 1L;
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            List<RecapMedia> emptyMediaList = List.of();
+            List<Long> emptyOrderedIds = List.of();
+
+            when(recapRepository.findById(recapId)).thenReturn(Optional.of(recap));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            doNothing().when(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            when(recapMediaRepository.findByRecapId(recapId)).thenReturn(emptyMediaList);
+
+            // Act
+            recapMediaService.reorderRecapMedia(recapId, emptyOrderedIds);
+
+            // Assert
+            verify(recapRepository).findById(recapId);
+            verify(authenticatedUserProvider).getCurrentUser();
+            verify(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            verify(recapMediaRepository).findByRecapId(recapId);
+            verify(recapMediaRepository).saveAll(emptyMediaList);
+        }
+
+        @Test
+        void throwsWhenOrderedIdsContainDuplicates() {
+            // Arrange
+            Long recapId = 1L;
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            RecapMedia media1 = TestUtils.createValidImageRecapMediaWithId(recap, 10L);
+            RecapMedia media2 = TestUtils.createValidVideoRecapMediaWithId(recap, 20L);
+
+            List<RecapMedia> mediaItems = List.of(media1, media2);
+            List<Long> duplicateIds = List.of(10L, 10L); // Duplicate ID
+
+            when(recapRepository.findById(recapId)).thenReturn(Optional.of(recap));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            doNothing().when(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            when(recapMediaRepository.findByRecapId(recapId)).thenReturn(mediaItems);
+
+            // Act + Assert
+            assertThrows(IncompleteRecapMediaReorderListException.class,
+                    () -> recapMediaService.reorderRecapMedia(recapId, duplicateIds));
+
+            verify(recapRepository).findById(recapId);
+            verify(authenticatedUserProvider).getCurrentUser();
+            verify(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            verify(recapMediaRepository).findByRecapId(recapId);
+            verifyNoMoreInteractions(recapMediaRepository);
+        }
+
+        @Test
+        void throwsWhenOrderedListIsMissingMediaId() {
+            // Arrange
+            Long recapId = 1L;
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            RecapMedia media1 = TestUtils.createValidImageRecapMediaWithId(recap, 10L);
+            RecapMedia media2 = TestUtils.createValidVideoRecapMediaWithId(recap, 20L);
+
+            List<RecapMedia> mediaItems = List.of(media1, media2);
+            List<Long> incompleteIds = List.of(10L); // Missing media2's ID
+
+            when(recapRepository.findById(recapId)).thenReturn(Optional.of(recap));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            doNothing().when(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            when(recapMediaRepository.findByRecapId(recapId)).thenReturn(mediaItems);
+
+            // Act + Assert
+            assertThrows(IncompleteRecapMediaReorderListException.class,
+                    () -> recapMediaService.reorderRecapMedia(recapId, incompleteIds));
+
+            verify(recapRepository).findById(recapId);
+            verify(authenticatedUserProvider).getCurrentUser();
+            verify(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            verify(recapMediaRepository).findByRecapId(recapId);
+            verifyNoMoreInteractions(recapMediaRepository);
+        }
+
+        @Test
+        void throwsIncompleteReorderListWhenOrderedIdsContainUnknownId() {
+            // This tests validation where ordered list contains IDs not in existing media
+            Long recapId = 1L;
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            // Create a media item with ID 10L
+            RecapMedia media1 = TestUtils.createValidImageRecapMediaWithId(recap, 10L);
+            
+            // But ordered list contains 20L (which isn't in the media items)
+            List<RecapMedia> mediaItems = List.of(media1);
+            List<Long> orderedIds = List.of(20L); // ID not in mediaItems
+
+            when(recapRepository.findById(recapId)).thenReturn(Optional.of(recap));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            doNothing().when(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            when(recapMediaRepository.findByRecapId(recapId)).thenReturn(mediaItems);
+
+            // Act + Assert
+            // This should throw IncompleteRecapMediaReorderListException during validation
+            assertThrows(IncompleteRecapMediaReorderListException.class,
+                    () -> recapMediaService.reorderRecapMedia(recapId, orderedIds));
+
+            verify(recapRepository).findById(recapId);
+            verify(authenticatedUserProvider).getCurrentUser();
+            verify(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            verify(recapMediaRepository).findByRecapId(recapId);
+            verifyNoMoreInteractions(recapMediaRepository);
+        }
+    }
+
+    @Nested
+    class MediaTypeSpecificTests {
+
+        @Test
+        void handlesAudioMediaTypeCorrectly() {
+            // Arrange
+            Long recapId = 1L;
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            RecapMediaCreateDTO audioDto = new RecapMediaCreateDTO(
+                    "https://example.com/audio.mp3",
+                    RecapMediaType.AUDIO,
+                    120, // 2 minutes duration
+                    0
+            );
+
+            RecapMedia audioMedia = new RecapMedia(recap, audioDto.mediaUrl(), audioDto.mediaType(), audioDto.durationSeconds(), audioDto.mediaOrder());
+            RecapMediaResponseDTO expectedResponse = new RecapMediaResponseDTO(1L, audioDto.mediaUrl(), audioDto.mediaType(), audioDto.durationSeconds(), audioDto.mediaOrder());
+
+            when(recapRepository.findById(recapId)).thenReturn(Optional.of(recap));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            doNothing().when(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            when(recapMediaRepository.save(any(RecapMedia.class))).thenReturn(audioMedia);
+            when(recapMediaMapper.toResponseDTO(any())).thenReturn(expectedResponse);
+
+            // Act
+            RecapMediaResponseDTO result = recapMediaService.addRecapMedia(recapId, audioDto);
+
+            // Assert
+            assertNotNull(result);
+            assertEquals(RecapMediaType.AUDIO, result.mediaType());
+            assertEquals(120, result.durationSeconds());
+            RecapMediaResponseDTOAssertions.assertRecapMediaResponseDTOEquals(expectedResponse, result);
+
+            verify(recapMediaRepository).save(argThat(media -> 
+                media.getMediaType() == RecapMediaType.AUDIO && 
+                media.getDurationSeconds() == 120
+            ));
+        }
+
+        @Test
+        void handlesImageMediaWithNullDuration() {
+            // Arrange
+            Long recapId = 1L;
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            RecapMediaCreateDTO imageDto = new RecapMediaCreateDTO(
+                    "https://example.com/image.jpg",
+                    RecapMediaType.IMAGE,
+                    null, // Images should not have duration
+                    0
+            );
+
+            RecapMedia imageMedia = new RecapMedia(recap, imageDto.mediaUrl(), imageDto.mediaType(), imageDto.durationSeconds(), imageDto.mediaOrder());
+            RecapMediaResponseDTO expectedResponse = new RecapMediaResponseDTO(1L, imageDto.mediaUrl(), imageDto.mediaType(), null, imageDto.mediaOrder());
+
+            when(recapRepository.findById(recapId)).thenReturn(Optional.of(recap));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            doNothing().when(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            when(recapMediaRepository.save(any(RecapMedia.class))).thenReturn(imageMedia);
+            when(recapMediaMapper.toResponseDTO(any())).thenReturn(expectedResponse);
+
+            // Act
+            RecapMediaResponseDTO result = recapMediaService.addRecapMedia(recapId, imageDto);
+
+            // Assert
+            assertNotNull(result);
+            assertEquals(RecapMediaType.IMAGE, result.mediaType());
+            assertNull(result.durationSeconds());
+            RecapMediaResponseDTOAssertions.assertRecapMediaResponseDTOEquals(expectedResponse, result);
+
+            verify(recapMediaRepository).save(argThat(media -> 
+                media.getMediaType() == RecapMediaType.IMAGE && 
+                media.getDurationSeconds() == null
+            ));
+        }
+
+        @Test
+        void handlesVideoMediaWithDuration() {
+            // Arrange
+            Long recapId = 1L;
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            RecapMediaCreateDTO videoDto = new RecapMediaCreateDTO(
+                    "https://example.com/video.mp4",
+                    RecapMediaType.VIDEO,
+                    300, // 5 minutes duration
+                    0
+            );
+
+            RecapMedia videoMedia = new RecapMedia(recap, videoDto.mediaUrl(), videoDto.mediaType(), videoDto.durationSeconds(), videoDto.mediaOrder());
+            RecapMediaResponseDTO expectedResponse = new RecapMediaResponseDTO(1L, videoDto.mediaUrl(), videoDto.mediaType(), videoDto.durationSeconds(), videoDto.mediaOrder());
+
+            when(recapRepository.findById(recapId)).thenReturn(Optional.of(recap));
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            doNothing().when(ownershipValidator).validateEventOwnership(viewer.getId(), event);
+            when(recapMediaRepository.save(any(RecapMedia.class))).thenReturn(videoMedia);
+            when(recapMediaMapper.toResponseDTO(any())).thenReturn(expectedResponse);
+
+            // Act
+            RecapMediaResponseDTO result = recapMediaService.addRecapMedia(recapId, videoDto);
+
+            // Assert
+            assertNotNull(result);
+            assertEquals(RecapMediaType.VIDEO, result.mediaType());
+            assertEquals(300, result.durationSeconds());
+            RecapMediaResponseDTOAssertions.assertRecapMediaResponseDTOEquals(expectedResponse, result);
+
+            verify(recapMediaRepository).save(argThat(media -> 
+                media.getMediaType() == RecapMediaType.VIDEO && 
+                media.getDurationSeconds() == 300
+            ));
+        }
+
+        @Test
+        void handlesAllMediaTypesInBulkOperation() {
+            // Arrange
+            User viewer = TestUtils.createValidUserEntityWithId();
+            Event event = TestUtils.createValidCompletedEventWithId(EVENT_ID, viewer, fixedClock);
+            EventRecap recap = TestUtils.createValidEventRecap(event);
+
+            List<RecapMediaCreateDTO> mixedMediaList = List.of(
+                    new RecapMediaCreateDTO("https://example.com/image.jpg", RecapMediaType.IMAGE, null, 0),
+                    new RecapMediaCreateDTO("https://example.com/video.mp4", RecapMediaType.VIDEO, 180, 1),
+                    new RecapMediaCreateDTO("https://example.com/audio.mp3", RecapMediaType.AUDIO, 240, 2)
+            );
+
+            // Act
+            recapMediaService.addMediaItemsToRecap(recap, mixedMediaList);
+
+            // Assert
+            verify(recapMediaRepository).saveAll(argThat(entities -> {
+                if (!(entities instanceof List)) return false;
+                List<?> list = (List<?>) entities;
+                if (list.size() != 3) return false;
+
+                RecapMedia imageMedia = (RecapMedia) list.get(0);
+                RecapMedia videoMedia = (RecapMedia) list.get(1);
+                RecapMedia audioMedia = (RecapMedia) list.get(2);
+
+                return imageMedia.getMediaType() == RecapMediaType.IMAGE && imageMedia.getDurationSeconds() == null &&
+                       videoMedia.getMediaType() == RecapMediaType.VIDEO && videoMedia.getDurationSeconds() == 180 &&
+                       audioMedia.getMediaType() == RecapMediaType.AUDIO && audioMedia.getDurationSeconds() == 240;
+            }));
         }
     }
 

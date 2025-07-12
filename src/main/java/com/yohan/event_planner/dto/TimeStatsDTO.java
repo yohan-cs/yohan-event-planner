@@ -110,12 +110,12 @@ package com.yohan.event_planner.dto;
  *   <li><strong>Performance Impact</strong>: Statistics calculation may be computationally intensive</li>
  * </ul>
  * 
- * @param minutesToday total minutes of completed activities today
- * @param minutesThisWeek total minutes of completed activities this week
- * @param minutesThisMonth total minutes of completed activities this month
- * @param minutesLastWeek total minutes of completed activities last week
- * @param minutesLastMonth total minutes of completed activities last month
- * @param totalMinutesAllTime total minutes of all completed activities since account creation
+ * @param today total minutes of completed activities today
+ * @param thisWeek total minutes of completed activities this week
+ * @param thisMonth total minutes of completed activities this month
+ * @param lastWeek total minutes of completed activities last week
+ * @param lastMonth total minutes of completed activities last month
+ * @param allTime total minutes of all completed activities since account creation
  * 
  * @see com.yohan.event_planner.service.LabelTimeBucketService
  * @see com.yohan.event_planner.domain.LabelTimeBucket
@@ -126,10 +126,10 @@ package com.yohan.event_planner.dto;
  * @since 1.0.0
  */
 public record TimeStatsDTO(
-        int minutesToday,
-        int minutesThisWeek,
-        int minutesThisMonth,
-        int minutesLastWeek,
-        int minutesLastMonth,
-        long totalMinutesAllTime
+        int today,
+        int thisWeek,
+        int thisMonth,
+        int lastWeek,
+        int lastMonth,
+        long allTime
 ) {}

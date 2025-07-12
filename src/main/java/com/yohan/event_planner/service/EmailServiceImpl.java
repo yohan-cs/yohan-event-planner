@@ -1,5 +1,6 @@
 package com.yohan.event_planner.service;
 
+import com.yohan.event_planner.constants.ApplicationConstants;
 import com.yohan.event_planner.exception.EmailException;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -61,11 +62,20 @@ public class EmailServiceImpl implements EmailService {
 
     /**
      * Constructs an EmailService with the required dependencies.
+     * 
+     * <p>
+     * Initializes the service with Spring's JavaMailSender for SMTP operations.
+     * Configuration properties are injected via @Value annotations and validated
+     * at startup to ensure all required email settings are present.
+     * </p>
      *
      * @param mailSender the JavaMailSender for sending emails
+     * @throws IllegalArgumentException if mailSender is null (handled by Spring)
      */
     public EmailServiceImpl(JavaMailSender mailSender) {
         this.mailSender = mailSender;
+        logger.debug("Email service initialized with configuration - fromEmail configured: {}, deepLinkBase configured: {}", 
+            fromEmail != null, deepLinkBase != null);
     }
 
     /**
@@ -81,9 +91,10 @@ public class EmailServiceImpl implements EmailService {
             
             helper.setFrom(fromEmail, fromName);
             helper.setTo(toEmail);
-            helper.setSubject("Ayoboyo – Verify Your Email Address");
+            helper.setSubject(ApplicationConstants.EMAIL_VERIFICATION_SUBJECT);
             
             String verificationLink = verificationLinkBase + "?token=" + verificationToken;
+            logger.debug("Generating email verification content for user: {}", firstName);
             String htmlContent = createEmailVerificationContent(firstName, verificationLink);
             
             helper.setText(htmlContent, true);
@@ -113,9 +124,10 @@ public class EmailServiceImpl implements EmailService {
             
             helper.setFrom(fromEmail, fromName);
             helper.setTo(toEmail);
-            helper.setSubject("Ayoboyo – Reset Your Password");
+            helper.setSubject(ApplicationConstants.PASSWORD_RESET_SUBJECT);
             
             String resetLink = deepLinkBase + "?token=" + resetToken;
+            logger.debug("Generating password reset content for {} minute expiry", expiryMinutes);
             String htmlContent = createPasswordResetEmailContent(resetLink, expiryMinutes);
             
             helper.setText(htmlContent, true);
@@ -145,8 +157,9 @@ public class EmailServiceImpl implements EmailService {
             
             helper.setFrom(fromEmail, fromName);
             helper.setTo(toEmail);
-            helper.setSubject("Welcome to Ayoboyo!");
+            helper.setSubject(ApplicationConstants.WELCOME_EMAIL_SUBJECT);
             
+            logger.debug("Generating welcome email content for user: {}", username);
             String htmlContent = createWelcomeEmailContent(username);
             helper.setText(htmlContent, true);
             
@@ -175,8 +188,9 @@ public class EmailServiceImpl implements EmailService {
 
             helper.setFrom(fromEmail, fromName);
             helper.setTo(toEmail);
-            helper.setSubject("Ayoboyo – Your Password Was Changed");
+            helper.setSubject(ApplicationConstants.PASSWORD_CHANGE_SUBJECT);
             
+            logger.debug("Generating password change confirmation content for user: {}", username);
             String htmlContent = createPasswordChangeConfirmationContent(username);
             helper.setText(htmlContent, true);
             

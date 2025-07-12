@@ -26,8 +26,9 @@ import org.springframework.context.annotation.Configuration;
  * <h2>Supported Cache Types</h2>
  * <ul>
  *   <li><strong>registration-rate-limit</strong>: For registration attempt limiting</li>
- *   <li><strong>login-rate-limit</strong>: For login attempt limiting (future use)</li>
- *   <li><strong>email-rate-limit</strong>: For email operation limiting (future use)</li>
+ *   <li><strong>login-rate-limit</strong>: For login attempt limiting</li>
+ *   <li><strong>password-reset-rate-limit</strong>: For password reset request limiting</li>
+ *   <li><strong>email-verification-rate-limit</strong>: For email verification attempt limiting</li>
  * </ul>
  *
  * <h2>Configuration Properties</h2>
@@ -75,7 +76,8 @@ public class RateLimitConfig {
         return new ConcurrentMapCacheManager(
             "registration-rate-limit",
             "login-rate-limit", 
-            "email-rate-limit"
+            "password-reset-rate-limit",
+            "email-verification-rate-limit"
         );
     }
 }

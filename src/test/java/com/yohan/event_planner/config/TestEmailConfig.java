@@ -116,6 +116,81 @@ public class TestEmailConfig {
                 // No rate limit active in tests
                 return 0;
             }
+
+            @Override
+            public boolean isLoginAllowed(String ipAddress) {
+                // Always allow login in tests
+                logger.debug("Mock rate limiting - allowing login for IP: {}", ipAddress);
+                return true;
+            }
+
+            @Override
+            public void recordLoginAttempt(String ipAddress) {
+                // No-op in tests
+                logger.debug("Mock rate limiting - recording login attempt for IP: {}", ipAddress);
+            }
+
+            @Override
+            public int getRemainingLoginAttempts(String ipAddress) {
+                // Always return max attempts available in tests
+                return 10;
+            }
+
+            @Override
+            public long getLoginRateLimitResetTime(String ipAddress) {
+                // No rate limit active in tests
+                return 0;
+            }
+
+            @Override
+            public boolean isPasswordResetAllowed(String ipAddress) {
+                // Always allow password reset in tests
+                logger.debug("Mock rate limiting - allowing password reset for IP: {}", ipAddress);
+                return true;
+            }
+
+            @Override
+            public void recordPasswordResetAttempt(String ipAddress) {
+                // No-op in tests
+                logger.debug("Mock rate limiting - recording password reset attempt for IP: {}", ipAddress);
+            }
+
+            @Override
+            public int getRemainingPasswordResetAttempts(String ipAddress) {
+                // Always return max attempts available in tests
+                return 3;
+            }
+
+            @Override
+            public long getPasswordResetRateLimitResetTime(String ipAddress) {
+                // No rate limit active in tests
+                return 0;
+            }
+
+            @Override
+            public boolean isEmailVerificationAllowed(String ipAddress) {
+                // Always allow email verification in tests
+                logger.debug("Mock rate limiting - allowing email verification for IP: {}", ipAddress);
+                return true;
+            }
+
+            @Override
+            public void recordEmailVerificationAttempt(String ipAddress) {
+                // No-op in tests
+                logger.debug("Mock rate limiting - recording email verification attempt for IP: {}", ipAddress);
+            }
+
+            @Override
+            public int getRemainingEmailVerificationAttempts(String ipAddress) {
+                // Always return max attempts available in tests
+                return 5;
+            }
+
+            @Override
+            public long getEmailVerificationRateLimitResetTime(String ipAddress) {
+                // No rate limit active in tests
+                return 0;
+            }
         };
     }
 }

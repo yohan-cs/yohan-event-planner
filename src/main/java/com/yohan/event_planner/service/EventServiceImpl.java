@@ -3,7 +3,6 @@ package com.yohan.event_planner.service;
 import com.blazebit.persistence.PagedList;
 import com.yohan.event_planner.business.EventBO;
 import com.yohan.event_planner.business.RecurringEventBO;
-import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.business.handler.EventPatchHandler;
 import com.yohan.event_planner.dao.EventDAO;
 import com.yohan.event_planner.domain.Event;
@@ -11,7 +10,6 @@ import com.yohan.event_planner.domain.Label;
 import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.TimeFilter;
-import com.yohan.event_planner.repository.EventRepository;
 import com.yohan.event_planner.dto.DayViewDTO;
 import com.yohan.event_planner.dto.EventCreateDTO;
 import com.yohan.event_planner.dto.EventFilterDTO;
@@ -23,6 +21,7 @@ import com.yohan.event_planner.dto.WeekViewDTO;
 import com.yohan.event_planner.exception.ErrorCode;
 import com.yohan.event_planner.exception.EventAlreadyConfirmedException;
 import com.yohan.event_planner.exception.EventNotFoundException;
+import com.yohan.event_planner.exception.EventOwnershipException;
 import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
@@ -44,9 +43,7 @@ import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Implementation of {@link EventService} providing comprehensive event management functionality.
@@ -170,11 +167,9 @@ public class EventServiceImpl implements EventService {
     private static final Logger logger = LoggerFactory.getLogger(EventServiceImpl.class);
 
     private final EventBO eventBO;
-    private final UserBO userBO;
     private final RecurringEventBO recurringEventBO;
     private final LabelService labelService;
     private final EventDAO eventDAO;
-    private final EventRepository eventRepository;
     private final EventPatchHandler eventPatchHandler;
     private final EventResponseDTOFactory eventResponseDTOFactory;
     private final OwnershipValidator ownershipValidator;
@@ -183,11 +178,9 @@ public class EventServiceImpl implements EventService {
 
     public EventServiceImpl(
             EventBO eventBO,
-            UserBO userBO,
             RecurringEventBO recurringEventBO,
             LabelService labelService,
             EventDAO eventDAO,
-            EventRepository eventRepository,
             EventPatchHandler eventPatchHandler,
             EventResponseDTOFactory eventResponseDTOFactory,
             OwnershipValidator ownershipValidator,
@@ -195,11 +188,9 @@ public class EventServiceImpl implements EventService {
             ClockProvider clockProvider
     ) {
         this.eventBO = eventBO;
-        this.userBO = userBO;
         this.recurringEventBO = recurringEventBO;
         this.labelService = labelService;
         this.eventDAO = eventDAO;
-        this.eventRepository = eventRepository;
         this.eventPatchHandler = eventPatchHandler;
         this.eventResponseDTOFactory = eventResponseDTOFactory;
         this.ownershipValidator = ownershipValidator;
@@ -207,56 +198,71 @@ public class EventServiceImpl implements EventService {
         this.clockProvider = clockProvider;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation enforces ownership validation with different behaviors:</p>
+     * <ul>
+     *   <li><strong>Unconfirmed events</strong>: Hidden from non-creators by throwing EventNotFoundException</li>
+     *   <li><strong>Confirmed events</strong>: Strict ownership validation throws EventOwnershipException</li>
+     * </ul>
+     *
+     * @param eventId the ID of the event to retrieve
+     * @return the event as EventResponseDTO
+     * @throws EventNotFoundException if event doesn't exist or unconfirmed event accessed by non-creator
+     * @throws EventOwnershipException if confirmed event accessed by non-owner
+     */
     @Override
     public EventResponseDTO getEventById(Long eventId) {
         User viewer = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Retrieving event {} for user {}", eventId, viewer.getId());
+        
         Event event = eventBO.getEventById(eventId)
                 .orElseThrow(() -> new EventNotFoundException(eventId));
 
-        // Hide unconfirmed events unless viewer is the creator
+        // For unconfirmed events, hide existence from non-creators by throwing EventNotFoundException
         if (event.isUnconfirmed() && !event.getCreator().getId().equals(viewer.getId())) {
+            logger.warn("User {} attempted to access unconfirmed event {} owned by user {}", 
+                    viewer.getId(), eventId, event.getCreator().getId());
             throw new EventNotFoundException(eventId);
         }
+        
+        // For confirmed events, validate ownership properly
+        if (!event.isUnconfirmed()) {
+            ownershipValidator.validateEventOwnership(viewer.getId(), event);
+        }
 
+        logger.info("Successfully retrieved event {} for user {}", eventId, viewer.getId());
         return eventResponseDTOFactory.createFromEvent(event);
     }
 
+    /**
+     * {@inheritDoc}
+     * 
+     * <p>This implementation applies time filter logic to resolve ALL, PAST_ONLY, FUTURE_ONLY, 
+     * and CUSTOM time ranges. For CUSTOM filters, validates that start time is not after end time.
+     * Uses EventDAO for efficient complex filtering via Blaze-Persistence.</p>
+     *
+     * @param filter the filtering criteria  
+     * @param pageNumber zero-based page number
+     * @param pageSize maximum events per page
+     * @return paginated confirmed events matching filter criteria
+     * @throws InvalidTimeException if CUSTOM filter has start time after end time
+     */
     public Page<EventResponseDTO> getConfirmedEventsForCurrentUser(EventFilterDTO filter, int pageNumber, int pageSize) {
         User viewer = authenticatedUserProvider.getCurrentUser();
 
         ZonedDateTime now = ZonedDateTime.now(clockProvider.getClockForUser(viewer));
-        ZonedDateTime start = filter.start();
-        ZonedDateTime end = filter.end();
+        TimeRange timeRange = TimeFilterResolver.resolveTimeRange(filter.timeFilter(), filter.start(), filter.end(), now);
 
-        switch (filter.timeFilter()) {
-            case ALL -> {
-                start = TimeUtils.FAR_PAST;
-                end = TimeUtils.FAR_FUTURE;
-            }
-            case PAST_ONLY -> {
-                start = TimeUtils.FAR_PAST;
-                end = now;
-            }
-            case FUTURE_ONLY -> {
-                start = now;
-                end = TimeUtils.FAR_FUTURE;
-            }
-            case CUSTOM -> {
-                if (start == null) start = TimeUtils.FAR_PAST;
-                if (end == null) end = TimeUtils.FAR_FUTURE;
-            }
-        }
-
-        // Validate that start time is not after end time for CUSTOM filter
-        if (filter.timeFilter() == TimeFilter.CUSTOM && start.isAfter(end)) {
-            throw new InvalidTimeException(ErrorCode.INVALID_TIME_RANGE, start, end);
-        }
-
+        // For incomplete past event filtering, use 'now' as the reference time
+        ZonedDateTime referenceTime = Boolean.FALSE.equals(filter.includeIncompletePastEvents()) ? now : timeRange.end();
+        
         EventFilterDTO sanitizedFilter = new EventFilterDTO(
                 filter.labelId(),
-                TimeFilter.ALL, // resolved meaning
-                start,
-                end,
+                TimeFilter.ALL, // resolved meaning - actual times passed to DAO
+                timeRange.start(),
+                referenceTime, // Use reference time for proper incomplete past event filtering
                 filter.sortDescending(),
                 filter.includeIncompletePastEvents()
         );
@@ -271,6 +277,19 @@ public class EventServiceImpl implements EventService {
     }
 
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation uses cursor-based pagination for efficient scrolling through
+     * large event datasets. Delegates to EventBO for the actual data retrieval and converts
+     * to DTOs for presentation.</p>
+     *
+     * @param endTimeCursor cursor position based on event end time
+     * @param startTimeCursor cursor position based on event start time
+     * @param idCursor cursor position based on event ID for tie-breaking
+     * @param limit maximum number of events to return
+     * @return list of confirmed events after cursor position
+     */
     @Override
     public List<EventResponseDTO> getConfirmedEventsPage(
             ZonedDateTime endTimeCursor,
@@ -290,57 +309,61 @@ public class EventServiceImpl implements EventService {
 
         return events.stream()
                 .map(eventResponseDTOFactory::createFromEvent)
-                .collect(Collectors.toList());
+                .toList();
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation retrieves all draft/unconfirmed events for the current user.
+     * Only the event creator can see unconfirmed events, ensuring privacy of drafts.</p>
+     *
+     * @return list of unconfirmed events owned by current user
+     */
     @Override
     @Transactional(readOnly = true)
     public List<EventResponseDTO> getUnconfirmedEventsForCurrentUser() {
         User viewer = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Retrieving unconfirmed events for user {}", viewer.getId());
 
         List<Event> unconfirmedEvents = eventBO.getUnconfirmedEventsForUser(viewer.getId());
 
+        logger.info("Retrieved {} unconfirmed events for user {}", unconfirmedEvents.size(), viewer.getId());
         return unconfirmedEvents.stream()
                 .map(eventResponseDTOFactory::createFromEvent)
                 .toList();
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation coordinates complex day view generation including:</p>
+     * <ul>
+     *   <li>Solidification of past recurring events into concrete events</li>
+     *   <li>Generation of virtual events for future recurring patterns</li>
+     *   <li>Timezone conversion for proper local time display</li>
+     *   <li>Delegation to EventBO for business logic execution</li>
+     * </ul>
+     *
+     * @param selectedDate the date to generate view for
+     * @return comprehensive day view with confirmed and virtual events
+     */
     @Transactional
     public DayViewDTO generateDayView(LocalDate selectedDate) {
         User viewer = authenticatedUserProvider.getCurrentUser();
-        ZoneId userZoneId = ZoneId.of(viewer.getTimezone());
-
-        ZonedDateTime nowInUserzone = ZonedDateTime.now(clockProvider.getClockForUser(viewer));
-        ZonedDateTime nowInUtc = nowInUserzone.withZoneSameInstant(ZoneOffset.UTC);
-        LocalDate today = nowInUserzone.toLocalDate();
-
-        ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId)
-                .withZoneSameInstant(ZoneOffset.UTC);
-        ZonedDateTime endOfDay = selectedDate.plusDays(1).atStartOfDay(userZoneId)
-                .withZoneSameInstant(ZoneOffset.UTC)
-                .minusNanos(1);
-
-        // Solidify past recurrences
-        if (!selectedDate.isAfter(today)) {
-            ZonedDateTime solidifyEndWindow = selectedDate.isEqual(today) ? nowInUtc : endOfDay;
-            eventBO.solidifyRecurrences(viewer.getId(), startOfDay, solidifyEndWindow, userZoneId);
+        DayViewTimeContext timeContext = calculateDayViewTimeContext(viewer, selectedDate);
+        
+        // Solidify past recurrences if needed
+        if (timeContext.shouldSolidifyRecurrences()) {
+            eventBO.solidifyRecurrences(viewer.getId(), timeContext.startOfDay(), 
+                    timeContext.solidifyEndWindow(), timeContext.userZoneId());
         }
 
         // Fetch confirmed events
-        List<EventResponseDTO> confirmedEvents = eventBO
-                .getConfirmedEventsForUserInRange(viewer.getId(), startOfDay, endOfDay)
-                .stream()
-                .map(eventResponseDTOFactory::createFromEvent)
-                .toList();
+        List<EventResponseDTO> confirmedEvents = fetchConfirmedEventsForDay(viewer, timeContext);
 
-        // Generate virtual events if the selected date is today or in the future
-        List<EventResponseDTO> virtualEvents = new ArrayList<>();
-        if (!selectedDate.isBefore(today)) {
-            ZonedDateTime virtualsStartWindow = selectedDate.isEqual(today) ? nowInUtc : startOfDay;
-            virtualEvents.addAll(
-                    recurringEventBO.generateVirtuals(viewer.getId(), virtualsStartWindow, endOfDay, userZoneId)
-            );
-        }
+        // Generate virtual events if needed  
+        List<EventResponseDTO> virtualEvents = generateVirtualEventsForDay(viewer, timeContext);
 
         // Delegate business logic to EventBO
         DayViewDTO result = eventBO.generateDayViewData(selectedDate, confirmedEvents, virtualEvents);
@@ -349,62 +372,62 @@ public class EventServiceImpl implements EventService {
         return result;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation coordinates complex week view generation including:</p>
+     * <ul>
+     *   <li>Week boundary calculation (Monday to Sunday)</li>
+     *   <li>Solidification of past recurring events within the week</li>
+     *   <li>Generation of virtual events for future recurring patterns</li>
+     *   <li>Timezone-aware time window calculations</li>
+     *   <li>Delegation to EventBO for business logic execution</li>
+     * </ul>
+     *
+     * @param anchorDate any date within the desired week
+     * @return comprehensive week view with confirmed and virtual events
+     */
     @Transactional
     public WeekViewDTO generateWeekView(LocalDate anchorDate) {
         User viewer = authenticatedUserProvider.getCurrentUser();
-        ZoneId userZoneId = ZoneId.of(viewer.getTimezone());
-
-        ZonedDateTime nowInUserzone = ZonedDateTime.now(clockProvider.getClockForUser(viewer));
-        ZonedDateTime nowInUtc = nowInUserzone.withZoneSameInstant(ZoneOffset.UTC);
-        LocalDate today = nowInUserzone.toLocalDate();
-
-        LocalDate weekStartDate = anchorDate.with(DayOfWeek.MONDAY);
-        LocalDate weekEndDate = weekStartDate.plusDays(6);
-
-        ZonedDateTime weekStartTime = weekStartDate.atStartOfDay(userZoneId)
-                .withZoneSameInstant(ZoneOffset.UTC);
-        ZonedDateTime weekEndTime = weekEndDate.plusDays(1).atStartOfDay(userZoneId)
-                .withZoneSameInstant(ZoneOffset.UTC)
-                .minusNanos(1);
-
-        // Solidify past recurrences
-        if (!weekStartDate.isAfter(today)) {
-            ZonedDateTime solidifyEndWindow = weekEndDate.isBefore(today)
-                    ? weekEndTime
-                    : nowInUtc;
-
-            eventBO.solidifyRecurrences(viewer.getId(), weekStartTime, solidifyEndWindow, userZoneId);
+        WeekViewTimeContext timeContext = calculateWeekViewTimeContext(viewer, anchorDate);
+        
+        // Solidify past recurrences if needed
+        if (timeContext.shouldSolidifyRecurrences()) {
+            eventBO.solidifyRecurrences(viewer.getId(), timeContext.weekStartTime(), 
+                    timeContext.solidifyEndWindow(), timeContext.userZoneId());
         }
 
         // Fetch confirmed events
-        List<EventResponseDTO> confirmedEvents = eventBO
-                .getConfirmedEventsForUserInRange(viewer.getId(), weekStartTime, weekEndTime).stream()
-                .map(eventResponseDTOFactory::createFromEvent)
-                .toList();
+        List<EventResponseDTO> confirmedEvents = fetchConfirmedEventsForWeek(viewer, timeContext);
 
-        // Generate virtual events for future recurring events in the week
-        List<EventResponseDTO> virtualEvents = new ArrayList<>();
-        if (!weekEndDate.isBefore(today)) {
-            ZonedDateTime virtualsStartWindow = weekStartDate.isAfter(today)
-                    ? weekStartTime
-                    : nowInUtc;
-
-            virtualEvents.addAll(
-                    recurringEventBO.generateVirtuals(viewer.getId(), virtualsStartWindow, weekEndTime, userZoneId)
-            );
-        }
+        // Generate virtual events if needed
+        List<EventResponseDTO> virtualEvents = generateVirtualEventsForWeek(viewer, timeContext);
 
         // Delegate business logic to EventBO
-        WeekViewDTO result = eventBO.generateWeekViewData(viewer.getId(), anchorDate, userZoneId, confirmedEvents, virtualEvents);
+        WeekViewDTO result = eventBO.generateWeekViewData(viewer.getId(), anchorDate, timeContext.userZoneId(), 
+                confirmedEvents, virtualEvents);
         
-        logger.debug("Generated WeekViewDTO for user {} for week starting {}", viewer.getId(), weekStartDate);
+        logger.debug("Generated WeekViewDTO for user {} for week starting {}", viewer.getId(), timeContext.weekStartDate());
         return result;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation handles both confirmed events and drafts based on the DTO flag.
+     * Assigns the specified label or defaults to the user's "Unlabeled" category.
+     * Delegates business validation and creation to EventBO.</p>
+     *
+     * @param dto the event creation payload
+     * @return the created event as EventResponseDTO
+     */
     @Override
     @Transactional
     public EventResponseDTO createEvent(EventCreateDTO dto) {
         User creator = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Creating event for user {}: draft={}, startTime={}", 
+                creator.getId(), dto.isDraft(), dto.startTime());
 
         Event event = dto.isDraft()
                 ? Event.createUnconfirmedDraft(dto.name(), dto.startTime(), dto.endTime(), creator)
@@ -419,13 +442,26 @@ public class EventServiceImpl implements EventService {
         event.setLabel(label);
 
         Event saved = eventBO.createEvent(event);
+        logger.info("Successfully created event {} for user {}: confirmed={}", 
+                saved.getId(), creator.getId(), !saved.isUnconfirmed());
+        
         return eventResponseDTOFactory.createFromEvent(saved);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation creates an impromptu event starting at the current time
+     * in the user's timezone. The event is automatically assigned to the user's
+     * "Unlabeled" category and is created in confirmed state.</p>
+     *
+     * @return the created impromptu event as EventResponseDTO
+     */
     @Override
     @Transactional
     public EventResponseDTO createImpromptuEvent() {
         User creator = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Creating impromptu event for user {}", creator.getId());
 
         Clock userClock = clockProvider.getClockForUser(creator);
         ZonedDateTime now = ZonedDateTime.now(userClock);
@@ -433,13 +469,30 @@ public class EventServiceImpl implements EventService {
         Event event = Event.createImpromptuEvent(now, creator);
         event.setLabel(creator.getUnlabeled());
 
-        return eventResponseDTOFactory.createFromEvent(eventBO.createEvent(event));
+        Event saved = eventBO.createEvent(event);
+        logger.info("Successfully created impromptu event {} for user {}", saved.getId(), creator.getId());
+        
+        return eventResponseDTOFactory.createFromEvent(saved);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation validates ownership and current state before confirming.
+     * Only unconfirmed (draft) events can be confirmed. Delegates the confirmation
+     * logic to EventBO for business rule enforcement.</p>
+     *
+     * @param eventId the ID of the event to confirm
+     * @return the confirmed event as EventResponseDTO
+     * @throws EventNotFoundException if event doesn't exist
+     * @throws EventOwnershipException if user doesn't own the event
+     * @throws EventAlreadyConfirmedException if event is already confirmed
+     */
     @Override
     @Transactional
     public EventResponseDTO confirmEvent(Long eventId) {
         User viewer = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Confirming event {} for user {}", eventId, viewer.getId());
 
         Event event = eventBO.getEventById(eventId)
                 .orElseThrow(() -> new EventNotFoundException(eventId));
@@ -447,18 +500,36 @@ public class EventServiceImpl implements EventService {
         ownershipValidator.validateEventOwnership(viewer.getId(), event);
 
         if (!event.isUnconfirmed()) {
+            logger.warn("User {} attempted to confirm already confirmed event {}", 
+                    viewer.getId(), eventId);
             throw new EventAlreadyConfirmedException(eventId);
         }
 
         Event confirmed = eventBO.confirmEvent(event);
+        logger.info("Successfully confirmed event {} for user {}", eventId, viewer.getId());
 
         return eventResponseDTOFactory.createFromEvent(confirmed);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation first confirms the event, then validates that the event
+     * has already ended before marking it as completed. This is typically used for
+     * impromptu events that are being logged after they occurred.</p>
+     *
+     * @param eventId the ID of the event to confirm and complete
+     * @return the confirmed and completed event as EventResponseDTO
+     * @throws EventNotFoundException if event doesn't exist
+     * @throws EventOwnershipException if user doesn't own the event
+     * @throws EventAlreadyConfirmedException if event is already confirmed
+     * @throws InvalidTimeException if event hasn't ended yet
+     */
     @Override
     @Transactional
     public EventResponseDTO confirmAndCompleteEvent(Long eventId) {
         User viewer = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Confirming and completing event {} for user {}", eventId, viewer.getId());
 
         Event event = eventBO.getEventById(eventId)
                 .orElseThrow(() -> new EventNotFoundException(eventId));
@@ -466,6 +537,8 @@ public class EventServiceImpl implements EventService {
         ownershipValidator.validateEventOwnership(viewer.getId(), event);
 
         if (!event.isUnconfirmed()) {
+            logger.warn("User {} attempted to confirm and complete already confirmed event {}", 
+                    viewer.getId(), eventId);
             throw new EventAlreadyConfirmedException(eventId);
         }
 
@@ -473,6 +546,8 @@ public class EventServiceImpl implements EventService {
 
         ZonedDateTime now = ZonedDateTime.now(clockProvider.getClockForUser(viewer));
         if (event.getEndTime().isAfter(now)) {
+            logger.warn("User {} attempted to complete future event {} (ends at {})", 
+                    viewer.getId(), eventId, event.getEndTime());
             throw new InvalidTimeException(
                     ErrorCode.INVALID_COMPLETION_STATUS,
                     event.getStartTime(),
@@ -490,13 +565,28 @@ public class EventServiceImpl implements EventService {
                 true
         );
 
+        logger.info("Successfully confirmed and completed event {} for user {}", eventId, viewer.getId());
         return updateEvent(eventId, completionPatch);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation uses EventPatchHandler for sophisticated field updating
+     * with skip/clear/update semantics. Creates a snapshot context for tracking changes
+     * that require business validation or cascading updates.</p>
+     *
+     * @param eventId the ID of the event to update
+     * @param dto the update payload with optional fields
+     * @return the updated event as EventResponseDTO
+     * @throws EventNotFoundException if event doesn't exist
+     * @throws EventOwnershipException if user doesn't own the event
+     */
     @Override
     @Transactional
     public EventResponseDTO updateEvent(Long eventId, EventUpdateDTO dto) {
         User viewer = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Updating event {} for user {}", eventId, viewer.getId());
 
         Event event = eventBO.getEventById(eventId)
                 .orElseThrow(() -> new EventNotFoundException(eventId));
@@ -508,34 +598,72 @@ public class EventServiceImpl implements EventService {
                 || dto.labelId() != null
                 || dto.isCompleted() != null;
 
-        EventChangeContextDTO contextDTO = snapshotNeeded ? createSnapshotContext(event) : null;
+        EventChangeContextDTO changeContext = snapshotNeeded ? createSnapshotContext(event) : null;
 
         boolean changed = eventPatchHandler.applyPatch(event, dto);
-        Event updated = changed ? eventBO.updateEvent(contextDTO, event) : event;
+        Event updated = changed ? eventBO.updateEvent(changeContext, event) : event;
+
+        if (changed) {
+            logger.info("Successfully updated event {} for user {}", eventId, viewer.getId());
+        } else {
+            logger.debug("No changes applied to event {} for user {}", eventId, viewer.getId());
+        }
 
         return eventResponseDTOFactory.createFromEvent(updated);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation validates ownership before deletion and delegates
+     * to EventBO for business logic execution. The deletion may cascade to
+     * related entities as defined by the business layer.</p>
+     *
+     * @param eventId the ID of the event to delete
+     * @throws EventNotFoundException if event doesn't exist
+     * @throws EventOwnershipException if user doesn't own the event
+     */
     @Override
     @Transactional
     public void deleteEvent(Long eventId) {
+        User viewer = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Deleting event {} for user {}", eventId, viewer.getId());
+        
         Event existing = eventBO.getEventById(eventId)
                 .orElseThrow(() -> new EventNotFoundException(eventId));
 
-        User viewer = authenticatedUserProvider.getCurrentUser();
         ownershipValidator.validateEventOwnership(viewer.getId(), existing);
 
         eventBO.deleteEvent(eventId);
+        logger.info("Successfully deleted event {} for user {}", eventId, viewer.getId());
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation performs a bulk delete operation for all unconfirmed
+     * events owned by the current user. This is typically used for cleanup operations
+     * when a user wants to clear all their drafts.</p>
+     */
     @Override
     @Transactional
     public void deleteUnconfirmedEventsForCurrentUser() {
         User viewer = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Deleting all unconfirmed events for user {}", viewer.getId());
 
         eventBO.deleteAllUnconfirmedEventsByUser(viewer.getId());
+        logger.info("Successfully deleted all unconfirmed events for user {}", viewer.getId());
     }
 
+    /**
+     * Creates a snapshot context for tracking event changes during updates.
+     * 
+     * <p>This context is used by the business layer to determine what changed
+     * and perform appropriate validations or cascading updates.</p>
+     *
+     * @param event the event to create snapshot context for
+     * @return context DTO containing current event state for change tracking
+     */
     private EventChangeContextDTO createSnapshotContext(Event event) {
         return new EventChangeContextDTO(
                 event.getCreator().getId(),
@@ -551,9 +679,271 @@ public class EventServiceImpl implements EventService {
         );
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * <p>This implementation delegates to EventBO for the complex logic of updating
+     * future event instances that were generated from a recurring pattern. Only events
+     * with start times in the future are affected.</p>
+     *
+     * @param recurringEvent the recurring event with updated values
+     * @param changedFields set of field names that changed
+     * @param userZoneId timezone for time calculations
+     * @return number of events updated
+     */
     @Override
     @Transactional
     public int updateFutureEventsFromRecurringEvent(RecurringEvent recurringEvent, Set<String> changedFields, ZoneId userZoneId) {
-        return eventBO.updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId);
+        logger.debug("Updating future events from recurring event {} with changed fields: {}", 
+                recurringEvent.getId(), changedFields);
+        
+        int updatedCount = eventBO.updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId);
+        
+        logger.info("Updated {} future events from recurring event {}", updatedCount, recurringEvent.getId());
+        return updatedCount;
+    }
+
+    /**
+     * Time context record for day view calculations.
+     * 
+     * @param userZoneId the user's timezone
+     * @param nowInUtc current time in UTC
+     * @param today today's date in user timezone
+     * @param startOfDay start of selected day in UTC
+     * @param endOfDay end of selected day in UTC
+     * @param solidifyEndWindow end window for solidification in UTC
+     * @param selectedDate the selected date for the view
+     */
+    private record DayViewTimeContext(
+            ZoneId userZoneId,
+            ZonedDateTime nowInUtc,
+            LocalDate today,
+            ZonedDateTime startOfDay,
+            ZonedDateTime endOfDay,
+            ZonedDateTime solidifyEndWindow,
+            LocalDate selectedDate
+    ) {
+        boolean shouldSolidifyRecurrences() {
+            return !selectedDate.isAfter(today);
+        }
+        
+        boolean shouldGenerateVirtualEvents() {
+            return !selectedDate.isBefore(today);
+        }
+        
+        ZonedDateTime getVirtualsStartWindow() {
+            return selectedDate.isEqual(today) ? nowInUtc : startOfDay;
+        }
+    }
+
+    /**
+     * Calculates time context for day view generation.
+     *
+     * @param viewer the user viewing the day
+     * @param selectedDate the date to generate view for
+     * @return time context containing all relevant time calculations
+     */
+    private DayViewTimeContext calculateDayViewTimeContext(User viewer, LocalDate selectedDate) {
+        ZoneId userZoneId = ZoneId.of(viewer.getTimezone());
+        ZonedDateTime nowInUserzone = ZonedDateTime.now(clockProvider.getClockForUser(viewer));
+        ZonedDateTime nowInUtc = nowInUserzone.withZoneSameInstant(ZoneOffset.UTC);
+        LocalDate today = nowInUserzone.toLocalDate();
+
+        ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId)
+                .withZoneSameInstant(ZoneOffset.UTC);
+        ZonedDateTime endOfDay = selectedDate.plusDays(1).atStartOfDay(userZoneId)
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .minusNanos(1);
+                
+        ZonedDateTime solidifyEndWindow = selectedDate.isEqual(today) ? nowInUtc : endOfDay;
+        
+        return new DayViewTimeContext(userZoneId, nowInUtc, today, startOfDay, endOfDay, 
+                solidifyEndWindow, selectedDate);
+    }
+
+    /**
+     * Fetches confirmed events for the day view time range.
+     *
+     * @param viewer the user viewing the day
+     * @param timeContext the time context for the day
+     * @return list of confirmed events for the day
+     */
+    private List<EventResponseDTO> fetchConfirmedEventsForDay(User viewer, DayViewTimeContext timeContext) {
+        return eventBO
+                .getConfirmedEventsForUserInRange(viewer.getId(), timeContext.startOfDay(), timeContext.endOfDay())
+                .stream()
+                .map(eventResponseDTOFactory::createFromEvent)
+                .toList();
+    }
+
+    /**
+     * Generates virtual events for the day view if appropriate.
+     *
+     * @param viewer the user viewing the day
+     * @param timeContext the time context for the day
+     * @return list of virtual events for the day
+     */
+    private List<EventResponseDTO> generateVirtualEventsForDay(User viewer, DayViewTimeContext timeContext) {
+        List<EventResponseDTO> virtualEvents = new ArrayList<>();
+        if (timeContext.shouldGenerateVirtualEvents()) {
+            virtualEvents.addAll(
+                    recurringEventBO.generateVirtuals(viewer.getId(), timeContext.getVirtualsStartWindow(), 
+                            timeContext.endOfDay(), timeContext.userZoneId())
+            );
+        }
+        return virtualEvents;
+    }
+
+    /**
+     * Time context record for week view calculations.
+     * 
+     * @param userZoneId the user's timezone
+     * @param nowInUtc current time in UTC
+     * @param today today's date in user timezone
+     * @param weekStartDate start date of the week (Monday)
+     * @param weekEndDate end date of the week (Sunday)
+     * @param weekStartTime start of week in UTC
+     * @param weekEndTime end of week in UTC
+     * @param solidifyEndWindow end window for solidification in UTC
+     */
+    private record WeekViewTimeContext(
+            ZoneId userZoneId,
+            ZonedDateTime nowInUtc,
+            LocalDate today,
+            LocalDate weekStartDate,
+            LocalDate weekEndDate,
+            ZonedDateTime weekStartTime,
+            ZonedDateTime weekEndTime,
+            ZonedDateTime solidifyEndWindow
+    ) {
+        boolean shouldSolidifyRecurrences() {
+            return !weekStartDate.isAfter(today);
+        }
+        
+        boolean shouldGenerateVirtualEvents() {
+            return !weekEndDate.isBefore(today);
+        }
+        
+        ZonedDateTime getVirtualsStartWindow() {
+            return weekStartDate.isAfter(today) ? weekStartTime : nowInUtc;
+        }
+    }
+
+    /**
+     * Calculates time context for week view generation.
+     *
+     * @param viewer the user viewing the week
+     * @param anchorDate any date within the desired week
+     * @return time context containing all relevant time calculations
+     */
+    private WeekViewTimeContext calculateWeekViewTimeContext(User viewer, LocalDate anchorDate) {
+        ZoneId userZoneId = ZoneId.of(viewer.getTimezone());
+        ZonedDateTime nowInUserzone = ZonedDateTime.now(clockProvider.getClockForUser(viewer));
+        ZonedDateTime nowInUtc = nowInUserzone.withZoneSameInstant(ZoneOffset.UTC);
+        LocalDate today = nowInUserzone.toLocalDate();
+
+        LocalDate weekStartDate = anchorDate.with(DayOfWeek.MONDAY);
+        LocalDate weekEndDate = weekStartDate.plusDays(6);
+
+        ZonedDateTime weekStartTime = weekStartDate.atStartOfDay(userZoneId)
+                .withZoneSameInstant(ZoneOffset.UTC);
+        ZonedDateTime weekEndTime = weekEndDate.plusDays(1).atStartOfDay(userZoneId)
+                .withZoneSameInstant(ZoneOffset.UTC)
+                .minusNanos(1);
+                
+        ZonedDateTime solidifyEndWindow = weekEndDate.isBefore(today) ? weekEndTime : nowInUtc;
+        
+        return new WeekViewTimeContext(userZoneId, nowInUtc, today, weekStartDate, weekEndDate,
+                weekStartTime, weekEndTime, solidifyEndWindow);
+    }
+
+    /**
+     * Fetches confirmed events for the week view time range.
+     *
+     * @param viewer the user viewing the week
+     * @param timeContext the time context for the week
+     * @return list of confirmed events for the week
+     */
+    private List<EventResponseDTO> fetchConfirmedEventsForWeek(User viewer, WeekViewTimeContext timeContext) {
+        return eventBO
+                .getConfirmedEventsForUserInRange(viewer.getId(), timeContext.weekStartTime(), timeContext.weekEndTime())
+                .stream()
+                .map(eventResponseDTOFactory::createFromEvent)
+                .toList();
+    }
+
+    /**
+     * Generates virtual events for the week view if appropriate.
+     *
+     * @param viewer the user viewing the week
+     * @param timeContext the time context for the week
+     * @return list of virtual events for the week
+     */
+    private List<EventResponseDTO> generateVirtualEventsForWeek(User viewer, WeekViewTimeContext timeContext) {
+        List<EventResponseDTO> virtualEvents = new ArrayList<>();
+        if (timeContext.shouldGenerateVirtualEvents()) {
+            virtualEvents.addAll(
+                    recurringEventBO.generateVirtuals(viewer.getId(), timeContext.getVirtualsStartWindow(), 
+                            timeContext.weekEndTime(), timeContext.userZoneId())
+            );
+        }
+        return virtualEvents;
+    }
+
+    /**
+     * Represents a time range with start and end boundaries.
+     * 
+     * @param start the start time of the range
+     * @param end the end time of the range
+     */
+    private record TimeRange(ZonedDateTime start, ZonedDateTime end) {}
+
+    /**
+     * Utility class for resolving time filter logic into concrete time ranges.
+     */
+    private static final class TimeFilterResolver {
+        
+        /**
+         * Resolves a time filter into a concrete time range.
+         *
+         * @param timeFilter the time filter type to resolve
+         * @param start the custom start time (used only for CUSTOM filter)
+         * @param end the custom end time (used only for CUSTOM filter)
+         * @param now the current time for relative filters
+         * @return resolved time range with concrete start and end times
+         * @throws InvalidTimeException if CUSTOM filter has start time after end time
+         */
+        static TimeRange resolveTimeRange(TimeFilter timeFilter, ZonedDateTime start, 
+                                        ZonedDateTime end, ZonedDateTime now) {
+            ZonedDateTime resolvedStart;
+            ZonedDateTime resolvedEnd;
+            
+            switch (timeFilter) {
+                case ALL -> {
+                    resolvedStart = TimeUtils.FAR_PAST;
+                    resolvedEnd = TimeUtils.FAR_FUTURE;
+                }
+                case PAST_ONLY -> {
+                    resolvedStart = TimeUtils.FAR_PAST;
+                    resolvedEnd = now;
+                }
+                case FUTURE_ONLY -> {
+                    resolvedStart = now;
+                    resolvedEnd = TimeUtils.FAR_FUTURE;
+                }
+                case CUSTOM -> {
+                    resolvedStart = start != null ? start : TimeUtils.FAR_PAST;
+                    resolvedEnd = end != null ? end : TimeUtils.FAR_FUTURE;
+                    
+                    // Validate that start time is not after end time for CUSTOM filter
+                    if (resolvedStart.isAfter(resolvedEnd)) {
+                        throw new InvalidTimeException(ErrorCode.INVALID_TIME_RANGE, resolvedStart, resolvedEnd);
+                    }
+                }
+                default -> throw new IllegalArgumentException("Unsupported time filter: " + timeFilter);
+            }
+            
+            return new TimeRange(resolvedStart, resolvedEnd);
+        }
     }
 }

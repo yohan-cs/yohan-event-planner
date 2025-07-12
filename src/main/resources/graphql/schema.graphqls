@@ -1,77 +1,107 @@
-scalar Date
-scalar DateTime
+# Custom scalar types for date and time handling
+scalar Date # ISO-8601 date without time (e.g., 2025-06-23)
+scalar DateTime # ISO-8601 date-time with timezone offset
 
 type Query {
+  # Get user profile information including badges and weekly view
   userProfile(username: String!): UserProfile!
+  # Get event recap details for a specific event
   eventRecap(eventId: ID!): EventRecap
 }
 
 type Mutation {
+  # Update user header information (bio, profile picture)
   updateUserHeader(input: UpdateUserHeaderInput!): UserHeader!
+  # Update badge name
   updateBadge(id: ID!, input: UpdateBadgeInput!): Badge!
+  # Delete a badge and its associated data
   deleteBadge(id: ID!): Boolean!
+  # Reorder badges by providing new sort order
   reorderBadges(ids: [ID!]!): Boolean!
+  # Reorder labels within a specific badge
   reorderBadgeLabels(badgeId: ID!, labelOrder: [ID!]!): Boolean!
+  # Update event details with partial update support
   updateEvent(id: ID!, input: UpdateEventInput!): EventResponse!
+  # Delete an event permanently
   deleteEvent(id: ID!): Boolean!
+  # Add a new event recap with optional media
   addEventRecap(input: AddEventRecapInput!): EventRecap!
+  # Update event recap notes
   updateEventRecap(eventId: ID!, input: UpdateEventRecapInput!): EventRecap!
+  # Mark event recap as confirmed
   confirmEventRecap(eventId: ID!): EventRecap!
+  # Delete event recap and all associated media
   deleteEventRecap(eventId: ID!): Boolean!
+  # Add media to an existing recap
   addRecapMedia(recapId: ID!, input: CreateRecapMediaInput!): RecapMedia!
+  # Update media properties
   updateRecapMedia(mediaId: ID!, input: UpdateRecapMediaInput!): RecapMedia!
+  # Delete a specific media item
   deleteRecapMedia(mediaId: ID!): Boolean!
+  # Reorder media within a recap
   reorderRecapMedia(recapId: ID!, mediaOrder: [ID!]!): Boolean!
 }
 
+# Media types supported for event recaps
 enum RecapMediaType {
-  IMAGE
-  VIDEO
+  IMAGE   # Static image files (jpg, png, gif, etc.)
+  VIDEO   # Video files (mp4, avi, mov, etc.)
+  AUDIO   # Audio files (mp3, wav, etc.)
 }
 
+# Input for updating user header information
 input UpdateUserHeaderInput {
-  bio: String
-  profilePictureUrl: String
+  bio: String                    # User's biography/description (optional)
+  profilePictureUrl: String      # URL to user's profile picture (optional)
 }
 
+# Input for updating badge properties
 input UpdateBadgeInput {
-  name: String
+  name: String                   # New badge name (optional)
 }
 
+# Input for updating events with selective field updates
+# Uses UpdateFieldInput pattern to distinguish between omitted and null values
 input UpdateEventInput {
-  name: UpdateFieldInput_String
-  startTime: UpdateFieldInput_DateTime
-  endTime: UpdateFieldInput_DateTime
-  description: UpdateFieldInput_String
-  labelId: UpdateFieldInput_ID
-  isCompleted: UpdateFieldInput_Boolean
+  name: UpdateFieldInput_String           # Event name
+  startTime: UpdateFieldInput_DateTime    # Event start time in user's timezone
+  endTime: UpdateFieldInput_DateTime      # Event end time in user's timezone
+  description: UpdateFieldInput_String    # Event description
+  labelId: UpdateFieldInput_ID            # Associated label ID
+  isCompleted: UpdateFieldInput_Boolean   # Whether event is completed
 }
 
+# Input for creating a new event recap
 input AddEventRecapInput {
-  eventId: ID!
-  recapName: String
-  notes: String
-  isUnconfirmed: Boolean
-  media: [CreateRecapMediaInput!]
+  eventId: ID!                           # Event to add recap to (required)
+  recapName: String                      # Name/title of the recap (optional)
+  notes: String                          # Additional notes (optional)
+  isUnconfirmed: Boolean                 # Whether recap is unconfirmed (optional)
+  media: [CreateRecapMediaInput!]        # List of media items (optional)
 }
 
+# Input for updating existing event recap
 input UpdateEventRecapInput {
-  notes: String
+  notes: String                          # Updated notes (optional)
 }
 
+# Input for creating media within event recaps
 input CreateRecapMediaInput {
-  mediaUrl: String!
-  mediaType: RecapMediaType! # changed from String to RecapMediaType enum
-  durationSeconds: Int
-  mediaOrder: Int
+  mediaUrl: String!              # URL of the media (required)
+  mediaType: RecapMediaType!     # Type of media (required)
+  durationSeconds: Int           # Duration in seconds for video/audio (optional)
+  mediaOrder: Int                # Display order within recap (optional)
 }
 
+# Input for updating existing recap media
 input UpdateRecapMediaInput {
-  mediaUrl: String
-  mediaType: String
-  durationSeconds: Int
+  mediaUrl: String               # Updated media URL (optional)
+  mediaType: RecapMediaType      # Updated media type (optional)
+  durationSeconds: Int           # Updated duration in seconds (optional)
 }
 
+# Generic wrapper for optional field updates
+# Allows distinguishing between omitted fields and explicit null values
 input UpdateFieldInput_String {
   value: String
 }
@@ -88,85 +118,95 @@ input UpdateFieldInput_DateTime {
   value: DateTime
 }
 
+# User profile containing header info, badges, and calendar view
 type UserProfile {
-  isSelf: Boolean!
-  header: UserHeader!
-  badges: [Badge!]!
-  weekView(anchorDate: Date!): WeekView!
+  isSelf: Boolean!                          # Whether this profile belongs to the requesting user
+  header: UserHeader!                       # User's basic information
+  badges: [Badge!]!                         # User's badges ordered by sortOrder
+  weekView(anchorDate: Date!): WeekView!    # Week view starting from anchor date
 }
 
+# User's basic header information
 type UserHeader {
-  username: String!
-  firstName: String!
-  lastName: String!
-  bio: String
-  profilePictureUrl: String
+  username: String!             # Unique username
+  firstName: String!            # User's first name
+  lastName: String!             # User's last name
+  bio: String                   # User's biography (optional)
+  profilePictureUrl: String     # URL to profile picture (optional)
 }
 
+# User badge for categorizing and tracking activities
 type Badge {
-  id: ID!
-  name: String!
-  sortOrder: Int!
-  labelOrder: [ID!]!
-  labels: [Label!]!
-  timeStats: TimeStats!
+  id: ID!                       # Unique badge identifier
+  name: String!                 # Badge display name
+  sortOrder: Int!               # Position in user's badge list
+  labelOrder: [ID!]!            # Ordered list of label IDs within this badge
+  labels: [Label!]!             # Labels associated with this badge
+  timeStats: TimeStats!         # Time tracking statistics for this badge
 }
 
+# Time tracking statistics with various time windows
 type TimeStats {
-  minutesToday: Int!
-  minutesThisWeek: Int!
-  minutesThisMonth: Int!
-  minutesLastWeek: Int!
-  minutesLastMonth: Int!
-  minutesAllTime: Int!
+  minutesToday: Int!            # Minutes logged today
+  minutesThisWeek: Int!         # Minutes logged this week
+  minutesThisMonth: Int!        # Minutes logged this month
+  minutesLastWeek: Int!         # Minutes logged last week
+  minutesLastMonth: Int!        # Minutes logged last month
+  minutesAllTime: Int!          # Total minutes logged all time
 }
 
+# Weekly calendar view containing daily events
 type WeekView {
-  days: [DayView!]!
+  days: [DayView!]!             # Seven days starting from anchor date
 }
 
+# Daily view showing events for a specific date
 type DayView {
-  date: Date!
-  events: [EventResponse!]!
+  date: Date!                   # Date for this day view
+  events: [EventResponse!]!     # Events scheduled for this date
 }
 
+# Activity label for categorizing events
 type Label {
-  id: ID!
-  name: String!
+  id: ID!                       # Unique label identifier
+  name: String!                 # Label display name
 }
 
+# Complete event information with timezone and status details
 type EventResponse {
-  id: ID!
-  name: String
-  description: String
-  startTimeUtc: DateTime
-  endTimeUtc: DateTime
-  durationMinutes: Int
-  startTimeZone: String
-  endTimeZone: String
-  creatorUsername: String!
-  creatorTimezone: String!
-  label: Label
-  isCompleted: Boolean!
-  unconfirmed: Boolean!
-  isVirtual: Boolean!
+  id: ID!                       # Unique event identifier
+  name: String                  # Event name (optional for unconfirmed events)
+  description: String           # Event description (optional)
+  startTimeUtc: DateTime        # Start time in UTC
+  endTimeUtc: DateTime          # End time in UTC
+  durationMinutes: Int          # Event duration in minutes
+  startTimeZone: String         # Timezone for start time
+  endTimeZone: String           # Timezone for end time
+  creatorUsername: String!      # Username of event creator
+  creatorTimezone: String!      # Creator's timezone
+  label: Label                  # Associated label (optional)
+  isCompleted: Boolean!         # Whether event is marked as completed
+  unconfirmed: Boolean!         # Whether event is unconfirmed/impromptu
+  isVirtual: Boolean!           # Whether event is virtual/online
 }
 
+# Event recap containing notes and media from completed events
 type EventRecap {
-  id: ID!
-  eventName: String!
-  username: String!
-  date: DateTime!
-  durationMinutes: Int!
-  labelName: String
-  notes: String
-  media: [RecapMedia!]!
+  id: ID!                       # Unique recap identifier
+  eventName: String!            # Name of the event this recap belongs to
+  username: String!             # Username of recap creator
+  date: DateTime!               # Date/time when recap was created
+  durationMinutes: Int!         # Event duration in minutes
+  labelName: String             # Name of associated label (optional)
+  notes: String                 # Recap notes/description (optional)
+  media: [RecapMedia!]!         # Media items attached to this recap
 }
 
+# Media item within an event recap
 type RecapMedia {
-  id: ID!
-  mediaUrl: String!
-  mediaType: RecapMediaType! # updated here
-  durationSeconds: Int
-  mediaOrder: Int!
+  id: ID!                       # Unique media identifier
+  mediaUrl: String!             # URL to the media file
+  mediaType: RecapMediaType!    # Type of media (IMAGE, VIDEO, AUDIO)
+  durationSeconds: Int          # Duration for video/audio files (optional)
+  mediaOrder: Int!              # Display order within the recap
 }

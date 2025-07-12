@@ -1,7 +1,6 @@
 package com.yohan.event_planner.service;
 
 import com.yohan.event_planner.domain.RecurringEvent;
-import com.yohan.event_planner.dto.ConflictResolutionDTO;
 import com.yohan.event_planner.dto.DayViewDTO;
 import com.yohan.event_planner.dto.EventCreateDTO;
 import com.yohan.event_planner.dto.EventFilterDTO;
@@ -11,7 +10,6 @@ import com.yohan.event_planner.dto.WeekViewDTO;
 import com.yohan.event_planner.exception.ConflictException;
 import com.yohan.event_planner.exception.EventNotFoundException;
 import com.yohan.event_planner.exception.EventOwnershipException;
-import com.yohan.event_planner.exception.InvalidTimeException;
 import org.springframework.data.domain.Page;
 
 import java.time.LocalDate;
@@ -40,8 +38,27 @@ public interface EventService {
      */
     EventResponseDTO getEventById(Long eventId);
 
+    /**
+     * Retrieves a paginated list of confirmed events for the current user with filtering.
+     *
+     * @param filter the filtering criteria including time range, labels, and sort options
+     * @param pageNumber zero-based page number to retrieve
+     * @param pageSize maximum number of events to return per page
+     * @return paginated list of confirmed events matching the filter criteria
+     * @throws UnauthorizedException if the user is not authenticated
+     */
     Page<EventResponseDTO> getConfirmedEventsForCurrentUser(EventFilterDTO filter, int pageNumber, int pageSize);
 
+    /**
+     * Retrieves confirmed events using cursor-based pagination for infinite scrolling.
+     *
+     * @param endTimeCursor cursor position based on event end time for pagination
+     * @param startTimeCursor cursor position based on event start time for pagination
+     * @param idCursor cursor position based on event ID for tie-breaking
+     * @param limit maximum number of events to return
+     * @return list of confirmed events after the cursor position
+     * @throws UnauthorizedException if the user is not authenticated
+     */
     List<EventResponseDTO> getConfirmedEventsPage(
             ZonedDateTime endTimeCursor,
             ZonedDateTime startTimeCursor,
@@ -49,10 +66,30 @@ public interface EventService {
             int limit
     );
 
+    /**
+     * Retrieves all unconfirmed (draft) events for the current user.
+     *
+     * @return list of unconfirmed events owned by the current user
+     * @throws UnauthorizedException if the user is not authenticated
+     */
     List<EventResponseDTO> getUnconfirmedEventsForCurrentUser();
 
+    /**
+     * Generates a comprehensive day view with events and time slots for the specified date.
+     *
+     * @param selectedDate the date to generate the view for (in user's timezone)
+     * @return day view containing confirmed events, virtual recurring events, and time slots
+     * @throws UnauthorizedException if the user is not authenticated
+     */
     DayViewDTO generateDayView(LocalDate selectedDate);
 
+    /**
+     * Generates a comprehensive week view anchored on the specified date.
+     *
+     * @param anchorDate any date within the desired week (week starts on Monday)
+     * @return week view containing confirmed events and virtual recurring events for the full week
+     * @throws UnauthorizedException if the user is not authenticated
+     */
     WeekViewDTO generateWeekView(LocalDate anchorDate);
 
     /**
@@ -70,6 +107,12 @@ public interface EventService {
      */
     EventResponseDTO createEvent(EventCreateDTO dto);
 
+    /**
+     * Creates an impromptu event starting at the current time with default settings.
+     *
+     * @return the created impromptu event as EventResponseDTO
+     * @throws UnauthorizedException if the user is not authenticated
+     */
     EventResponseDTO createImpromptuEvent();
 
     /**
@@ -132,6 +175,11 @@ public interface EventService {
      */
     void deleteEvent(Long eventId);
 
+    /**
+     * Deletes all unconfirmed (draft) events for the current user in a single operation.
+     *
+     * @throws UnauthorizedException if the user is not authenticated
+     */
     void deleteUnconfirmedEventsForCurrentUser();
 
     /**

@@ -1,6 +1,5 @@
 package com.yohan.event_planner.service;
 
-import com.yohan.event_planner.domain.RefreshToken;
 import com.yohan.event_planner.dto.auth.RefreshTokenResponseDTO;
 
 /**

@@ -53,8 +53,7 @@ import static com.yohan.event_planner.exception.ErrorCode.DUPLICATE_USERNAME;
  * <h3>Validation Strategy</h3>
  * <p>The handler performs field-specific validations while delegating to specialized components:</p>
  * <ul>
- *   <li><strong>Username uniqueness</strong>: Via {@link UserBO#existsByUsername(String)}</li>
- *   <li><strong>Email uniqueness</strong>: Via {@link UserBO#existsByEmail(String)}</li>
+ *   <li><strong>Username & Email uniqueness</strong>: Via {@link UserBO#existsByUsername(String)} and {@link UserBO#existsByEmail(String)}</li>
  *   <li><strong>Password duplication prevention</strong>: Via {@link PasswordBO#isMatch(String, String)}</li>
  *   <li><strong>Input normalization</strong>: Username and email converted to lowercase</li>
  * </ul>
@@ -88,7 +87,7 @@ public class UserPatchHandler {
      * <p>This method implements atomic patch semantics with two distinct phases:</p>
      * 
      * <h3>Phase 1: Validation</h3>
-     * <p>All field validations are performed before any updates:</p>
+     * <p>Field validations are performed before any updates:</p>
      * <ul>
      *   <li><strong>Username uniqueness</strong>: Via {@link UserBO#existsByUsername(String)}</li>
      *   <li><strong>Email uniqueness</strong>: Via {@link UserBO#existsByEmail(String)}</li>
@@ -110,8 +109,8 @@ public class UserPatchHandler {
      * @param existingUser the user entity to patch (must not be null)
      * @param dto the patch data with optional fields (must not be null)
      * @return true if any field was modified, false if no changes were made
-     * @throws UsernameException if username is taken by another user
-     * @throws EmailException if email is taken by another user  
+     * @throws UsernameException if username is already taken by another user
+     * @throws EmailException if email is already taken by another user
      * @throws PasswordException if new password matches current password
      */
 
@@ -144,9 +143,8 @@ public class UserPatchHandler {
     /**
      * Validates all fields that will be updated, ensuring atomic patch semantics.
      * 
-     * <p>This method performs all validations upfront before any entity modifications.
-     * If any validation fails, an exception is thrown and no changes are applied
-     * to the user entity.</p>
+     * <p>This method performs field-level validations upfront before any entity modifications.
+     * All uniqueness checks and business validations are performed here to ensure atomic behavior.</p>
      * 
      * @param existingUser the current user state
      * @param dto the patch data
@@ -162,7 +160,7 @@ public class UserPatchHandler {
         if (normalizedUsername != null && !normalizedUsername.equals(existingUser.getUsername())) {
             logger.debug("Validating username uniqueness for user ID {}: {}", existingUser.getId(), normalizedUsername);
             if (userBO.existsByUsername(normalizedUsername)) {
-                logger.warn("Username already exists for user ID {}: {}", existingUser.getId(), normalizedUsername);
+                logger.warn("Username '{}' is already taken", normalizedUsername);
                 throw new UsernameException(DUPLICATE_USERNAME, dto.username());
             }
         }
@@ -171,7 +169,7 @@ public class UserPatchHandler {
         if (normalizedEmail != null && !normalizedEmail.equals(existingUser.getEmail())) {
             logger.debug("Validating email uniqueness for user ID {}: {}", existingUser.getId(), normalizedEmail);
             if (userBO.existsByEmail(normalizedEmail)) {
-                logger.warn("Email already exists for user ID {}: {}", existingUser.getId(), normalizedEmail);
+                logger.warn("Email '{}' is already taken", normalizedEmail);
                 throw new EmailException(DUPLICATE_EMAIL, dto.email());
             }
         }

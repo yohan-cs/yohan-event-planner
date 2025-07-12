@@ -57,6 +57,24 @@ import java.util.List;
 @Repository
 public interface RecurringEventRepository extends JpaRepository<RecurringEvent, Long> {
 
+    /**
+     * Finds unconfirmed (draft) recurring events for a user that overlap with the specified date range.
+     * 
+     * <p><strong>Range Logic:</strong> Returns events where the event's date range intersects 
+     * with the query range. An event overlaps if:
+     * <ul>
+     *   <li>Event starts before or on the query end date: {@code startDate <= toDate}</li>
+     *   <li>Event ends after or on the query start date: {@code endDate >= fromDate}</li>
+     * </ul></p>
+     * 
+     * <p><strong>Parameter Order:</strong> Critical - parameters must be passed in exact order:
+     * userId, fromDate, toDate</p>
+     * 
+     * @param userId the ID of the user whose draft recurring events to retrieve
+     * @param fromDate the start date of the query range (inclusive)
+     * @param toDate the end date of the query range (inclusive) 
+     * @return list of unconfirmed recurring events overlapping the date range
+     */
     @Query("""
     SELECT r FROM RecurringEvent r
     WHERE r.creator.id = :userId
@@ -70,6 +88,24 @@ public interface RecurringEventRepository extends JpaRepository<RecurringEvent, 
             @Param("toDate") LocalDate toDate
     );
 
+    /**
+     * Finds confirmed recurring events for a user that overlap with the specified date range.
+     * 
+     * <p><strong>Range Logic:</strong> Returns events where the event's date range intersects 
+     * with the query range. An event overlaps if:
+     * <ul>
+     *   <li>Event starts before or on the query end date: {@code startDate <= toDate}</li>
+     *   <li>Event ends after or on the query start date: {@code endDate >= fromDate}</li>
+     * </ul></p>
+     * 
+     * <p><strong>Parameter Order:</strong> Critical - parameters must be passed in exact order:
+     * userId, fromDate, toDate</p>
+     * 
+     * @param userId the ID of the user whose recurring events to retrieve
+     * @param fromDate the start date of the query range (inclusive)
+     * @param toDate the end date of the query range (inclusive) 
+     * @return list of confirmed recurring events overlapping the date range
+     */
     @Query("""
     SELECT r FROM RecurringEvent r
     WHERE r.creator.id = :userId

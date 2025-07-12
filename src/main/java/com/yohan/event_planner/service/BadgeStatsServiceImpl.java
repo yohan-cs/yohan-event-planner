@@ -1,18 +1,17 @@
 package com.yohan.event_planner.service;
 
+import com.yohan.event_planner.constants.ApplicationConstants;
 import com.yohan.event_planner.domain.Badge;
-import com.yohan.event_planner.domain.Label;
-import com.yohan.event_planner.domain.enums.TimeBucketType;
 import com.yohan.event_planner.dto.TimeStatsDTO;
 import com.yohan.event_planner.repository.LabelTimeBucketRepository;
 import com.yohan.event_planner.time.ClockProvider;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.temporal.WeekFields;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -73,6 +72,8 @@ import static com.yohan.event_planner.domain.enums.TimeBucketType.WEEK;
 @Service
 public class BadgeStatsServiceImpl implements BadgeStatsService {
 
+    private static final Logger logger = LoggerFactory.getLogger(BadgeStatsServiceImpl.class);
+
     /** Repository for accessing pre-aggregated label time bucket data. */
     private final LabelTimeBucketRepository bucketRepository;
     
@@ -106,19 +107,26 @@ public class BadgeStatsServiceImpl implements BadgeStatsService {
      */
     @Override
     public TimeStatsDTO computeStatsForBadge(Badge badge, Long userId) {
+        logger.debug("Computing time statistics for badge [id={}] and user [id={}]", badge.getId(), userId);
+        
         Set<Long> labelIds = badge.getLabelIds();
 
         // Early return for empty badges
         if (labelIds.isEmpty()) {
+            logger.debug("Badge [id={}] contains no labels, returning empty statistics", badge.getId());
             return new TimeStatsDTO(0, 0, 0, 0, 0, 0);
         }
+        
+        logger.debug("Aggregating statistics for {} labels in badge [id={}]", labelIds.size(), badge.getId());
 
         // Get the current time in the badge user's timezone using ClockProvider
         ZonedDateTime now = ZonedDateTime.now(clockProvider.getClockForUser(badge.getUser()));
         LocalDate today = now.toLocalDate();
 
         // Calculate the day value (YYYYMMDD)
-        int todayValue = today.getYear() * 10000 + today.getMonthValue() * 100 + today.getDayOfMonth();
+        int todayValue = today.getYear() * ApplicationConstants.DATE_YEAR_MULTIPLIER + 
+                         today.getMonthValue() * ApplicationConstants.DATE_MONTH_MULTIPLIER + 
+                         today.getDayOfMonth();
         int todayYear = today.getYear();
 
         // Calculate week and month values
@@ -138,33 +146,36 @@ public class BadgeStatsServiceImpl implements BadgeStatsService {
 
         int lastMonthValue = today.minusMonths(1).getMonthValue();
         int lastMonthYear = today.minusMonths(1).getYear();
+        
+        logger.debug("Calculated time periods for user timezone: today={}, thisWeek={}/{}, thisMonth={}/{}", 
+                     todayValue, thisWeekValue, thisWeekYear, thisMonthValue, thisMonthYear);
 
         // Prepare bucket values
-        List<Integer> dayBucketValues = List.of(todayValue);
-        List<Integer> thisWeekBucketValues = List.of(thisWeekValue);
-        List<Integer> lastWeekBucketValues = List.of(lastWeekValue);
-        List<Integer> thisMonthBucketValues = List.of(thisMonthValue);
-        List<Integer> lastMonthBucketValues = List.of(lastMonthValue);
+        List<Integer> todayBucketValues = List.of(todayValue);
+        List<Integer> currentWeekBucketValues = List.of(thisWeekValue);
+        List<Integer> previousWeekBucketValues = List.of(lastWeekValue);
+        List<Integer> currentMonthBucketValues = List.of(thisMonthValue);
+        List<Integer> previousMonthBucketValues = List.of(lastMonthValue);
 
         // Query buckets
         var dayBuckets = bucketRepository.findByUserIdAndLabelIdInAndBucketTypeAndBucketYearAndBucketValueIn(
-                userId, labelIds, DAY, todayYear, dayBucketValues
+                userId, labelIds, DAY, todayYear, todayBucketValues
         );
 
         var weekBuckets = bucketRepository.findByUserIdAndLabelIdInAndBucketTypeAndBucketYearAndBucketValueIn(
-                userId, labelIds, WEEK, thisWeekYear, thisWeekBucketValues
+                userId, labelIds, WEEK, thisWeekYear, currentWeekBucketValues
         );
 
         var lastWeekBuckets = bucketRepository.findByUserIdAndLabelIdInAndBucketTypeAndBucketYearAndBucketValueIn(
-                userId, labelIds, WEEK, lastWeekYear, lastWeekBucketValues
+                userId, labelIds, WEEK, lastWeekYear, previousWeekBucketValues
         );
 
         var monthBuckets = bucketRepository.findByUserIdAndLabelIdInAndBucketTypeAndBucketYearAndBucketValueIn(
-                userId, labelIds, MONTH, thisMonthYear, thisMonthBucketValues
+                userId, labelIds, MONTH, thisMonthYear, currentMonthBucketValues
         );
 
         var lastMonthBuckets = bucketRepository.findByUserIdAndLabelIdInAndBucketTypeAndBucketYearAndBucketValueIn(
-                userId, labelIds, MONTH, lastMonthYear, lastMonthBucketValues
+                userId, labelIds, MONTH, lastMonthYear, previousMonthBucketValues
         );
 
         var allTimeBuckets = bucketRepository.findByUserIdAndLabelIdIn(userId, labelIds);
@@ -176,6 +187,9 @@ public class BadgeStatsServiceImpl implements BadgeStatsService {
         int minutesLastWeek = lastWeekBuckets.stream().mapToInt(b -> b.getDurationMinutes()).sum();
         int minutesLastMonth = lastMonthBuckets.stream().mapToInt(b -> b.getDurationMinutes()).sum();
         int totalMinutesAllTime = allTimeBuckets.stream().mapToInt(b -> b.getDurationMinutes()).sum();
+        
+        logger.info("Computed badge statistics for badge [id={}]: today={}min, thisWeek={}min, allTime={}min", 
+                    badge.getId(), minutesToday, minutesThisWeek, totalMinutesAllTime);
 
         return new TimeStatsDTO(
                 minutesToday,

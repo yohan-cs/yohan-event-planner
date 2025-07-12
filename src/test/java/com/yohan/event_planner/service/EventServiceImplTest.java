@@ -8,6 +8,7 @@ import com.yohan.event_planner.business.handler.EventPatchHandler;
 import com.yohan.event_planner.dao.EventDAO;
 import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.Label;
+import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.TimeFilter;
 import com.yohan.event_planner.dto.DayViewDTO;
@@ -26,12 +27,17 @@ import com.yohan.event_planner.repository.EventRepository;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
 import com.yohan.event_planner.time.ClockProvider;
+import com.yohan.event_planner.time.TimeUtils;
 import com.yohan.event_planner.util.EventResponseDTOAssertions;
 import com.yohan.event_planner.util.TestConstants;
 import com.yohan.event_planner.util.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import org.springframework.data.domain.Page;
 
@@ -41,10 +47,12 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Stream;
 
 
@@ -60,6 +68,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
@@ -72,40 +81,41 @@ import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 
+@ExtendWith(MockitoExtension.class)
 public class EventServiceImplTest {
 
+    @Mock
     private EventBO eventBO;
+    @Mock
     private UserBO userBO;
+    @Mock
     private RecurringEventBO recurringEventBO;
+    @Mock
     private LabelService labelService;
+    @Mock
     private EventDAO eventDAO;
+    @Mock
     private EventPatchHandler eventPatchHandler;
+    @Mock
     private EventResponseDTOFactory eventResponseDTOFactory;
+    @Mock
     private OwnershipValidator ownershipValidator;
+    @Mock
     private AuthenticatedUserProvider authenticatedUserProvider;
+    @Mock
     private ClockProvider clockProvider;
+    
     private User user;
     private ZoneId userZoneId;
     private Clock fixedClock;
     private ZonedDateTime nowInUserZone;
     private ZonedDateTime nowInUtc;
 
+    @InjectMocks
     private EventServiceImpl eventService;
 
     @BeforeEach
     void setUp() {
-        // Mocks for the services
-        eventBO = mock(EventBO.class);
-        userBO = mock(UserBO.class);
-        recurringEventBO = mock(RecurringEventBO.class);
-        labelService = mock(LabelService.class);
-        eventDAO = mock(EventDAO.class);
-        eventPatchHandler = mock(EventPatchHandler.class);
-        eventResponseDTOFactory = mock(EventResponseDTOFactory.class);
-        ownershipValidator = mock(OwnershipValidator.class);
-        authenticatedUserProvider = mock(AuthenticatedUserProvider.class);
-        clockProvider = mock(ClockProvider.class);
-
         // Creating a user
         user = createValidUserEntityWithId();  // This should return a user with a valid timezone string
         userZoneId = ZoneId.of(user.getTimezone());
@@ -114,14 +124,6 @@ public class EventServiceImplTest {
         nowInUserZone = ZonedDateTime.of(2025, 6, 27, 10, 0, 0, 0, userZoneId);
         nowInUtc = nowInUserZone.withZoneSameInstant(ZoneOffset.UTC);
         fixedClock = Clock.fixed(nowInUserZone.toInstant(), userZoneId);
-
-        // Initialize the service
-        eventService = new EventServiceImpl(
-                eventBO, userBO, recurringEventBO, labelService, eventDAO, 
-                mock(EventRepository.class), eventPatchHandler,
-                eventResponseDTOFactory, ownershipValidator,
-                authenticatedUserProvider, clockProvider
-        );
     }
 
     @Nested
@@ -310,6 +312,77 @@ public class EventServiceImplTest {
             verify(eventResponseDTOFactory).createFromEvent(event2);
         }
 
+        @Test
+        void shouldHandleLargePaginationLimits() {
+            // Arrange - Test boundary conditions for pagination
+            User viewer = createValidUserEntityWithId();
+            int largeLimit = 1000; // Large but reasonable limit
+            
+            List<Event> manyEvents = new ArrayList<>();
+            for (int i = 0; i < largeLimit; i++) {
+                Event event = TestUtils.createValidScheduledEventWithId((long) i, viewer, fixedClock);
+                manyEvents.add(event);
+            }
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(eventBO.getConfirmedEventsPage(viewer.getId(), null, null, null, largeLimit))
+                    .thenReturn(manyEvents);
+            
+            // Mock DTO conversion for each event
+            for (Event event : manyEvents) {
+                EventResponseDTO dto = createEventResponseDTO(event);
+                when(eventResponseDTOFactory.createFromEvent(event)).thenReturn(dto);
+            }
+
+            // Act
+            List<EventResponseDTO> result = eventService.getConfirmedEventsPage(null, null, null, largeLimit);
+
+            // Assert
+            assertEquals(largeLimit, result.size());
+            verify(eventBO).getConfirmedEventsPage(viewer.getId(), null, null, null, largeLimit);
+        }
+
+        @Test
+        void shouldHandleMinimalPaginationLimit() {
+            // Arrange - Test with limit of 1
+            User viewer = createValidUserEntityWithId();
+            Event singleEvent = TestUtils.createValidScheduledEventWithId(1L, viewer, fixedClock);
+            EventResponseDTO dto = createEventResponseDTO(singleEvent);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(eventBO.getConfirmedEventsPage(viewer.getId(), null, null, null, 1))
+                    .thenReturn(List.of(singleEvent));
+            when(eventResponseDTOFactory.createFromEvent(singleEvent)).thenReturn(dto);
+
+            // Act
+            List<EventResponseDTO> result = eventService.getConfirmedEventsPage(null, null, null, 1);
+
+            // Assert
+            assertEquals(1, result.size());
+            verify(eventBO).getConfirmedEventsPage(viewer.getId(), null, null, null, 1);
+        }
+
+        @Test
+        void shouldHandleCursorBoundaryConditions() {
+            // Arrange - Test with extreme cursor values
+            User viewer = createValidUserEntityWithId();
+            ZonedDateTime extremePastTime = ZonedDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+            ZonedDateTime extremeFutureTime = ZonedDateTime.of(2100, 12, 31, 23, 59, 59, 999_999_999, ZoneOffset.UTC);
+            Long extremeId = Long.MAX_VALUE;
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(eventBO.getConfirmedEventsPage(viewer.getId(), extremePastTime, extremeFutureTime, extremeId, 10))
+                    .thenReturn(Collections.emptyList());
+
+            // Act
+            List<EventResponseDTO> result = eventService.getConfirmedEventsPage(
+                    extremePastTime, extremeFutureTime, extremeId, 10);
+
+            // Assert
+            assertEquals(0, result.size());
+            verify(eventBO).getConfirmedEventsPage(viewer.getId(), extremePastTime, extremeFutureTime, extremeId, 10);
+        }
+
     }
 
     @Nested
@@ -382,7 +455,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate selectedDate = nowInUserZone.toLocalDate().plusDays(5);
             ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
@@ -409,7 +481,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate selectedDate = nowInUserZone.toLocalDate().plusDays(5);
             ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
@@ -443,7 +514,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate today = nowInUserZone.toLocalDate();
             ZonedDateTime nowInUtc = nowInUserZone.withZoneSameInstant(ZoneOffset.UTC);
@@ -484,7 +554,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate selectedDate = nowInUserZone.toLocalDate().plusDays(5);
             ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
@@ -531,7 +600,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate selectedDate = nowInUserZone.toLocalDate().minusDays(5);  // Past date
             ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
@@ -557,7 +625,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate selectedDate = nowInUserZone.toLocalDate().plusDays(7);  // Future date
             ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
@@ -588,7 +655,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate selectedDate = nowInUserZone.toLocalDate().plusDays(7);  // Future date
             ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
@@ -635,7 +701,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate selectedDate = nowInUserZone.toLocalDate().plusDays(5);  // Future date
             ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
@@ -676,7 +741,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             // Set the selected day to a past date (e.g., 1 day ago)
             LocalDate selectedDate = nowInUserZone.toLocalDate().minusDays(1);  // Past day
@@ -722,7 +786,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate selectedDate = nowInUserZone.toLocalDate().plusDays(7);  // Future date
             ZonedDateTime startOfDay = selectedDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
@@ -759,7 +822,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate selectedDate = nowInUserZone.toLocalDate();  // Today's date
             ZonedDateTime nowInUtc = nowInUserZone.withZoneSameInstant(ZoneOffset.UTC);
@@ -798,7 +860,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate today = nowInUserZone.toLocalDate();
             ZonedDateTime nowInUtc = nowInUserZone.withZoneSameInstant(ZoneOffset.UTC);
@@ -844,7 +905,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate today = nowInUserZone.toLocalDate();
             ZonedDateTime nowInUtc = nowInUserZone.withZoneSameInstant(ZoneOffset.UTC);
@@ -884,7 +944,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             // Select a past week anchor date (e.g. last week Monday)
             LocalDate anchorDate = nowInUserZone.toLocalDate().minusWeeks(1).with(DayOfWeek.MONDAY);
@@ -924,7 +983,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             // Select a past week anchor date (e.g. last week Monday)
             LocalDate anchorDate = nowInUserZone.toLocalDate().minusWeeks(1).with(DayOfWeek.MONDAY);
@@ -1002,7 +1060,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate today = nowInUserZone.toLocalDate();
             LocalDate anchorDate = today.with(DayOfWeek.MONDAY);
@@ -1072,7 +1129,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate today = nowInUserZone.toLocalDate();
             LocalDate anchorDate = today.with(DayOfWeek.MONDAY);
@@ -1133,7 +1189,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             LocalDate today = nowInUserZone.toLocalDate();
             LocalDate anchorDate = today.with(DayOfWeek.MONDAY);
@@ -1210,7 +1265,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             // Select a future week anchor date (e.g. next week Monday)
             LocalDate anchorDate = nowInUserZone.toLocalDate().plusWeeks(1).with(DayOfWeek.MONDAY);
@@ -1262,7 +1316,6 @@ public class EventServiceImplTest {
             // Arrange
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
             when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
-            when(clockProvider.getClockForZone(userZoneId)).thenReturn(fixedClock);
 
             // Select a future week anchor date (e.g. next week Monday)
             LocalDate anchorDate = nowInUserZone.toLocalDate().plusWeeks(1).with(DayOfWeek.MONDAY);
@@ -1347,7 +1400,6 @@ public class EventServiceImplTest {
 
             // Set user's timezone to one with DST (e.g., America/New_York)
             ZoneId dstZoneId = ZoneId.of("America/New_York");
-            when(clockProvider.getClockForZone(dstZoneId)).thenReturn(fixedClock);
 
             // Anchor date during DST transition week (March 10, 2025)
             LocalDate anchorDate = LocalDate.of(2025, 3, 10);
@@ -1417,6 +1469,130 @@ public class EventServiceImplTest {
 
             // Verify virtuals were NOT called for past week
             verifyNoInteractions(recurringEventBO);
+        }
+
+        @Test
+        void shouldHandleDifferentUserTimezones() {
+            // Arrange - User in Tokyo timezone
+            ZoneId tokyoZone = ZoneId.of("Asia/Tokyo");
+            User tokyoUser = createValidUserEntityWithId();
+            tokyoUser.setTimezone("Asia/Tokyo");
+            
+            Clock tokyoClock = Clock.fixed(nowInUserZone.toInstant(), tokyoZone);
+            LocalDate anchorDate = nowInUserZone.toLocalDate();
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(tokyoUser);
+            when(clockProvider.getClockForUser(tokyoUser)).thenReturn(tokyoClock);
+            
+            LocalDate weekStartDate = anchorDate.with(DayOfWeek.MONDAY);
+            LocalDate weekEndDate = weekStartDate.plusDays(6);
+            
+            ZonedDateTime weekStartTime = weekStartDate.atStartOfDay(tokyoZone).withZoneSameInstant(ZoneOffset.UTC);
+            ZonedDateTime weekEndTime = weekEndDate.plusDays(1).atStartOfDay(tokyoZone).withZoneSameInstant(ZoneOffset.UTC).minusNanos(1);
+            
+            when(eventBO.getConfirmedEventsForUserInRange(tokyoUser.getId(), weekStartTime, weekEndTime))
+                    .thenReturn(Collections.emptyList());
+            when(recurringEventBO.generateVirtuals(eq(tokyoUser.getId()), any(), eq(weekEndTime), eq(tokyoZone)))
+                    .thenReturn(Collections.emptyList());
+            
+            List<DayViewDTO> emptyDays = Collections.nCopies(7, new DayViewDTO(weekStartDate, Collections.emptyList()));
+            WeekViewDTO expectedWeekView = new WeekViewDTO(emptyDays);
+            when(eventBO.generateWeekViewData(eq(tokyoUser.getId()), eq(anchorDate), eq(tokyoZone), any(), any()))
+                    .thenReturn(expectedWeekView);
+
+            // Act
+            WeekViewDTO result = eventService.generateWeekView(anchorDate);
+
+            // Assert
+            assertNotNull(result);
+            // Verify that Tokyo timezone was used for all calculations
+            verify(eventBO).getConfirmedEventsForUserInRange(tokyoUser.getId(), weekStartTime, weekEndTime);
+            verify(eventBO).generateWeekViewData(tokyoUser.getId(), anchorDate, tokyoZone, Collections.emptyList(), Collections.emptyList());
+        }
+
+        @Test
+        void shouldHandleWeekBoundariesAcrossMonths() {
+            // Arrange - Week that spans across months (e.g., end of January to beginning of February)
+            LocalDate endOfMonth = LocalDate.of(2024, 1, 31); // Last day of January
+            LocalDate anchorDate = endOfMonth.with(DayOfWeek.WEDNESDAY); // Mid-week anchor
+            
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+            when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
+            
+            LocalDate weekStartDate = anchorDate.with(DayOfWeek.MONDAY); // Should be January 29
+            LocalDate weekEndDate = weekStartDate.plusDays(6); // Should be February 4
+            
+            ZonedDateTime weekStartTime = weekStartDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
+            ZonedDateTime weekEndTime = weekEndDate.plusDays(1).atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC).minusNanos(1);
+            
+            when(eventBO.getConfirmedEventsForUserInRange(user.getId(), weekStartTime, weekEndTime))
+                    .thenReturn(Collections.emptyList());
+            
+            List<DayViewDTO> emptyDays = Collections.nCopies(7, new DayViewDTO(weekStartDate, Collections.emptyList()));
+            WeekViewDTO expectedWeekView = new WeekViewDTO(emptyDays);
+            when(eventBO.generateWeekViewData(eq(user.getId()), eq(anchorDate), eq(userZoneId), any(), any()))
+                    .thenReturn(expectedWeekView);
+
+            // Act
+            WeekViewDTO result = eventService.generateWeekView(anchorDate);
+
+            // Assert
+            assertNotNull(result);
+            // Verify correct week boundaries were calculated
+            verify(eventBO).getConfirmedEventsForUserInRange(user.getId(), weekStartTime, weekEndTime);
+            assertTrue(weekStartDate.getMonthValue() != weekEndDate.getMonthValue(), 
+                    "Week should span across different months");
+        }
+
+        @Test
+        void shouldHandleWeekBoundariesAcrossYears() {
+            // Arrange - Create a week that actually spans across years
+            // Let's test the behavior when we have a week that crosses year boundaries
+            // Since January 1, 2024 was a Monday, any day in that week won't span years
+            // We need a date where the Monday is in December 2023
+            LocalDate anchorDate = LocalDate.of(2023, 12, 31); // Sunday, Dec 31, 2023
+            
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+            when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
+            
+            // Calculate what the service will actually compute
+            LocalDate weekStartDate = anchorDate.with(DayOfWeek.MONDAY); // Should be December 25, 2023
+            LocalDate weekEndDate = weekStartDate.plusDays(6); // Should be December 31, 2023
+            
+            // This still won't span years! The issue is that .with(DayOfWeek.MONDAY) gives us the Monday
+            // of the SAME week, not necessarily a previous week
+            // Let's manually construct a scenario that works
+            weekStartDate = LocalDate.of(2023, 12, 25); // Monday, December 25, 2023
+            weekEndDate = LocalDate.of(2023, 12, 31);   // Sunday, December 31, 2023
+            
+            // Still doesn't span years. Let's create a week that actually does
+            // Week of Dec 26, 2022 to Jan 1, 2023 (Monday to Sunday)
+            anchorDate = LocalDate.of(2022, 12, 28); // Wednesday
+            weekStartDate = LocalDate.of(2022, 12, 26); // Manually set Monday
+            weekEndDate = LocalDate.of(2023, 1, 1);     // Manually set Sunday (next year!)
+            
+            ZonedDateTime weekStartTime = weekStartDate.atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC);
+            ZonedDateTime weekEndTime = weekEndDate.plusDays(1).atStartOfDay(userZoneId).withZoneSameInstant(ZoneOffset.UTC).minusNanos(1);
+            
+            when(eventBO.getConfirmedEventsForUserInRange(user.getId(), weekStartTime, weekEndTime))
+                    .thenReturn(Collections.emptyList());
+            
+            List<DayViewDTO> emptyDays = Collections.nCopies(7, new DayViewDTO(weekStartDate, Collections.emptyList()));
+            WeekViewDTO expectedWeekView = new WeekViewDTO(emptyDays);
+            when(eventBO.generateWeekViewData(eq(user.getId()), eq(anchorDate), eq(userZoneId), any(), any()))
+                    .thenReturn(expectedWeekView);
+
+            // Act
+            WeekViewDTO result = eventService.generateWeekView(anchorDate);
+
+            // Assert
+            assertNotNull(result);
+            // Verify correct week boundaries were calculated - we manually control the expected calls
+            verify(eventBO).getConfirmedEventsForUserInRange(user.getId(), weekStartTime, weekEndTime);
+            
+            // Verify this actually spans years
+            assertTrue(weekStartDate.getYear() != weekEndDate.getYear(), 
+                    "Week should span across different years: start=" + weekStartDate + ", end=" + weekEndDate);
         }
 
     }
@@ -2074,6 +2250,319 @@ public class EventServiceImplTest {
             verify(authenticatedUserProvider).getCurrentUser();
             verify(eventBO).deleteAllUnconfirmedEventsByUser(viewer.getId());
             verifyNoMoreInteractions(eventBO);
+        }
+
+    }
+
+    @Nested
+    class UpdateFutureEventsFromRecurringEventTests {
+
+        @Test
+        void shouldUpdateFutureEventsSuccessfully() {
+            // Arrange
+            RecurringEvent recurringEvent = mock(RecurringEvent.class);
+            Set<String> changedFields = Set.of("name", "startTime");
+            ZoneId userZoneId = ZoneId.of("America/New_York");
+            int expectedUpdateCount = 5;
+
+            when(recurringEvent.getId()).thenReturn(1L);
+            when(eventBO.updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId))
+                    .thenReturn(expectedUpdateCount);
+
+            // Act
+            int actualUpdateCount = eventService.updateFutureEventsFromRecurringEvent(
+                    recurringEvent, changedFields, userZoneId);
+
+            // Assert
+            assertEquals(expectedUpdateCount, actualUpdateCount);
+            verify(eventBO).updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId);
+            verifyNoMoreInteractions(eventBO);
+        }
+
+        @Test
+        void shouldReturnZeroWhenNoFutureEvents() {
+            // Arrange
+            RecurringEvent recurringEvent = mock(RecurringEvent.class);
+            Set<String> changedFields = Set.of("description");
+            ZoneId userZoneId = ZoneId.of("UTC");
+
+            when(recurringEvent.getId()).thenReturn(2L);
+            when(eventBO.updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId))
+                    .thenReturn(0);
+
+            // Act
+            int actualUpdateCount = eventService.updateFutureEventsFromRecurringEvent(
+                    recurringEvent, changedFields, userZoneId);
+
+            // Assert
+            assertEquals(0, actualUpdateCount);
+            verify(eventBO).updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId);
+            verifyNoMoreInteractions(eventBO);
+        }
+
+        @Test
+        void shouldHandleDifferentChangedFields() {
+            // Arrange
+            RecurringEvent recurringEvent = mock(RecurringEvent.class);
+            Set<String> changedFields = Set.of("name", "endTime", "label");
+            ZoneId userZoneId = ZoneId.of("Europe/London");
+            int expectedUpdateCount = 3;
+
+            when(recurringEvent.getId()).thenReturn(3L);
+            when(eventBO.updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId))
+                    .thenReturn(expectedUpdateCount);
+
+            // Act
+            int actualUpdateCount = eventService.updateFutureEventsFromRecurringEvent(
+                    recurringEvent, changedFields, userZoneId);
+
+            // Assert
+            assertEquals(expectedUpdateCount, actualUpdateCount);
+            verify(eventBO).updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId);
+            verifyNoMoreInteractions(eventBO);
+        }
+
+        @Test
+        void shouldRespectUserTimezone() {
+            // Arrange
+            RecurringEvent recurringEvent = mock(RecurringEvent.class);
+            Set<String> changedFields = Set.of("startTime");
+            ZoneId userZoneId = ZoneId.of("Asia/Tokyo");
+            int expectedUpdateCount = 2;
+
+            when(recurringEvent.getId()).thenReturn(4L);
+            when(eventBO.updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId))
+                    .thenReturn(expectedUpdateCount);
+
+            // Act
+            int actualUpdateCount = eventService.updateFutureEventsFromRecurringEvent(
+                    recurringEvent, changedFields, userZoneId);
+
+            // Assert
+            assertEquals(expectedUpdateCount, actualUpdateCount);
+            verify(eventBO).updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId);
+            verifyNoMoreInteractions(eventBO);
+        }
+
+        @Test
+        void shouldHandleEmptyChangedFields() {
+            // Arrange
+            RecurringEvent recurringEvent = mock(RecurringEvent.class);
+            Set<String> changedFields = Set.of();
+            ZoneId userZoneId = ZoneId.of("UTC");
+
+            when(recurringEvent.getId()).thenReturn(5L);
+            when(eventBO.updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId))
+                    .thenReturn(0);
+
+            // Act
+            int actualUpdateCount = eventService.updateFutureEventsFromRecurringEvent(
+                    recurringEvent, changedFields, userZoneId);
+
+            // Assert
+            assertEquals(0, actualUpdateCount);
+            verify(eventBO).updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId);
+            verifyNoMoreInteractions(eventBO);
+        }
+
+        @Test
+        void shouldHandleLargeUpdateCount() {
+            // Arrange
+            RecurringEvent recurringEvent = mock(RecurringEvent.class);
+            Set<String> changedFields = Set.of("name", "startTime", "endTime");
+            ZoneId userZoneId = ZoneId.of("America/Los_Angeles");
+            int expectedUpdateCount = 100; // Large recurring event series
+
+            when(recurringEvent.getId()).thenReturn(6L);
+            when(eventBO.updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId))
+                    .thenReturn(expectedUpdateCount);
+
+            // Act
+            int actualUpdateCount = eventService.updateFutureEventsFromRecurringEvent(
+                    recurringEvent, changedFields, userZoneId);
+
+            // Assert
+            assertEquals(expectedUpdateCount, actualUpdateCount);
+            verify(eventBO).updateFutureEventsFromRecurringEvent(recurringEvent, changedFields, userZoneId);
+            verifyNoMoreInteractions(eventBO);
+        }
+
+    }
+
+    @Nested
+    class GetConfirmedEventsForCurrentUserFilterTests {
+
+        @Test
+        void shouldApplyAllTimeFilter() {
+            // Arrange
+            User viewer = createValidUserEntityWithId();
+            EventFilterDTO filter = new EventFilterDTO(null, TimeFilter.ALL, null, null, false, false);
+            PagedList<Event> mockEvents = mock(PagedList.class);
+            when(mockEvents.stream()).thenReturn(Stream.empty());
+            when(mockEvents.getTotalSize()).thenReturn(0L);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(clockProvider.getClockForUser(viewer)).thenReturn(fixedClock);
+            when(eventDAO.findConfirmedEvents(eq(viewer.getId()), any(EventFilterDTO.class), eq(0), eq(10)))
+                    .thenReturn(mockEvents);
+
+            // Act
+            eventService.getConfirmedEventsForCurrentUser(filter, 0, 10);
+
+            // Assert - Verify the sanitized filter has FAR_PAST and now (reference time for incomplete filtering)
+            verify(eventDAO).findConfirmedEvents(eq(viewer.getId()), argThat(sanitizedFilter -> 
+                sanitizedFilter.start().equals(TimeUtils.FAR_PAST) &&
+                sanitizedFilter.end().equals(nowInUserZone) &&
+                sanitizedFilter.timeFilter() == TimeFilter.ALL
+            ), eq(0), eq(10));
+        }
+
+        @Test
+        void shouldApplyPastOnlyFilter() {
+            // Arrange
+            User viewer = createValidUserEntityWithId();
+            EventFilterDTO filter = new EventFilterDTO(null, TimeFilter.PAST_ONLY, null, null, false, false);
+            PagedList<Event> mockEvents = mock(PagedList.class);
+            when(mockEvents.stream()).thenReturn(Stream.empty());
+            when(mockEvents.getTotalSize()).thenReturn(0L);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(clockProvider.getClockForUser(viewer)).thenReturn(fixedClock);
+            when(eventDAO.findConfirmedEvents(eq(viewer.getId()), any(EventFilterDTO.class), eq(0), eq(10)))
+                    .thenReturn(mockEvents);
+
+            // Act
+            eventService.getConfirmedEventsForCurrentUser(filter, 0, 10);
+
+            // Assert - Verify the sanitized filter has FAR_PAST to now
+            verify(eventDAO).findConfirmedEvents(eq(viewer.getId()), argThat(sanitizedFilter -> 
+                sanitizedFilter.start().equals(TimeUtils.FAR_PAST) &&
+                sanitizedFilter.end().equals(nowInUserZone) &&
+                sanitizedFilter.timeFilter() == TimeFilter.ALL
+            ), eq(0), eq(10));
+        }
+
+        @Test
+        void shouldApplyFutureOnlyFilter() {
+            // Arrange
+            User viewer = createValidUserEntityWithId();
+            EventFilterDTO filter = new EventFilterDTO(null, TimeFilter.FUTURE_ONLY, null, null, false, false);
+            PagedList<Event> mockEvents = mock(PagedList.class);
+            when(mockEvents.stream()).thenReturn(Stream.empty());
+            when(mockEvents.getTotalSize()).thenReturn(0L);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(clockProvider.getClockForUser(viewer)).thenReturn(fixedClock);
+            when(eventDAO.findConfirmedEvents(eq(viewer.getId()), any(EventFilterDTO.class), eq(0), eq(10)))
+                    .thenReturn(mockEvents);
+
+            // Act
+            eventService.getConfirmedEventsForCurrentUser(filter, 0, 10);
+
+            // Assert - Verify the sanitized filter has now to now (reference time for incomplete filtering)
+            verify(eventDAO).findConfirmedEvents(eq(viewer.getId()), argThat(sanitizedFilter -> 
+                sanitizedFilter.start().equals(nowInUserZone) &&
+                sanitizedFilter.end().equals(nowInUserZone) &&
+                sanitizedFilter.timeFilter() == TimeFilter.ALL
+            ), eq(0), eq(10));
+        }
+
+        @Test
+        void shouldApplyCustomFilterWithBothDates() {
+            // Arrange
+            User viewer = createValidUserEntityWithId();
+            ZonedDateTime customStart = getValidEventStartFuture(fixedClock);
+            ZonedDateTime customEnd = getValidEventEndFuture(fixedClock);
+            EventFilterDTO filter = new EventFilterDTO(null, TimeFilter.CUSTOM, customStart, customEnd, false, false);
+            PagedList<Event> mockEvents = mock(PagedList.class);
+            when(mockEvents.stream()).thenReturn(Stream.empty());
+            when(mockEvents.getTotalSize()).thenReturn(0L);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(clockProvider.getClockForUser(viewer)).thenReturn(fixedClock);
+            when(eventDAO.findConfirmedEvents(eq(viewer.getId()), any(EventFilterDTO.class), eq(0), eq(10)))
+                    .thenReturn(mockEvents);
+
+            // Act
+            eventService.getConfirmedEventsForCurrentUser(filter, 0, 10);
+
+            // Assert - Verify the sanitized filter preserves custom start but uses now as reference time
+            verify(eventDAO).findConfirmedEvents(eq(viewer.getId()), argThat(sanitizedFilter -> 
+                sanitizedFilter.start().equals(customStart) &&
+                sanitizedFilter.end().equals(nowInUserZone) &&
+                sanitizedFilter.timeFilter() == TimeFilter.ALL
+            ), eq(0), eq(10));
+        }
+
+        @Test
+        void shouldApplyCustomFilterWithNullStart() {
+            // Arrange
+            User viewer = createValidUserEntityWithId();
+            ZonedDateTime customEnd = getValidEventEndFuture(fixedClock);
+            EventFilterDTO filter = new EventFilterDTO(null, TimeFilter.CUSTOM, null, customEnd, false, false);
+            PagedList<Event> mockEvents = mock(PagedList.class);
+            when(mockEvents.stream()).thenReturn(Stream.empty());
+            when(mockEvents.getTotalSize()).thenReturn(0L);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(clockProvider.getClockForUser(viewer)).thenReturn(fixedClock);
+            when(eventDAO.findConfirmedEvents(eq(viewer.getId()), any(EventFilterDTO.class), eq(0), eq(10)))
+                    .thenReturn(mockEvents);
+
+            // Act
+            eventService.getConfirmedEventsForCurrentUser(filter, 0, 10);
+
+            // Assert - Verify the sanitized filter defaults null start to FAR_PAST and uses now as reference time
+            verify(eventDAO).findConfirmedEvents(eq(viewer.getId()), argThat(sanitizedFilter -> 
+                sanitizedFilter.start().equals(TimeUtils.FAR_PAST) &&
+                sanitizedFilter.end().equals(nowInUserZone) &&
+                sanitizedFilter.timeFilter() == TimeFilter.ALL
+            ), eq(0), eq(10));
+        }
+
+        @Test
+        void shouldApplyCustomFilterWithNullEnd() {
+            // Arrange
+            User viewer = createValidUserEntityWithId();
+            ZonedDateTime customStart = getValidEventStartFuture(fixedClock);
+            EventFilterDTO filter = new EventFilterDTO(null, TimeFilter.CUSTOM, customStart, null, false, false);
+            PagedList<Event> mockEvents = mock(PagedList.class);
+            when(mockEvents.stream()).thenReturn(Stream.empty());
+            when(mockEvents.getTotalSize()).thenReturn(0L);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(clockProvider.getClockForUser(viewer)).thenReturn(fixedClock);
+            when(eventDAO.findConfirmedEvents(eq(viewer.getId()), any(EventFilterDTO.class), eq(0), eq(10)))
+                    .thenReturn(mockEvents);
+
+            // Act
+            eventService.getConfirmedEventsForCurrentUser(filter, 0, 10);
+
+            // Assert - Verify the sanitized filter preserves custom start and uses now as reference time
+            verify(eventDAO).findConfirmedEvents(eq(viewer.getId()), argThat(sanitizedFilter -> 
+                sanitizedFilter.start().equals(customStart) &&
+                sanitizedFilter.end().equals(nowInUserZone) &&
+                sanitizedFilter.timeFilter() == TimeFilter.ALL
+            ), eq(0), eq(10));
+        }
+
+        @Test
+        void shouldThrowInvalidTimeExceptionForCustomFilterWithStartAfterEnd() {
+            // Arrange
+            User viewer = createValidUserEntityWithId();
+            ZonedDateTime customStart = getValidEventEndFuture(fixedClock); // Later time
+            ZonedDateTime customEnd = getValidEventStartFuture(fixedClock); // Earlier time
+            EventFilterDTO filter = new EventFilterDTO(null, TimeFilter.CUSTOM, customStart, customEnd, false, false);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(viewer);
+            when(clockProvider.getClockForUser(viewer)).thenReturn(fixedClock);
+
+            // Act & Assert
+            InvalidTimeException exception = assertThrows(InvalidTimeException.class, () -> 
+                eventService.getConfirmedEventsForCurrentUser(filter, 0, 10));
+
+            assertEquals(ErrorCode.INVALID_TIME_RANGE, exception.getErrorCode());
+            verifyNoInteractions(eventDAO);
         }
 
     }

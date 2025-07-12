@@ -1,21 +1,18 @@
 package com.yohan.event_planner.service;
 
-
-import com.yohan.event_planner.domain.Event;
-import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.dto.EventResponseDTO;
-import com.yohan.event_planner.dto.EventResponseDTOFactory;
 import com.yohan.event_planner.dto.RecurringEventResponseDTO;
-import com.yohan.event_planner.repository.EventRepository;
-import com.yohan.event_planner.repository.RecurringEventRepository;
-import org.springframework.data.domain.PageRequest;
+import com.yohan.event_planner.exception.ErrorCode;
+import com.yohan.event_planner.exception.InvalidCalendarParameterException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Objects;
 
 /**
  * Implementation of {@link MyEventsService} providing cursor-based pagination for user's events.
@@ -103,17 +100,35 @@ import java.util.stream.Collectors;
 @Service
 public class MyEventsServiceImpl implements MyEventsService {
 
+    private static final Logger logger = LoggerFactory.getLogger(MyEventsServiceImpl.class);
+
     private final EventService eventService;
     private final RecurringEventService recurringEventService;
 
+    /**
+     * Constructs a new MyEventsServiceImpl with required service dependencies.
+     * 
+     * @param eventService the event service for regular event operations
+     * @param recurringEventService the recurring event service for recurring event operations
+     * @throws NullPointerException if any service dependency is null
+     */
     public MyEventsServiceImpl(
             EventService eventService,
             RecurringEventService recurringEventService
     ) {
-        this.eventService = eventService;
-        this.recurringEventService = recurringEventService;
+        this.eventService = Objects.requireNonNull(eventService, "EventService cannot be null");
+        this.recurringEventService = Objects.requireNonNull(recurringEventService, "RecurringEventService cannot be null");
+        logger.debug("MyEventsServiceImpl initialized with EventService and RecurringEventService dependencies");
     }
 
+    /**
+     * {@inheritDoc}
+     * 
+     * <p>Validates the limit parameter and delegates to the recurring event service.
+     * This method filters to confirmed recurring events only.</p>
+     * 
+     * @throws InvalidCalendarParameterException if limit is less than or equal to zero
+     */
     @Override
     public List<RecurringEventResponseDTO> getRecurringEventsPage(
             LocalDate endDateCursor,
@@ -123,11 +138,13 @@ public class MyEventsServiceImpl implements MyEventsService {
             Long idCursor,
             int limit
     ) {
-        if (limit <= 0) {
-            throw new IllegalArgumentException("Limit must be greater than zero");
-        }
+        logger.debug("Retrieving recurring events page with limit: {}, cursors: endDate={}, startDate={}, startTime={}, endTime={}, id={}", 
+                     limit, endDateCursor, startDateCursor, startTimeCursor, endTimeCursor, idCursor);
+        
+        validateLimit(limit);
 
-        return recurringEventService.getConfirmedRecurringEventsPage(
+        logger.debug("Delegating to RecurringEventService for confirmed recurring events pagination");
+        List<RecurringEventResponseDTO> result = recurringEventService.getConfirmedRecurringEventsPage(
                 endDateCursor,
                 startDateCursor,
                 startTimeCursor,
@@ -135,9 +152,19 @@ public class MyEventsServiceImpl implements MyEventsService {
                 idCursor,
                 limit
         );
+        
+        logger.info("Retrieved {} recurring events for pagination request", result.size());
+        return result;
     }
 
-
+    /**
+     * {@inheritDoc}
+     * 
+     * <p>Validates the limit parameter and delegates to the event service.
+     * This method filters to confirmed events only.</p>
+     * 
+     * @throws InvalidCalendarParameterException if limit is less than or equal to zero
+     */
     @Override
     public List<EventResponseDTO> getEventsPage(
             ZonedDateTime endTimeCursor,
@@ -145,16 +172,34 @@ public class MyEventsServiceImpl implements MyEventsService {
             Long idCursor,
             int limit
     ) {
-        if (limit <= 0) {
-            throw new IllegalArgumentException("Limit must be greater than zero");
-        }
+        logger.debug("Retrieving events page with limit: {}, cursors: endTime={}, startTime={}, id={}", 
+                     limit, endTimeCursor, startTimeCursor, idCursor);
+        
+        validateLimit(limit);
 
-        return eventService.getConfirmedEventsPage(
+        logger.debug("Delegating to EventService for confirmed events pagination");
+        List<EventResponseDTO> result = eventService.getConfirmedEventsPage(
                 endTimeCursor,
                 startTimeCursor,
                 idCursor,
                 limit
         );
+        
+        logger.info("Retrieved {} events for pagination request", result.size());
+        return result;
+    }
+
+    /**
+     * Validates that the limit parameter is greater than zero.
+     * 
+     * @param limit the pagination limit to validate
+     * @throws InvalidCalendarParameterException if limit is less than or equal to zero
+     */
+    private void validateLimit(int limit) {
+        if (limit <= 0) {
+            logger.warn("Invalid pagination limit parameter provided: {}. Limit must be greater than zero", limit);
+            throw new InvalidCalendarParameterException(ErrorCode.INVALID_PAGINATION_PARAMETER);
+        }
     }
 
 }

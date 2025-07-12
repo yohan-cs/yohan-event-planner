@@ -43,7 +43,8 @@ public class CustomAccessDeniedHandler implements AccessDeniedHandler {
                 HttpServletResponse.SC_FORBIDDEN,
                 "Access denied: insufficient permissions",
                 ErrorCode.ACCESS_DENIED.name(),
-                Instant.now().toEpochMilli()
+                Instant.now().toEpochMilli(),
+                request.getRequestURI()
         );
 
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);

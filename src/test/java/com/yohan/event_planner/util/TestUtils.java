@@ -28,7 +28,6 @@ import com.yohan.event_planner.dto.RecurringEventResponseDTO;
 import com.yohan.event_planner.dto.TimeStatsDTO;
 import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.dto.UserResponseDTO;
-import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.security.CustomUserDetails;
 import com.yohan.event_planner.service.ParsedRecurrenceInput;
 import com.yohan.event_planner.service.RecurrenceRuleServiceImpl;

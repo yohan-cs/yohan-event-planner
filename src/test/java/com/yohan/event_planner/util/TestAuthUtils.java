@@ -73,7 +73,7 @@ public class TestAuthUtils {
         user.verifyEmail();
         userRepository.saveAndFlush(user);
 
-        LoginRequestDTO loginDTO = new LoginRequestDTO(registerDTO.username(), registerDTO.password());
+        LoginRequestDTO loginDTO = new LoginRequestDTO(registerDTO.email(), registerDTO.password());
 
         MvcResult loginResult = mockMvc.perform(post("/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -89,7 +89,7 @@ public class TestAuthUtils {
         String refreshToken = jsonNode.get("refreshToken").asText();
         Long userId = jsonNode.get("userId").asLong();
         
-        return new AuthResult(accessToken, refreshToken, null, userId);
+        return new AuthResult(accessToken, refreshToken, userId);
     }
 
     public record AuthResult(String jwt, String refreshToken, User user, Long userId) {

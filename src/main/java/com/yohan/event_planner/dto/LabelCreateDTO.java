@@ -15,6 +15,7 @@ import jakarta.validation.constraints.NotNull;
 public record LabelCreateDTO(
 
         /** Display name of the label. Cannot be blank. */
+        @NotNull(message = "Label name cannot be null")
         @NotBlank(message = "Label name must not be blank")
         String name
 ) {}

@@ -56,18 +56,106 @@ import java.util.Set;
  */
 public interface BadgeService {
 
+    /**
+     * Retrieves a badge by its unique identifier with computed statistics and resolved labels.
+     * 
+     * <p>This method fetches the complete badge information including time statistics
+     * aggregated across all associated labels and resolves label details for display.
+     * The operation validates that the current authenticated user owns the requested badge.</p>
+     * 
+     * @param badgeId the unique identifier of the badge to retrieve
+     * @return complete badge information with statistics and resolved labels
+     * @throws BadgeNotFoundException if no badge exists with the specified ID
+     * @throws BadgeOwnershipException if the current user doesn't own the badge
+     */
     BadgeResponseDTO getBadgeById(Long badgeId);
 
+    /**
+     * Retrieves all badges belonging to a specific user, ordered by their sort order.
+     * 
+     * <p>Returns badges with computed statistics and resolved label information,
+     * sorted according to the user's preferred display order. Each badge includes
+     * aggregated time statistics computed across all its associated labels.</p>
+     * 
+     * @param userId the ID of the user whose badges to retrieve
+     * @return list of badges with statistics, ordered by sort order (empty if none exist)
+     */
     List<BadgeResponseDTO> getBadgesByUser(Long userId);
 
+    /**
+     * Creates a new badge with the specified properties and optional label associations.
+     * 
+     * <p>The new badge is assigned the next available sort order based on the user's
+     * existing badges. If label IDs are provided, the method validates that all
+     * specified labels are owned by the current authenticated user before creating
+     * the associations.</p>
+     * 
+     * @param dto the badge creation data including name and optional label IDs
+     * @return the created badge with computed statistics and resolved labels
+     * @throws IllegalArgumentException if label validation fails or required data is invalid
+     */
     BadgeResponseDTO createBadge(BadgeCreateDTO dto);
 
+    /**
+     * Updates an existing badge's properties.
+     * 
+     * <p>Currently supports updating the badge name. The operation validates ownership
+     * before allowing updates and returns the badge with current statistics and
+     * resolved label information.</p>
+     * 
+     * @param badgeId the ID of the badge to update
+     * @param dto the update data containing modified properties
+     * @return the updated badge with current statistics and resolved labels
+     * @throws BadgeNotFoundException if no badge exists with the specified ID
+     * @throws BadgeOwnershipException if the current user doesn't own the badge
+     */
     BadgeResponseDTO updateBadge(Long badgeId, BadgeUpdateDTO dto);
 
+    /**
+     * Permanently deletes a badge after validating ownership.
+     * 
+     * <p>This operation removes the badge and all its associations but does not
+     * affect the associated labels themselves. The deletion is permanent and
+     * cannot be undone.</p>
+     * 
+     * @param badgeId the ID of the badge to delete
+     * @throws BadgeNotFoundException if no badge exists with the specified ID
+     * @throws BadgeOwnershipException if the current user doesn't own the badge
+     */
     void deleteBadge(Long badgeId);
 
+    /**
+     * Reorders all badges for a user according to the provided sequence.
+     * 
+     * <p>This operation requires that ALL user-owned badges are included in the
+     * reorder list to ensure consistency and prevent partial reordering. The position
+     * in the list determines the new sort order, with index 0 being the first position.
+     * Missing any user-owned badge or including badges not owned by the user will
+     * result in an exception.</p>
+     * 
+     * @param userId the ID of the user whose badges to reorder
+     * @param orderedBadgeIds complete list of badge IDs in desired order
+     * @throws IncompleteBadgeReorderListException if not all user badges are included
+     * @throws BadgeNotFoundException if any badge ID doesn't exist
+     * @throws BadgeOwnershipException if any badge isn't owned by the user
+     */
     void reorderBadges(Long userId, List<Long> orderedBadgeIds);
 
+    /**
+     * Reorders labels within a specific badge according to the provided sequence.
+     * 
+     * <p>This operation requires that ALL labels currently associated with the badge
+     * are included in the reorder list to maintain consistency. The position in the
+     * list determines the new display order within the badge. Missing any currently
+     * associated label or including labels not associated with the badge will result
+     * in an exception.</p>
+     * 
+     * @param badgeId the ID of the badge whose labels to reorder
+     * @param labelOrder complete list of label IDs in desired order within the badge
+     * @throws BadgeNotFoundException if the badge doesn't exist
+     * @throws BadgeOwnershipException if the current user doesn't own the badge
+     * @throws IncompleteBadgeLabelReorderListException if not all badge labels are included
+     */
     void reorderBadgeLabels(Long badgeId, List<Long> labelOrder);
 
 

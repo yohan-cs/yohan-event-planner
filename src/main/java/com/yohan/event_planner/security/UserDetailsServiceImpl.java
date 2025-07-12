@@ -32,22 +32,25 @@ public class UserDetailsServiceImpl implements UserDetailsService {
     }
 
     /**
-     * Loads a user by their username and converts the domain {@link User} into Spring Security's
+     * Loads a user by their email and converts the domain {@link User} into Spring Security's
      * {@link UserDetails} representation.
      * <p>
      * This method is used by Spring Security during the authentication process.
+     * Note: Despite the method name being "loadUserByUsername", we load by email for better UX.
      * If the user is not found, it throws a {@link UsernameNotFoundException}, which is the
      * standard exception expected by Spring Security to indicate authentication failure.
      * </p>
      *
-     * @param username the username identifying the user
+     * @param username the email identifying the user (despite parameter name)
      * @return a {@link CustomUserDetails} wrapping the domain user
-     * @throws UsernameNotFoundException if no user with the given username exists
+     * @throws UsernameNotFoundException if no user with the given email exists
      */
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
-        User user = userBO.getUserByUsername(username)
-                .orElseThrow(() -> new UsernameNotFoundException("User with username " + username + " not found"));
+        // Note: Spring Security requires this method name, but we're using the parameter as email
+        String email = username;
+        User user = userBO.getUserByEmail(email)
+                .orElseThrow(() -> new UsernameNotFoundException("User with email " + email + " not found"));
         return new CustomUserDetails(user);
     }
 

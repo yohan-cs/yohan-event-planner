@@ -13,6 +13,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.annotation.PostConstruct;
+
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -60,11 +62,18 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
 
     /**
      * Constructs a new EmailVerificationServiceImpl with required dependencies.
+     * 
+     * <p>
+     * Initializes the service with all required repositories and services for email verification
+     * operations. The SecureRandom instance is created during construction to ensure
+     * cryptographically secure token generation throughout the service lifecycle.
+     * </p>
      *
      * @param emailVerificationTokenRepository repository for email verification tokens
-     * @param userRepository repository for user accounts
+     * @param userRepository repository for user accounts  
      * @param emailService service for sending emails
-     * @param clockProvider provider for current time
+     * @param clockProvider provider for current time (enables testing with fixed time)
+     * @throws IllegalArgumentException if any required dependency is null (handled by Spring)
      */
     public EmailVerificationServiceImpl(
             EmailVerificationTokenRepository emailVerificationTokenRepository,
@@ -76,6 +85,23 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
         this.emailService = emailService;
         this.clockProvider = clockProvider;
         this.secureRandom = new SecureRandom();
+    }
+
+    /**
+     * Validates configuration settings after dependency injection.
+     * 
+     * <p>
+     * Ensures that token expiry configuration is valid and logs warnings
+     * for any invalid settings while applying safe defaults.
+     * </p>
+     */
+    @PostConstruct
+    private void validateConfiguration() {
+        if (tokenExpiryHours <= 0) {
+            logger.warn("Invalid token expiry configuration: {} hours, using default: 24", tokenExpiryHours);
+            tokenExpiryHours = 24;
+        }
+        logger.info("Email verification service initialized with {}-hour token expiry", tokenExpiryHours);
     }
 
     /**
@@ -96,6 +122,8 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
             String token = generateSecureToken();
             Instant now = clockProvider.getClockForZone(ZoneOffset.UTC).instant();
             Instant expiryDate = now.plus(tokenExpiryHours, ChronoUnit.HOURS);
+            logger.debug("Generated secure verification token with {}-hour expiry for user: {}", 
+                tokenExpiryHours, user.getUsername());
 
             // Create and save the token
             EmailVerificationToken verificationToken = new EmailVerificationToken(token, user, now, expiryDate);
@@ -106,8 +134,7 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
             
             logger.info("Email verification token generated and sent for user: {}", user.getUsername());
         } catch (Exception e) {
-            logger.error("Failed to generate verification token for user: {} - {}", user.getUsername(), e.getMessage());
-            throw new EmailException("Failed to send email verification email");
+            handleVerificationException(e, "generate verification token", user.getUsername());
         }
     }
 
@@ -120,6 +147,7 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
         
         try {
             Instant now = clockProvider.getClockForZone(ZoneOffset.UTC).instant();
+            logger.debug("Validating verification token for timestamp: {}", now);
             Optional<EmailVerificationToken> tokenOptional = emailVerificationTokenRepository.findValidToken(token, now);
             
             if (tokenOptional.isEmpty()) {
@@ -149,9 +177,11 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
         } catch (EmailException e) {
             throw e;
         } catch (Exception e) {
-            logger.error("Failed to verify email with token - {}", e.getMessage());
-            throw new EmailException(ErrorCode.VERIFICATION_FAILED, null);
+            handleVerificationException(e, "verify email", "unknown user");
         }
+        
+        // This should never be reached due to exception handling, but required for compilation
+        return Optional.empty();
     }
 
     /**
@@ -198,10 +228,14 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
         logger.info("Starting cleanup of expired email verification tokens");
         
         Instant now = clockProvider.getClockForZone(ZoneOffset.UTC).instant();
+        logger.debug("Starting cleanup with current time: {}", now);
+        
         int expiredCount = emailVerificationTokenRepository.deleteExpiredTokens(now);
         int usedCount = emailVerificationTokenRepository.deleteUsedTokens();
         
         int totalCleaned = expiredCount + usedCount;
+        logger.debug("Cleanup operation details - expired: {}, used: {}, timestamp: {}", 
+                   expiredCount, usedCount, now);
         logger.info("Cleanup completed: {} expired tokens, {} used tokens, {} total cleaned", 
                    expiredCount, usedCount, totalCleaned);
         
@@ -220,5 +254,30 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
             token.append(TOKEN_CHARACTERS.charAt(randomIndex));
         }
         return token.toString();
+    }
+
+    /**
+     * Handles exceptions during verification operations with consistent logging and error conversion.
+     * 
+     * <p>
+     * Provides centralized exception handling for verification operations, ensuring consistent
+     * error reporting and logging while preserving original EmailExceptions.
+     * </p>
+     *
+     * @param e the exception that occurred
+     * @param operation the operation being performed when the exception occurred
+     * @param username the username associated with the operation (for logging)
+     * @throws EmailException always throws an EmailException with appropriate error code
+     */
+    private void handleVerificationException(Exception e, String operation, String username) {
+        if (e instanceof EmailException) {
+            throw (EmailException) e;
+        }
+        logger.error("Failed to {} for user: {} - {}", operation, username, e.getMessage());
+        if (operation.contains("generate")) {
+            throw new EmailException("Failed to send email verification email");
+        } else {
+            throw new EmailException(ErrorCode.VERIFICATION_FAILED, null);
+        }
     }
 }

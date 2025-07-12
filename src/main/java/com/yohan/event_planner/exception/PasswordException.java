@@ -41,6 +41,14 @@ public class PasswordException extends RuntimeException implements HasErrorCode 
             case WEAK_PASSWORD -> "The password does not meet strength requirements.";
             case INVALID_PASSWORD_LENGTH -> "The password length is invalid.";
             case DUPLICATE_PASSWORD -> "The new password must be different from the current password.";
+            case INVALID_RESET_TOKEN -> "The password reset token is invalid or has expired.";
+            case EXPIRED_RESET_TOKEN -> "The password reset token has expired.";
+            case USED_RESET_TOKEN -> "The password reset token has already been used.";
+            case PASSWORD_RESET_TOKEN_GENERATION_FAILED -> "Failed to generate secure password reset token.";
+            case PASSWORD_RESET_EMAIL_FAILED -> "Failed to send password reset email.";
+            case PASSWORD_RESET_DATABASE_ERROR -> "Database error occurred during password reset operation.";
+            case PASSWORD_RESET_ENCODING_FAILED -> "Failed to encode new password during reset.";
+            case PASSWORD_RESET_CONFIRMATION_EMAIL_FAILED -> "Failed to send password change confirmation email.";
             default -> "Password validation error with code: " + errorCode.name();
         };
     }

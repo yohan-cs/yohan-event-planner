@@ -18,6 +18,8 @@ import com.yohan.event_planner.exception.UsernameException;
 import com.yohan.event_planner.mapper.UserMapper;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -164,6 +166,8 @@ import static com.yohan.event_planner.exception.ErrorCode.DUPLICATE_USERNAME;
 @Service
 public class UserServiceImpl implements UserService {
 
+    private static final Logger logger = LoggerFactory.getLogger(UserServiceImpl.class);
+
     private final UserBO userBO;
     private final UserMapper userMapper;
     private final UserPatchHandler userPatchHandler;
@@ -194,23 +198,34 @@ public class UserServiceImpl implements UserService {
     }
 
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public UserResponseDTO getUserSettings() {
+        logger.debug("Retrieving user settings for authenticated user");
         User currentUser = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Retrieved user settings for user ID: {}", currentUser.getId());
 
         return userMapper.toResponseDTO(currentUser);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     public UserResponseDTO createUser(UserCreateDTO dto) {
+        logger.debug("Creating new user with username: {}", dto.username());
         String normalizedUsername = dto.username().toLowerCase();
         String normalizedEmail = dto.email().toLowerCase();
 
         if (existsByUsername(normalizedUsername)) {
+            logger.warn("Username conflict detected during registration: {} already exists", normalizedUsername);
             throw new UsernameException(DUPLICATE_USERNAME, dto.username());
         }
         if (existsByEmail(normalizedEmail)) {
+            logger.warn("Email conflict detected during registration: {} already exists", normalizedEmail);
             throw new EmailException(DUPLICATE_EMAIL, dto.email());
         }
 
@@ -221,14 +236,19 @@ public class UserServiceImpl implements UserService {
 
         // Delegate to UserInitializer instead of userBO directly
         User initializedUser = userInitializer.initializeUser(user);
+        logger.info("Successfully created user: {} (ID: {})", initializedUser.getUsername(), initializedUser.getId());
 
         return userMapper.toResponseDTO(initializedUser);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     public UserResponseDTO updateUserSettings(UserUpdateDTO dto) {
         User currentUser = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Updating settings for user ID: {}", currentUser.getId());
 
         if (dto.username() != null) {
             validateUsernameAvailability(dto.username(), currentUser.getId());
@@ -239,37 +259,50 @@ public class UserServiceImpl implements UserService {
         }
 
         boolean changed = userPatchHandler.applyPatch(currentUser, dto);
-        return userMapper.toResponseDTO(changed ? userBO.updateUser(currentUser) : currentUser);
+        if (changed) {
+            logger.info("Successfully updated settings for user: {} (ID: {})", currentUser.getUsername(), currentUser.getId());
+            return userMapper.toResponseDTO(userBO.updateUser(currentUser));
+        } else {
+            logger.debug("No changes applied to user settings for user ID: {}", currentUser.getId());
+            return userMapper.toResponseDTO(currentUser);
+        }
     }
 
     /**
-     * Marks the currently authenticated user for deletion after a grace period.
+     * {@inheritDoc}
      */
     @Override
     @Transactional
     public void markUserForDeletion() {
         User currentUser = authenticatedUserProvider.getCurrentUser();
+        logger.info("Marking user {} (ID: {}) for deletion", currentUser.getUsername(), currentUser.getId());
         userBO.markUserForDeletion(currentUser);
     }
 
     /**
-     * Cancels the deletion of the currently authenticated user, if previously marked.
+     * {@inheritDoc}
      */
     @Override
     @Transactional
     public void reactivateCurrentUser() {
         User currentUser = authenticatedUserProvider.getCurrentUser();
+        logger.info("Reactivating user {} (ID: {}) - canceling pending deletion", currentUser.getUsername(), currentUser.getId());
         currentUser.unmarkForDeletion(); // domain logic clears timestamp
         userBO.updateUser(currentUser); // persist
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional(readOnly = true)
     public UserProfileResponseDTO getUserProfile(String username, Long viewerId) {
+        logger.debug("Retrieving profile for username: {} (viewer ID: {})", username, viewerId);
         User user = userBO.getUserByUsername(username.toLowerCase())
                 .orElseThrow(() -> new UserNotFoundException(username));
 
         boolean isSelf = viewerId != null && user.getId().equals(viewerId);
+        logger.debug("Profile access for user ID: {} - isSelf: {}", user.getId(), isSelf);
 
         UserHeaderResponseDTO header = getUserHeader(user);
         List<BadgeResponseDTO> badges = badgeService.getBadgesByUser(user.getId());
@@ -277,9 +310,13 @@ public class UserServiceImpl implements UserService {
         return new UserProfileResponseDTO(isSelf, header, badges);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     @Transactional
     public UserHeaderResponseDTO updateUserHeader(Long userId, UserHeaderUpdateDTO dto) {
+        logger.debug("Updating header for user ID: {}", userId);
         User user = userBO.getUserById(userId)
                 .orElseThrow(() -> new UserNotFoundException(userId));
 
@@ -298,7 +335,10 @@ public class UserServiceImpl implements UserService {
         }
 
         if (changed) {
+            logger.info("Successfully updated header for user: {} (ID: {})", user.getUsername(), user.getId());
             user = userBO.updateUser(user);
+        } else {
+            logger.debug("No changes applied to header for user ID: {}", userId);
         }
 
         return getUserHeader(user);
@@ -326,10 +366,21 @@ public class UserServiceImpl implements UserService {
         return userBO.existsByEmail(email.toLowerCase());
     }
 
+    /**
+     * Validates that the provided username is not already taken by another user.
+     *
+     * <p>Performs case-insensitive username lookup and allows the current user
+     * to keep their existing username if no changes are being made.</p>
+     *
+     * @param username the username to validate
+     * @param userId the ID of the current user (excluded from uniqueness check)
+     * @throws UsernameException if the username is already taken by another user
+     */
     private void validateUsernameAvailability(String username, Long userId) {
         String normalized = username.toLowerCase();
         userBO.getUserByUsername(normalized).ifPresent(existing -> {
             if (!existing.getId().equals(userId)) {
+                logger.warn("Username conflict detected: {} already taken by user ID: {}", normalized, existing.getId());
                 throw new UsernameException(DUPLICATE_USERNAME, normalized);
             }
         });
@@ -338,19 +389,32 @@ public class UserServiceImpl implements UserService {
     /**
      * Validates that the provided email is not already taken by another user.
      *
+     * <p>Performs case-insensitive email lookup and allows the current user
+     * to keep their existing email if no changes are being made.</p>
+     *
      * @param email the email to validate
-     * @param userId the ID of the user being updated
-     * @throws EmailException if the email is already in use
+     * @param userId the ID of the current user (excluded from uniqueness check)
+     * @throws EmailException if the email is already taken by another user
      */
     private void validateEmailAvailability(String email, Long userId) {
         String normalized = email.toLowerCase();
         userBO.getUserByEmail(normalized).ifPresent(existing -> {
             if (!existing.getId().equals(userId)) {
+                logger.warn("Email conflict detected: {} already taken by user ID: {}", normalized, existing.getId());
                 throw new EmailException(DUPLICATE_EMAIL, normalized);
             }
         });
     }
 
+    /**
+     * Creates a user header response DTO from a user entity.
+     *
+     * <p>Extracts the essential header information including username, names,
+     * bio, and profile picture URL for profile display purposes.</p>
+     *
+     * @param user the user entity to extract header information from
+     * @return {@link UserHeaderResponseDTO} containing header information
+     */
     private UserHeaderResponseDTO getUserHeader(User user) {
         return new UserHeaderResponseDTO(
                 user.getUsername(),

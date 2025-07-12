@@ -17,9 +17,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
 
+import javax.crypto.Mac;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
 import java.security.Key;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.Date;
 import java.util.UUID;
 
@@ -154,26 +160,37 @@ public class JwtUtils {
     }
 
     /**
-     * Hashes the provided refresh token using BCrypt.
+     * Hashes the provided refresh token using HMAC-SHA256.
      * Used for securely storing refresh tokens in the database.
+     * Unlike BCrypt, this produces deterministic hashes that allow for direct database lookups.
      *
      * @param refreshToken the raw refresh token to hash
-     * @return the BCrypt hash of the refresh token
+     * @return the HMAC-SHA256 hash of the refresh token
      */
     public String hashRefreshToken(String refreshToken) {
-        return passwordEncoder.encode(refreshToken);
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            SecretKeySpec keySpec = new SecretKeySpec(jwtSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+            mac.init(keySpec);
+            byte[] hash = mac.doFinal(refreshToken.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+            logger.error("Failed to hash refresh token: {}", e.getMessage());
+            throw new RuntimeException("Failed to hash refresh token", e);
+        }
     }
 
     /**
      * Validates a refresh token against its stored hash.
-     * Uses BCrypt to compare the raw token with the stored hash.
+     * Uses HMAC-SHA256 to compare the raw token with the stored hash.
      *
      * @param refreshToken the raw refresh token to validate
      * @param hashedToken the stored hash to compare against
      * @return true if the token matches the hash, false otherwise
      */
     public boolean validateRefreshToken(String refreshToken, String hashedToken) {
-        return passwordEncoder.matches(refreshToken, hashedToken);
+        String computedHash = hashRefreshToken(refreshToken);
+        return computedHash.equals(hashedToken);
     }
 
     /**

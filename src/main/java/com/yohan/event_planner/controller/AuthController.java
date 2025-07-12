@@ -1,5 +1,6 @@
 package com.yohan.event_planner.controller;
 
+import com.yohan.event_planner.constants.ApplicationConstants;
 import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.dto.auth.EmailVerificationRequestDTO;
 import com.yohan.event_planner.dto.auth.EmailVerificationResponseDTO;
@@ -41,33 +42,65 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.function.BooleanSupplier;
+import java.util.function.IntSupplier;
+import java.util.function.LongSupplier;
+
 /**
  * REST controller for user authentication and token management operations.
  *
  * <p>
  * This controller provides endpoints for the complete authentication lifecycle including
  * user registration, login, token refresh, logout, and password reset functionality.
- * All endpoints except those under {@code /auth/**} require authentication.
+ * All endpoints under {@code /auth/**} are publicly accessible via SecurityConfig exclusion.
  * </p>
  *
  * <h2>Supported Operations</h2>
  * <ul>
- *   <li><strong>Registration</strong>: Create new user accounts with automatic login</li>
+ *   <li><strong>Registration</strong>: Create new user accounts with email verification requirement</li>
  *   <li><strong>Login</strong>: Authenticate existing users and issue JWT tokens</li>
  *   <li><strong>Token Refresh</strong>: Generate new access tokens using refresh tokens</li>
  *   <li><strong>Logout</strong>: Revoke refresh tokens and terminate sessions</li>
  *   <li><strong>Password Reset</strong>: Secure password reset via email verification</li>
+ *   <li><strong>Email Verification</strong>: Account activation via email token validation</li>
  * </ul>
  *
- * <h2>Security Features</h2>
+ * <h2>Security Architecture</h2>
  * <ul>
- *   <li>JWT-based stateless authentication</li>
- *   <li>Refresh token rotation for enhanced security</li>
- *   <li>Anti-enumeration protection for security-sensitive operations</li>
+ *   <li><strong>Rate Limiting</strong>: Comprehensive per-IP rate limiting via RateLimitingService</li>
+ *   <li><strong>JWT Security</strong>: Stateless authentication with secure refresh token rotation</li>
+ *   <li><strong>Anti-Enumeration</strong>: Consistent responses and timing for security-sensitive operations</li>
+ *   <li><strong>Email Security</strong>: Email verification prevents fake account creation and spam</li>
+ *   <li><strong>IP Tracking</strong>: Client IP extraction and logging for security monitoring</li>
+ * </ul>
+ *
+ * <h2>Integration Points</h2>
+ * <ul>
+ *   <li><strong>SecurityConfig</strong>: Public endpoint exclusions for {@code /auth/**} paths</li>
+ *   <li><strong>GlobalExceptionHandler</strong>: Centralized error handling for authentication failures</li>
+ *   <li><strong>RateLimitingService</strong>: Per-operation rate limiting and abuse prevention</li>
+ *   <li><strong>AuthService</strong>: Core authentication logic and token management</li>
+ *   <li><strong>PasswordResetService</strong>: Secure password reset workflow management</li>
+ *   <li><strong>EmailVerificationService</strong>: Account activation and email verification</li>
+ * </ul>
+ *
+ * <h2>Error Handling Strategy</h2>
+ * <p>
+ * All authentication endpoints implement consistent error handling patterns:
+ * </p>
+ * <ul>
+ *   <li><strong>Rate Limit Violations</strong>: Throw RateLimitExceededException with retry information</li>
+ *   <li><strong>Authentication Failures</strong>: Delegated to GlobalExceptionHandler for consistent responses</li>
+ *   <li><strong>Security Events</strong>: Comprehensive logging for security monitoring and audit trails</li>
+ *   <li><strong>Anti-Enumeration</strong>: Standard responses prevent user/email enumeration attacks</li>
  * </ul>
  *
  * @see AuthService
  * @see PasswordResetService
+ * @see EmailVerificationService
+ * @see RateLimitingService
+ * @see com.yohan.event_planner.security.SecurityConfig
+ * @see com.yohan.event_planner.exception.GlobalExceptionHandler
  * @author Event Planner Development Team
  * @since 2.0.0
  */
@@ -76,7 +109,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/auth")
 public class AuthController {
 
-    private static final Logger log = LoggerFactory.getLogger(AuthController.class);
+    private static final Logger logger = LoggerFactory.getLogger(AuthController.class);
 
     private final AuthService authService;
     private final PasswordResetService passwordResetService;
@@ -101,6 +134,61 @@ public class AuthController {
         this.emailVerificationService = emailVerificationService;
         this.userBO = userBO;
         this.rateLimitingService = rateLimitingService;
+    }
+
+    /**
+     * Validates rate limiting for authentication operations and throws exception if exceeded.
+     * 
+     * <p>
+     * This method encapsulates the common rate limiting validation pattern used across
+     * all authentication endpoints. It checks if the operation is allowed, and if not,
+     * logs the violation and throws a RateLimitExceededException with detailed information.
+     * </p>
+     *
+     * @param clientIP the client IP address for rate limiting checks
+     * @param operation the operation name for logging and error reporting
+     * @param isAllowed function to check if the operation is allowed for this IP
+     * @param getRemainingAttempts function to get remaining attempts for error details
+     * @param getResetTime function to get reset time for error details
+     * @param maxAttempts the maximum allowed attempts for this operation type
+     * @throws RateLimitExceededException if the rate limit has been exceeded
+     */
+    private void validateRateLimit(String clientIP, String operation,
+                                 BooleanSupplier isAllowed,
+                                 IntSupplier getRemainingAttempts,
+                                 LongSupplier getResetTime,
+                                 int maxAttempts) {
+        if (!isAllowed.getAsBoolean()) {
+            int remainingAttempts = getRemainingAttempts.getAsInt();
+            long resetTime = getResetTime.getAsLong();
+            
+            logger.warn("{} rate limit exceeded for IP: {} (remaining: {}, reset in: {}s)", 
+                    operation, clientIP, remainingAttempts, resetTime);
+            
+            throw new RateLimitExceededException(operation, maxAttempts, maxAttempts, resetTime);
+        }
+    }
+
+    /**
+     * Records a rate limiting attempt for the specified operation and client IP.
+     * 
+     * <p>
+     * This method encapsulates the rate limiting recording logic that should be called
+     * after every authentication operation attempt, regardless of success or failure.
+     * This ensures accurate tracking for rate limiting purposes.
+     * </p>
+     *
+     * @param clientIP the client IP address to record the attempt for
+     * @param operation the operation type for determining which rate limiting counter to update
+     */
+    private void recordRateLimitAttempt(String clientIP, String operation) {
+        switch (operation) {
+            case "login" -> rateLimitingService.recordLoginAttempt(clientIP);
+            case "registration" -> rateLimitingService.recordRegistrationAttempt(clientIP);
+            case "password reset", "password reset completion" -> rateLimitingService.recordPasswordResetAttempt(clientIP);
+            case "email verification", "email verification resend" -> rateLimitingService.recordEmailVerificationAttempt(clientIP);
+            default -> logger.warn("Unknown operation for rate limiting: {}", operation);
+        }
     }
 
     /**
@@ -142,14 +230,40 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<LoginResponseDTO> login(
             @Parameter(description = "User login credentials", required = true)
-            @Valid @RequestBody LoginRequestDTO request) {
-        log.info("Login attempt for username: {}", request.username());
+            @Valid @RequestBody LoginRequestDTO request,
+            HttpServletRequest httpRequest) {
+        
+        // Extract client IP for rate limiting
+        String clientIP = IPAddressUtil.getClientIpAddress(httpRequest);
+        
+        logger.debug("Processing login request from IP: {}", clientIP);
+        logger.info("Login attempt for email: {} from IP: {}", request.email(), clientIP);
+        
+        // Check rate limit before proceeding
+        validateRateLimit(clientIP, "login",
+                () -> rateLimitingService.isLoginAllowed(clientIP),
+                () -> rateLimitingService.getRemainingLoginAttempts(clientIP),
+                () -> rateLimitingService.getLoginRateLimitResetTime(clientIP),
+                ApplicationConstants.MAX_LOGIN_ATTEMPTS);
+        
         try {
             LoginResponseDTO response = authService.login(request);
-            log.info("Successful login for user: {}, userId: {}", request.username(), response.userId());
+            logger.info("Authentication event: operation=login, ip={}, userId={}, success=true", 
+                    clientIP, response.userId());
+            logger.info("Successful login for user: {}, userId: {} from IP: {}", request.email(), response.userId(), clientIP);
+            
+            // Record the login attempt after successful login
+            recordRateLimitAttempt(clientIP, "login");
+            
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.warn("Failed login attempt for username: {} - {}", request.username(), e.getMessage());
+            logger.info("Authentication event: operation=login, ip={}, email={}, success=false, reason={}", 
+                    clientIP, request.email(), e.getClass().getSimpleName());
+            logger.warn("Failed login attempt for email: {} from IP: {} - {}", request.email(), clientIP, e.getMessage());
+            
+            // Record the login attempt even on failure to prevent brute force attacks
+            recordRateLimitAttempt(clientIP, "login");
+            
             throw e;
         }
     }
@@ -209,35 +323,36 @@ public class AuthController {
         // Extract client IP for rate limiting
         String clientIP = IPAddressUtil.getClientIpAddress(httpRequest);
         
-        log.info("Registration attempt for username: {}, email: {} from IP: {}", 
+        logger.debug("Processing registration request from IP: {}", clientIP);
+        logger.info("Registration attempt for username: {}, email: {} from IP: {}", 
                 request.username(), request.email(), clientIP);
         
         // Check rate limit before proceeding
-        if (!rateLimitingService.isRegistrationAllowed(clientIP)) {
-            int remainingAttempts = rateLimitingService.getRemainingRegistrationAttempts(clientIP);
-            long resetTime = rateLimitingService.getRegistrationRateLimitResetTime(clientIP);
-            
-            log.warn("Registration rate limit exceeded for IP: {} (remaining: {}, reset in: {}s)", 
-                    clientIP, remainingAttempts, resetTime);
-            
-            throw new RateLimitExceededException("registration", 5, 5, resetTime);
-        }
+        validateRateLimit(clientIP, "registration",
+                () -> rateLimitingService.isRegistrationAllowed(clientIP),
+                () -> rateLimitingService.getRemainingRegistrationAttempts(clientIP),
+                () -> rateLimitingService.getRegistrationRateLimitResetTime(clientIP),
+                ApplicationConstants.MAX_REGISTRATION_ATTEMPTS);
         
         try {
             RegisterResponseDTO response = authService.register(request);
-            log.info("Successful registration and auto-login for user: {}, userId: {} from IP: {}", 
+            logger.info("Authentication event: operation=registration, ip={}, userId={}, success=true", 
+                    clientIP, response.userId());
+            logger.info("Successful registration and auto-login for user: {}, userId: {} from IP: {}", 
                     request.username(), response.userId(), clientIP);
             
             // Record the registration attempt after successful registration
-            rateLimitingService.recordRegistrationAttempt(clientIP);
+            recordRateLimitAttempt(clientIP, "registration");
             
             return ResponseEntity.status(HttpStatus.CREATED).body(response);
         } catch (Exception e) {
-            log.warn("Failed registration attempt for username: {} from IP: {} - {}", 
+            logger.info("Authentication event: operation=registration, ip={}, username={}, success=false, reason={}", 
+                    clientIP, request.username(), e.getClass().getSimpleName());
+            logger.warn("Failed registration attempt for username: {} from IP: {} - {}", 
                     request.username(), clientIP, e.getMessage());
             
             // Record the registration attempt even on failure to prevent abuse
-            rateLimitingService.recordRegistrationAttempt(clientIP);
+            recordRateLimitAttempt(clientIP, "registration");
             
             throw e;
         }
@@ -283,13 +398,15 @@ public class AuthController {
     public ResponseEntity<RefreshTokenResponseDTO> refreshToken(
             @Parameter(description = "Refresh token request data", required = true)
             @Valid @RequestBody TokenRequestDTO request) {
-        log.debug("Token refresh attempt");
+        logger.debug("Processing token refresh request");
         try {
             RefreshTokenResponseDTO response = authService.refreshToken(request);
-            log.info("Successful token refresh for user");
+            logger.info("Authentication event: operation=refresh, success=true");
+            logger.info("Successful token refresh for user");
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.warn("Failed token refresh attempt - {}", e.getMessage());
+            logger.info("Authentication event: operation=refresh, success=false, reason={}", e.getClass().getSimpleName());
+            logger.warn("Failed token refresh attempt - {}", e.getMessage());
             throw e;
         }
     }
@@ -334,13 +451,15 @@ public class AuthController {
     public ResponseEntity<Void> logout(
             @Parameter(description = "Logout request data containing refresh token", required = true)
             @Valid @RequestBody TokenRequestDTO request) {
-        log.debug("Logout attempt");
+        logger.debug("Processing logout request");
         try {
             authService.logout(request);
-            log.info("Successful logout - refresh token revoked");
+            logger.info("Authentication event: operation=logout, success=true");
+            logger.info("Successful logout - refresh token revoked");
             return ResponseEntity.ok().build();
         } catch (Exception e) {
-            log.warn("Logout attempt failed - {}", e.getMessage());
+            logger.info("Authentication event: operation=logout, success=false, reason={}", e.getClass().getSimpleName());
+            logger.warn("Logout attempt failed - {}", e.getMessage());
             throw e;
         }
     }
@@ -392,14 +511,40 @@ public class AuthController {
     @PostMapping("/forgot-password")
     public ResponseEntity<ForgotPasswordResponseDTO> forgotPassword(
             @Parameter(description = "Forgot password request data", required = true)
-            @Valid @RequestBody ForgotPasswordRequestDTO request) {
-        log.info("Password reset request for email: {}", request.email());
+            @Valid @RequestBody ForgotPasswordRequestDTO request,
+            HttpServletRequest httpRequest) {
+        
+        // Extract client IP for rate limiting
+        String clientIP = IPAddressUtil.getClientIpAddress(httpRequest);
+        
+        logger.debug("Processing password reset request from IP: {}", clientIP);
+        logger.info("Password reset request for email: {} from IP: {}", request.email(), clientIP);
+        
+        // Check rate limit before proceeding
+        validateRateLimit(clientIP, "password reset",
+                () -> rateLimitingService.isPasswordResetAllowed(clientIP),
+                () -> rateLimitingService.getRemainingPasswordResetAttempts(clientIP),
+                () -> rateLimitingService.getPasswordResetRateLimitResetTime(clientIP),
+                ApplicationConstants.MAX_PASSWORD_RESET_ATTEMPTS);
+        
         try {
             ForgotPasswordResponseDTO response = passwordResetService.requestPasswordReset(request);
-            log.info("Password reset request processed for email: {} (standard response for security)", request.email());
+            logger.info("Security event: operation=password_reset_request, ip={}, email={}, success=true", 
+                    clientIP, request.email());
+            logger.info("Password reset request processed for email: {} from IP: {} (standard response for security)", request.email(), clientIP);
+            
+            // Record the password reset attempt after successful processing
+            recordRateLimitAttempt(clientIP, "password reset");
+            
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.warn("Password reset request failed for email: {} - {}", request.email(), e.getMessage());
+            logger.info("Security event: operation=password_reset_request, ip={}, email={}, success=false, reason={}", 
+                    clientIP, request.email(), e.getClass().getSimpleName());
+            logger.warn("Password reset request failed for email: {} from IP: {} - {}", request.email(), clientIP, e.getMessage());
+            
+            // Record the password reset attempt even on failure to prevent abuse
+            recordRateLimitAttempt(clientIP, "password reset");
+            
             throw e;
         }
     }
@@ -461,14 +606,35 @@ public class AuthController {
     @PostMapping("/reset-password")
     public ResponseEntity<ResetPasswordResponseDTO> resetPassword(
             @Parameter(description = "Reset password request data", required = true)
-            @Valid @RequestBody ResetPasswordRequestDTO request) {
-        log.info("Password reset attempt with token");
+            @Valid @RequestBody ResetPasswordRequestDTO request,
+            HttpServletRequest httpRequest) {
+        
+        // Extract client IP for rate limiting
+        String clientIP = IPAddressUtil.getClientIpAddress(httpRequest);
+        
+        logger.info("Password reset attempt with token from IP: {}", clientIP);
+        
+        // Check rate limit before proceeding
+        validateRateLimit(clientIP, "password reset completion",
+                () -> rateLimitingService.isPasswordResetAllowed(clientIP),
+                () -> rateLimitingService.getRemainingPasswordResetAttempts(clientIP),
+                () -> rateLimitingService.getPasswordResetRateLimitResetTime(clientIP),
+                ApplicationConstants.MAX_PASSWORD_RESET_ATTEMPTS);
+        
         try {
             ResetPasswordResponseDTO response = passwordResetService.resetPassword(request);
-            log.info("Successful password reset completed");
+            logger.info("Successful password reset completed from IP: {}", clientIP);
+            
+            // Record the password reset attempt after successful completion
+            recordRateLimitAttempt(clientIP, "password reset completion");
+            
             return ResponseEntity.ok(response);
         } catch (Exception e) {
-            log.warn("Password reset failed - {}", e.getMessage());
+            logger.warn("Password reset failed from IP: {} - {}", clientIP, e.getMessage());
+            
+            // Record the password reset attempt even on failure to prevent token brute force
+            recordRateLimitAttempt(clientIP, "password reset completion");
+            
             throw e;
         }
     }
@@ -520,21 +686,46 @@ public class AuthController {
     @PostMapping("/verify-email")
     public ResponseEntity<EmailVerificationResponseDTO> verifyEmail(
             @Parameter(description = "Email verification request data", required = true)
-            @Valid @RequestBody EmailVerificationRequestDTO request) {
-        log.info("Email verification attempt with token");
+            @Valid @RequestBody EmailVerificationRequestDTO request,
+            HttpServletRequest httpRequest) {
+        
+        // Extract client IP for rate limiting
+        String clientIP = IPAddressUtil.getClientIpAddress(httpRequest);
+        
+        logger.info("Email verification attempt with token from IP: {}", clientIP);
+        
+        // Check rate limit before proceeding
+        validateRateLimit(clientIP, "email verification",
+                () -> rateLimitingService.isEmailVerificationAllowed(clientIP),
+                () -> rateLimitingService.getRemainingEmailVerificationAttempts(clientIP),
+                () -> rateLimitingService.getEmailVerificationRateLimitResetTime(clientIP),
+                ApplicationConstants.MAX_EMAIL_VERIFICATION_ATTEMPTS);
+        
         try {
             var verifiedUser = emailVerificationService.verifyEmail(request.token());
             if (verifiedUser.isPresent()) {
                 User user = verifiedUser.get();
-                log.info("Email verification successful for user: {}", user.getUsername());
+                logger.info("Email verification successful for user: {} from IP: {}", user.getUsername(), clientIP);
+                
+                // Record the email verification attempt after successful verification
+                recordRateLimitAttempt(clientIP, "email verification");
+                
                 return ResponseEntity.ok(EmailVerificationResponseDTO.success(user.getUsername()));
             } else {
-                log.warn("Email verification failed - token invalid or already used");
+                logger.warn("Email verification failed from IP: {} - token invalid or already used", clientIP);
+                
+                // Record the email verification attempt even on failure to prevent token brute force
+                recordRateLimitAttempt(clientIP, "email verification");
+                
                 return ResponseEntity.badRequest()
                         .body(EmailVerificationResponseDTO.failure("Invalid or expired verification token"));
             }
         } catch (Exception e) {
-            log.warn("Email verification failed - {}", e.getMessage());
+            logger.warn("Email verification failed from IP: {} - {}", clientIP, e.getMessage());
+            
+            // Record the email verification attempt even on exception to prevent token brute force
+            recordRateLimitAttempt(clientIP, "email verification");
+            
             throw e;
         }
     }
@@ -585,25 +776,46 @@ public class AuthController {
     @PostMapping("/resend-verification")
     public ResponseEntity<ResendVerificationResponseDTO> resendVerification(
             @Parameter(description = "Resend verification request data", required = true)
-            @Valid @RequestBody ResendVerificationRequestDTO request) {
-        log.info("Resend verification email request for: {}", request.email());
+            @Valid @RequestBody ResendVerificationRequestDTO request,
+            HttpServletRequest httpRequest) {
+        
+        // Extract client IP for rate limiting
+        String clientIP = IPAddressUtil.getClientIpAddress(httpRequest);
+        
+        logger.info("Resend verification email request for: {} from IP: {}", request.email(), clientIP);
+        
+        // Check rate limit before proceeding
+        validateRateLimit(clientIP, "email verification resend",
+                () -> rateLimitingService.isEmailVerificationAllowed(clientIP),
+                () -> rateLimitingService.getRemainingEmailVerificationAttempts(clientIP),
+                () -> rateLimitingService.getEmailVerificationRateLimitResetTime(clientIP),
+                ApplicationConstants.MAX_EMAIL_VERIFICATION_ATTEMPTS);
+        
         try {
             var userOptional = userBO.getUserByEmail(request.email());
             if (userOptional.isPresent()) {
                 User user = userOptional.get();
                 boolean resent = emailVerificationService.resendVerificationEmail(user);
                 if (resent) {
-                    log.info("Verification email resent for user: {}", user.getUsername());
+                    logger.info("Verification email resent for user: {} from IP: {}", user.getUsername(), clientIP);
                 } else {
-                    log.info("Email already verified for user: {}", user.getUsername());
+                    logger.info("Email already verified for user: {} from IP: {}", user.getUsername(), clientIP);
                 }
             } else {
-                log.info("No user found with email: {} (standard response for security)", request.email());
+                logger.info("No user found with email: {} from IP: {} (standard response for security)", request.email(), clientIP);
             }
+            
+            // Record the email verification attempt after processing
+            recordRateLimitAttempt(clientIP, "email verification resend");
+            
             // Always return the same response for security (anti-enumeration)
             return ResponseEntity.ok(ResendVerificationResponseDTO.standard());
         } catch (Exception e) {
-            log.warn("Resend verification email failed for: {} - {}", request.email(), e.getMessage());
+            logger.warn("Resend verification email failed for: {} from IP: {} - {}", request.email(), clientIP, e.getMessage());
+            
+            // Record the email verification attempt even on failure to prevent abuse
+            recordRateLimitAttempt(clientIP, "email verification resend");
+            
             // Still return standard response even on error to prevent enumeration
             return ResponseEntity.ok(ResendVerificationResponseDTO.standard());
         }

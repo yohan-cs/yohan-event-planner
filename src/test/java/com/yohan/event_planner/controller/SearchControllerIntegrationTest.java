@@ -624,4 +624,102 @@ public class SearchControllerIntegrationTest {
         }
 
     }
+
+    @Nested
+    class ParameterValidationTests {
+
+        @Test
+        void testSearchEvents_NegativePageNumber() throws Exception {
+            // Act & Assert - Negative page number should return bad request
+            mockMvc.perform(get("/search/events")
+                            .header("Authorization", "Bearer " + jwt)
+                            .param("timeFilter", "ALL")
+                            .param("pageNumber", "-1")
+                            .param("pageSize", "10"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testSearchEvents_ZeroPageSize() throws Exception {
+            // Act & Assert - Zero page size should return bad request
+            mockMvc.perform(get("/search/events")
+                            .header("Authorization", "Bearer " + jwt)
+                            .param("timeFilter", "ALL")
+                            .param("pageNumber", "0")
+                            .param("pageSize", "0"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testSearchEvents_ExcessivePageSize() throws Exception {
+            // Act & Assert - Page size > 100 should return bad request
+            mockMvc.perform(get("/search/events")
+                            .header("Authorization", "Bearer " + jwt)
+                            .param("timeFilter", "ALL")
+                            .param("pageNumber", "0")
+                            .param("pageSize", "101"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testSearchEvents_MaxAllowedPageSize() throws Exception {
+            // Arrange
+            testDataHelper.createAndPersistCompletedEvent(user);
+
+            // Act & Assert - Page size = 100 should be allowed
+            mockMvc.perform(get("/search/events")
+                            .header("Authorization", "Bearer " + jwt)
+                            .param("timeFilter", "ALL")
+                            .param("pageNumber", "0")
+                            .param("pageSize", "100"))
+                    .andExpect(status().isOk());
+        }
+
+        @Test
+        void testSearchRecurringEvents_NegativePageNumber() throws Exception {
+            // Act & Assert - Negative page number should return bad request
+            mockMvc.perform(get("/search/recurringevents")
+                            .header("Authorization", "Bearer " + jwt)
+                            .param("timeFilter", "ALL")
+                            .param("pageNumber", "-1")
+                            .param("pageSize", "10"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testSearchRecurringEvents_ZeroPageSize() throws Exception {
+            // Act & Assert - Zero page size should return bad request
+            mockMvc.perform(get("/search/recurringevents")
+                            .header("Authorization", "Bearer " + jwt)
+                            .param("timeFilter", "ALL")
+                            .param("pageNumber", "0")
+                            .param("pageSize", "0"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testSearchRecurringEvents_ExcessivePageSize() throws Exception {
+            // Act & Assert - Page size > 100 should return bad request
+            mockMvc.perform(get("/search/recurringevents")
+                            .header("Authorization", "Bearer " + jwt)
+                            .param("timeFilter", "ALL")
+                            .param("pageNumber", "0")
+                            .param("pageSize", "101"))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testSearchRecurringEvents_MaxAllowedPageSize() throws Exception {
+            // Arrange
+            testDataHelper.createAndPersistConfirmedRecurringEvent(user);
+
+            // Act & Assert - Page size = 100 should be allowed
+            mockMvc.perform(get("/search/recurringevents")
+                            .header("Authorization", "Bearer " + jwt)
+                            .param("timeFilter", "ALL")
+                            .param("pageNumber", "0")
+                            .param("pageSize", "100"))
+                    .andExpect(status().isOk());
+        }
+    }
 }

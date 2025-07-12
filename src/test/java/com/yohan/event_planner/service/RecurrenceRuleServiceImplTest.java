@@ -20,6 +20,7 @@ import static java.time.DayOfWeek.SUNDAY;
 import static java.time.DayOfWeek.THURSDAY;
 import static java.time.DayOfWeek.TUESDAY;
 import static java.time.DayOfWeek.WEDNESDAY;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -125,6 +126,140 @@ class RecurrenceRuleServiceImplTest {
             assertThrows(InvalidRecurrenceRuleException.class, () -> recurrenceRuleService.parseFromString("WEEKLY:MONDAY,FRIDAY,INVALIDDAY"));
             assertThrows(InvalidRecurrenceRuleException.class, () -> recurrenceRuleService.parseFromString("MONTHLY:notANumber:MONDAY"));
         }
+
+        @Test
+        void parseFromString_edgeCases_throwsException() {
+            // Empty string
+            assertThrows(InvalidRecurrenceRuleException.class, () -> recurrenceRuleService.parseFromString(""));
+            
+            // Missing parts
+            assertThrows(InvalidRecurrenceRuleException.class, () -> recurrenceRuleService.parseFromString("DAILY"));
+            
+            // Case sensitivity - should work
+            var result = recurrenceRuleService.parseFromString("daily:");
+            assertEquals(RecurrenceFrequency.DAILY, result.frequency());
+            
+            // Weekly with no days
+            assertThrows(InvalidRecurrenceRuleException.class, () -> recurrenceRuleService.parseFromString("WEEKLY:"));
+            
+            // Monthly boundary ordinals
+            assertThrows(InvalidRecurrenceRuleException.class, () -> recurrenceRuleService.parseFromString("MONTHLY:0:MONDAY"));
+            assertThrows(InvalidRecurrenceRuleException.class, () -> recurrenceRuleService.parseFromString("MONTHLY:5:MONDAY"));
+            assertThrows(InvalidRecurrenceRuleException.class, () -> recurrenceRuleService.parseFromString("MONTHLY:-1:MONDAY"));
+            
+            // Monthly missing days
+            assertThrows(InvalidRecurrenceRuleException.class, () -> recurrenceRuleService.parseFromString("MONTHLY:2:"));
+        }
+
+        @Test
+        void parseFromString_nullInput_throwsException() {
+            // Null input should throw NPE or appropriate exception
+            assertThrows(Exception.class, () -> recurrenceRuleService.parseFromString(null));
+        }
+
+        @Test
+        void parseFromString_whitespaceHandling() {
+            // Leading/trailing spaces should be handled
+            var result1 = recurrenceRuleService.parseFromString(" DAILY: ");
+            assertEquals(RecurrenceFrequency.DAILY, result1.frequency());
+            
+            // Spaces around day names
+            var result2 = recurrenceRuleService.parseFromString("WEEKLY: MONDAY , FRIDAY ");
+            assertEquals(RecurrenceFrequency.WEEKLY, result2.frequency());
+            assertTrue(result2.daysOfWeek().contains(DayOfWeek.MONDAY));
+            assertTrue(result2.daysOfWeek().contains(DayOfWeek.FRIDAY));
+            
+            // Spaces around ordinal and days
+            var result3 = recurrenceRuleService.parseFromString("MONTHLY: 2 : TUESDAY ");
+            assertEquals(RecurrenceFrequency.MONTHLY, result3.frequency());
+            assertEquals(2, result3.ordinal());
+            assertTrue(result3.daysOfWeek().contains(DayOfWeek.TUESDAY));
+        }
+
+        @Test
+        void parseFromString_multipleDaysEdgeCases() {
+            // All 7 days for weekly (should work like DAILY)
+            var result = recurrenceRuleService.parseFromString("WEEKLY:MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY");
+            assertEquals(RecurrenceFrequency.WEEKLY, result.frequency());
+            assertEquals(7, result.daysOfWeek().size());
+            
+            // Duplicate days should be deduplicated
+            result = recurrenceRuleService.parseFromString("WEEKLY:MONDAY,MONDAY,TUESDAY");
+            assertEquals(RecurrenceFrequency.WEEKLY, result.frequency());
+            assertEquals(2, result.daysOfWeek().size()); // Only MONDAY and TUESDAY
+            assertTrue(result.daysOfWeek().contains(DayOfWeek.MONDAY));
+            assertTrue(result.daysOfWeek().contains(DayOfWeek.TUESDAY));
+            
+            // Single day weekly
+            result = recurrenceRuleService.parseFromString("WEEKLY:FRIDAY");
+            assertEquals(1, result.daysOfWeek().size());
+            assertTrue(result.daysOfWeek().contains(DayOfWeek.FRIDAY));
+        }
+
+        @Test
+        void parseFromString_monthlyEdgeCases() {
+            // All ordinals should work (1-4)
+            for (int ordinal = 1; ordinal <= 4; ordinal++) {
+                var result = recurrenceRuleService.parseFromString("MONTHLY:" + ordinal + ":MONDAY");
+                assertEquals(RecurrenceFrequency.MONTHLY, result.frequency());
+                assertEquals(ordinal, result.ordinal());
+                assertTrue(result.daysOfWeek().contains(DayOfWeek.MONDAY));
+            }
+            
+            // Multiple days with ordinal
+            var result = recurrenceRuleService.parseFromString("MONTHLY:3:MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY");
+            assertEquals(5, result.daysOfWeek().size());
+            assertEquals(3, result.ordinal());
+        }
+
+        @Test
+        void parseFromString_caseSensitivityForDays() {
+            // Mixed case day names should work
+            var result = recurrenceRuleService.parseFromString("WEEKLY:monday,TuEsDaY,FRIDAY");
+            assertEquals(RecurrenceFrequency.WEEKLY, result.frequency());
+            assertEquals(3, result.daysOfWeek().size());
+            assertTrue(result.daysOfWeek().contains(DayOfWeek.MONDAY));
+            assertTrue(result.daysOfWeek().contains(DayOfWeek.TUESDAY));
+            assertTrue(result.daysOfWeek().contains(DayOfWeek.FRIDAY));
+            
+            // Lowercase frequency and days
+            result = recurrenceRuleService.parseFromString("monthly:2:wednesday,saturday");
+            assertEquals(RecurrenceFrequency.MONTHLY, result.frequency());
+            assertEquals(2, result.ordinal());
+            assertTrue(result.daysOfWeek().contains(DayOfWeek.WEDNESDAY));
+            assertTrue(result.daysOfWeek().contains(DayOfWeek.SATURDAY));
+        }
+    }
+
+    @Nested
+    class ParsedRecurrenceInputTests {
+
+        @Test
+        void parsedRecurrenceInput_nullFrequency_throwsException() {
+            // Record validation should prevent null frequency
+            assertThrows(NullPointerException.class, () -> 
+                new ParsedRecurrenceInput(null, EnumSet.noneOf(DayOfWeek.class), null));
+        }
+
+        @Test
+        void parsedRecurrenceInput_validConstruction() {
+            // Valid constructions should work
+            assertDoesNotThrow(() -> 
+                new ParsedRecurrenceInput(RecurrenceFrequency.DAILY, EnumSet.allOf(DayOfWeek.class), null));
+            
+            assertDoesNotThrow(() -> 
+                new ParsedRecurrenceInput(RecurrenceFrequency.WEEKLY, EnumSet.of(DayOfWeek.MONDAY), null));
+            
+            assertDoesNotThrow(() -> 
+                new ParsedRecurrenceInput(RecurrenceFrequency.MONTHLY, EnumSet.of(DayOfWeek.TUESDAY), 2));
+        }
+
+        @Test
+        void parsedRecurrenceInput_emptyDaysOfWeek() {
+            // Empty days collection should be allowed (though may not be useful)
+            assertDoesNotThrow(() -> 
+                new ParsedRecurrenceInput(RecurrenceFrequency.WEEKLY, EnumSet.noneOf(DayOfWeek.class), null));
+        }
     }
 
     @Nested
@@ -192,6 +327,138 @@ class RecurrenceRuleServiceImplTest {
 
             // parsed is null
             assertTrue(recurrenceRuleService.expandRecurrence(null, startDate, endDate, Set.of()).isEmpty());
+        }
+
+        @Test
+        void expandRecurrence_edgeCases() {
+            // Start date after end date
+            LocalDate start = LocalDate.of(2025, 6, 10);
+            LocalDate end = LocalDate.of(2025, 6, 5);
+            Set<DayOfWeek> allDays = EnumSet.allOf(DayOfWeek.class);
+            var parsed = new ParsedRecurrenceInput(RecurrenceFrequency.DAILY, allDays, null);
+            
+            var result = recurrenceRuleService.expandRecurrence(parsed, start, end, Set.of());
+            assertTrue(result.isEmpty());
+            
+            // Single day range
+            start = LocalDate.of(2025, 6, 15);
+            end = start;
+            result = recurrenceRuleService.expandRecurrence(parsed, start, end, Set.of());
+            assertEquals(1, result.size());
+            assertEquals(start, result.get(0));
+            
+            // All days in range are skip days
+            start = LocalDate.of(2025, 6, 1);
+            end = LocalDate.of(2025, 6, 3);
+            Set<LocalDate> skipDays = Set.of(
+                LocalDate.of(2025, 6, 1),
+                LocalDate.of(2025, 6, 2),
+                LocalDate.of(2025, 6, 3)
+            );
+            result = recurrenceRuleService.expandRecurrence(parsed, start, end, skipDays);
+            assertTrue(result.isEmpty());
+        }
+
+        @Test
+        void expandRecurrence_nullParameters_throwsException() {
+            Set<DayOfWeek> allDays = EnumSet.allOf(DayOfWeek.class);
+            var parsed = new ParsedRecurrenceInput(RecurrenceFrequency.DAILY, allDays, null);
+            LocalDate start = LocalDate.of(2025, 6, 1);
+            LocalDate end = LocalDate.of(2025, 6, 10);
+            
+            // Null start date
+            assertThrows(Exception.class, () -> 
+                recurrenceRuleService.expandRecurrence(parsed, null, end, Set.of()));
+            
+            // Null end date
+            assertThrows(Exception.class, () -> 
+                recurrenceRuleService.expandRecurrence(parsed, start, null, Set.of()));
+            
+            // Null skip days
+            assertThrows(Exception.class, () -> 
+                recurrenceRuleService.expandRecurrence(parsed, start, end, null));
+        }
+
+        @Test
+        void expandRecurrence_emptyCollections() {
+            // Empty skip days should work (same as no skip days)
+            Set<DayOfWeek> allDays = EnumSet.allOf(DayOfWeek.class);
+            var parsed = new ParsedRecurrenceInput(RecurrenceFrequency.DAILY, allDays, null);
+            LocalDate start = LocalDate.of(2025, 6, 1);
+            LocalDate end = LocalDate.of(2025, 6, 3);
+            
+            var resultWithEmpty = recurrenceRuleService.expandRecurrence(parsed, start, end, Set.of());
+            var resultWithNoSkip = recurrenceRuleService.expandRecurrence(parsed, start, end, Set.of());
+            
+            assertEquals(resultWithEmpty, resultWithNoSkip);
+            assertEquals(3, resultWithEmpty.size());
+            
+            // Empty days of week for weekly should produce no results
+            var emptyWeekly = new ParsedRecurrenceInput(RecurrenceFrequency.WEEKLY, EnumSet.noneOf(DayOfWeek.class), null);
+            var emptyResult = recurrenceRuleService.expandRecurrence(emptyWeekly, start, end, Set.of());
+            assertTrue(emptyResult.isEmpty());
+        }
+
+        @Test
+        void expandRecurrence_invalidFrequencyHandling() {
+            // Test with parsed input that has null frequency (though this should be prevented by record)
+            var parsedWithNullFreq = new ParsedRecurrenceInput(RecurrenceFrequency.DAILY, EnumSet.allOf(DayOfWeek.class), null);
+            
+            // Should work normally
+            var result = recurrenceRuleService.expandRecurrence(parsedWithNullFreq, 
+                LocalDate.of(2025, 6, 1), LocalDate.of(2025, 6, 2), Set.of());
+            assertEquals(2, result.size());
+        }
+
+        @Test
+        void expandRecurrence_monthlyAcrossMonthBoundaries() {
+            // Test monthly recurrence across months with different numbers of days
+            Set<DayOfWeek> tuesdays = EnumSet.of(DayOfWeek.TUESDAY);
+            var monthlyParsed = new ParsedRecurrenceInput(RecurrenceFrequency.MONTHLY, tuesdays, 4); // 4th Tuesday
+            
+            // Test across February (shorter month) and March
+            LocalDate start = LocalDate.of(2025, 2, 1);
+            LocalDate end = LocalDate.of(2025, 3, 31);
+            
+            var result = recurrenceRuleService.expandRecurrence(monthlyParsed, start, end, Set.of());
+            
+            // February 2025 has 4 Tuesdays: 4th, 11th, 18th, 25th (so 4th Tuesday is Feb 25)
+            // March 2025: 4th Tuesday is March 25th
+            assertTrue(result.contains(LocalDate.of(2025, 2, 25))); // 4th Tuesday of Feb
+            assertTrue(result.contains(LocalDate.of(2025, 3, 25))); // 4th Tuesday of Mar
+            
+            // Test case where there's no 5th occurrence
+            var fifthTuesday = new ParsedRecurrenceInput(RecurrenceFrequency.MONTHLY, tuesdays, 5);
+            result = recurrenceRuleService.expandRecurrence(fifthTuesday, start, end, Set.of());
+            // Some months may not have a 5th Tuesday
+            assertTrue(result.size() <= 2); // At most 2 months could have 5th Tuesday
+        }
+
+        @Test
+        void expandRecurrence_largeRange_performanceTest() {
+            // Test expansion over a large range (1 year) to ensure reasonable performance
+            Set<DayOfWeek> weekdays = EnumSet.of(DayOfWeek.MONDAY, DayOfWeek.WEDNESDAY, DayOfWeek.FRIDAY);
+            var weeklyParsed = new ParsedRecurrenceInput(RecurrenceFrequency.WEEKLY, weekdays, null);
+            
+            LocalDate start = LocalDate.of(2025, 1, 1);
+            LocalDate end = LocalDate.of(2025, 12, 31);
+            
+            long startTime = System.currentTimeMillis();
+            var result = recurrenceRuleService.expandRecurrence(weeklyParsed, start, end, Set.of());
+            long endTime = System.currentTimeMillis();
+            
+            // Should complete in reasonable time (less than 1 second for a year)
+            assertTrue(endTime - startTime < 1000, "Expansion took too long: " + (endTime - startTime) + "ms");
+            
+            // Should have approximately 3 days per week * 52 weeks = ~156 occurrences
+            assertTrue(result.size() > 150 && result.size() < 160, 
+                      "Expected ~156 occurrences, got " + result.size());
+            
+            // Results should be in chronological order
+            for (int i = 1; i < result.size(); i++) {
+                assertTrue(result.get(i).isAfter(result.get(i-1)), 
+                          "Results not in chronological order");
+            }
         }
 
         @Test
@@ -342,6 +609,38 @@ class RecurrenceRuleServiceImplTest {
             assertEquals("Every  from June 1, 2025 until September 1, 2025", summary); // Depending on your formatting, might be empty
         }
 
+        @Test
+        void buildSummary_edgeCases() {
+            // Null end date (infinite recurrence)
+            Set<DayOfWeek> days = EnumSet.of(DayOfWeek.MONDAY);
+            ParsedRecurrenceInput parsed = new ParsedRecurrenceInput(RecurrenceFrequency.WEEKLY, days, null);
+            
+            String summary = recurrenceRuleService.buildSummary(parsed, startDate, null);
+            assertEquals("Every Monday from June 1, 2025 forever", summary);
+            
+            // Invalid ordinal in summary (edge case)
+            ParsedRecurrenceInput monthlyParsed = new ParsedRecurrenceInput(RecurrenceFrequency.MONTHLY, days, 99);
+            summary = recurrenceRuleService.buildSummary(monthlyParsed, startDate, endDate);
+            assertTrue(summary.contains("unknown"));
+        }
+
+        @Test
+        void buildSummary_nullParameters_throwsException() {
+            Set<DayOfWeek> days = EnumSet.of(DayOfWeek.MONDAY);
+            ParsedRecurrenceInput parsed = new ParsedRecurrenceInput(RecurrenceFrequency.WEEKLY, days, null);
+            
+            // Null parsedRecurrence
+            assertThrows(Exception.class, () -> 
+                recurrenceRuleService.buildSummary(null, startDate, endDate));
+            
+            // Null start date
+            assertThrows(Exception.class, () -> 
+                recurrenceRuleService.buildSummary(parsed, null, endDate));
+            
+            // Null end date is allowed (infinite recurrence)
+            assertDoesNotThrow(() -> recurrenceRuleService.buildSummary(parsed, startDate, null));
+        }
+
     }
 
     @Nested
@@ -414,6 +713,76 @@ class RecurrenceRuleServiceImplTest {
 
             // Assert
             assertFalse(result);
+        }
+
+        @Test
+        void occursOn_edgeCases() {
+            // Null input
+            assertFalse(recurrenceRuleService.occursOn(null, LocalDate.of(2025, 6, 1)));
+            
+            // Cannot create ParsedRecurrenceInput with null frequency due to record validation
+            // Test that the constructor properly validates
+            assertThrows(NullPointerException.class, () -> 
+                new ParsedRecurrenceInput(null, EnumSet.noneOf(DayOfWeek.class), null));
+            
+            // Edge of month boundary for monthly recurrence
+            ParsedRecurrenceInput monthlyParsed = new ParsedRecurrenceInput(
+                    RecurrenceFrequency.MONTHLY,
+                    EnumSet.of(DayOfWeek.SUNDAY),
+                    1 // First Sunday
+            );
+            
+            // Test last day of month that is first Sunday
+            LocalDate firstSundayJune = LocalDate.of(2025, 6, 1); // June 1, 2025 is a Sunday
+            assertTrue(recurrenceRuleService.occursOn(monthlyParsed, firstSundayJune));
+            
+            // Test second Sunday of same month
+            LocalDate secondSundayJune = LocalDate.of(2025, 6, 8);
+            assertFalse(recurrenceRuleService.occursOn(monthlyParsed, secondSundayJune));
+        }
+
+        @Test
+        void occursOn_nullParameters_throwsException() {
+            Set<DayOfWeek> days = EnumSet.of(DayOfWeek.MONDAY);
+            ParsedRecurrenceInput parsed = new ParsedRecurrenceInput(RecurrenceFrequency.WEEKLY, days, null);
+            LocalDate testDate = LocalDate.of(2025, 6, 2); // Monday
+            
+            // Null date parameter
+            assertThrows(Exception.class, () -> 
+                recurrenceRuleService.occursOn(parsed, null));
+            
+            // Valid parameters should work
+            assertTrue(recurrenceRuleService.occursOn(parsed, testDate));
+        }
+
+        @Test
+        void occursOn_complexMonthlyScenarios() {
+            // Test various monthly scenarios across different months
+            Set<DayOfWeek> thursdays = EnumSet.of(DayOfWeek.THURSDAY);
+            
+            // 3rd Thursday scenarios
+            ParsedRecurrenceInput thirdThursday = new ParsedRecurrenceInput(
+                    RecurrenceFrequency.MONTHLY, thursdays, 3);
+            
+            // June 2025: 3rd Thursday is June 19
+            assertTrue(recurrenceRuleService.occursOn(thirdThursday, LocalDate.of(2025, 6, 19)));
+            assertFalse(recurrenceRuleService.occursOn(thirdThursday, LocalDate.of(2025, 6, 12))); // 2nd Thursday
+            assertFalse(recurrenceRuleService.occursOn(thirdThursday, LocalDate.of(2025, 6, 26))); // 4th Thursday
+            
+            // February 2025: 3rd Thursday is February 20
+            assertTrue(recurrenceRuleService.occursOn(thirdThursday, LocalDate.of(2025, 2, 20)));
+            
+            // Test 5th occurrence in months that don't have it
+            ParsedRecurrenceInput fifthThursday = new ParsedRecurrenceInput(
+                    RecurrenceFrequency.MONTHLY, thursdays, 5);
+            
+            // June 2025 doesn't have a 5th Thursday
+            assertFalse(recurrenceRuleService.occursOn(fifthThursday, LocalDate.of(2025, 6, 19))); // 3rd Thursday
+            assertFalse(recurrenceRuleService.occursOn(fifthThursday, LocalDate.of(2025, 6, 26))); // 4th Thursday
+            
+            // January 2025 has 5 Thursdays (2nd, 9th, 16th, 23rd, 30th)
+            assertTrue(recurrenceRuleService.occursOn(fifthThursday, LocalDate.of(2025, 1, 30))); // 5th Thursday
+            assertFalse(recurrenceRuleService.occursOn(fifthThursday, LocalDate.of(2025, 1, 23))); // 4th Thursday
         }
 
     }

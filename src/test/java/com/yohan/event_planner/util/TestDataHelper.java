@@ -83,6 +83,12 @@ public class TestDataHelper {
         return labelRepository.saveAndFlush(label);
     }
 
+    // Helper method to create and persist a label with exact name (for testing duplicate validation)
+    public Label createAndPersistLabelWithExactName(User user, String name) {
+        var label = TestUtils.createValidLabel(user, name);
+        return labelRepository.saveAndFlush(label);
+    }
+
     // Helper method to create and persist a badge
     public Badge createAndPersistBadge(User user, String name) {
         var badge = TestUtils.createEmptyBadge(user, name);
@@ -95,6 +101,7 @@ public class TestDataHelper {
         var event = TestUtils.createValidScheduledEvent(user, clock);
         event.setName(name);
         event.setLabel(label);
+        event.setUnconfirmed(false);
         return eventRepository.saveAndFlush(event);
     }
 
@@ -120,6 +127,7 @@ public class TestDataHelper {
         var recurringEvent = TestUtils.createValidRecurringEvent(user, clock);
         recurringEvent.setName(name);
         recurringEvent.setLabel(label);
+        recurringEvent.setUnconfirmed(false);
         return recurringEventRepository.saveAndFlush(recurringEvent);
     }
 

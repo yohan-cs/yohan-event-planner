@@ -54,6 +54,22 @@ import org.slf4j.LoggerFactory;
 public class IPAddressUtil {
 
     private static final Logger logger = LoggerFactory.getLogger(IPAddressUtil.class);
+    
+    /** Headers to check in order of preference for IP extraction */
+    private static final String[] HEADER_NAMES = {
+        "CF-Connecting-IP",     // Cloudflare
+        "X-Real-IP",           // Nginx and other reverse proxies
+        "X-Forwarded-For",     // Standard forwarded header
+        "X-Forwarded",         // Alternative forwarded header
+        "Forwarded-For",       // Less common
+        "Forwarded"           // RFC 7239
+    };
+    
+    /** Fallback IP address when no valid IP can be determined */
+    private static final String FALLBACK_IP = "0.0.0.0";
+    
+    /** Placeholder value commonly used by misconfigured proxies */
+    private static final String UNKNOWN_IP = "unknown";
 
     /** Private constructor to prevent instantiation */
     private IPAddressUtil() {
@@ -105,17 +121,9 @@ public class IPAddressUtil {
      * @return the client IP address, never null or empty
      */
     public static String getClientIpAddress(HttpServletRequest request) {
-        // Headers to check in order of preference
-        String[] headerNames = {
-            "CF-Connecting-IP",     // Cloudflare
-            "X-Real-IP",           // Nginx and other reverse proxies
-            "X-Forwarded-For",     // Standard forwarded header
-            "X-Forwarded",         // Alternative forwarded header
-            "Forwarded-For",       // Less common
-            "Forwarded"           // RFC 7239
-        };
+        logger.debug("Extracting client IP from HTTP request");
 
-        for (String headerName : headerNames) {
+        for (String headerName : HEADER_NAMES) {
             String ip = extractValidIpFromHeader(request, headerName);
             if (ip != null) {
                 logger.debug("Client IP extracted from header '{}': {}", headerName, ip);
@@ -131,21 +139,27 @@ public class IPAddressUtil {
         }
 
         // Ultimate fallback - should never happen in normal circumstances
-        logger.warn("Unable to determine client IP address, using fallback: 0.0.0.0");
-        return "0.0.0.0";
+        logger.warn("Unable to determine client IP address from any header or remote address, using fallback: {}. Request from: {}", FALLBACK_IP, request.getRemoteAddr());
+        return FALLBACK_IP;
     }
 
     /**
      * Extracts a valid IP address from the specified header.
      *
-     * @param request the HTTP request
-     * @param headerName the header name to check
+     * <p>
+     * This method handles header value parsing and validation, including comma-separated
+     * lists commonly found in X-Forwarded-For headers. It filters out invalid values
+     * and "unknown" placeholder strings commonly inserted by misconfigured proxies.
+     * </p>
+     *
+     * @param request the HTTP request containing headers
+     * @param headerName the name of the header to extract IP from
      * @return a valid IP address from the header, or null if none found
      */
     private static String extractValidIpFromHeader(HttpServletRequest request, String headerName) {
         String headerValue = request.getHeader(headerName);
         
-        if (headerValue == null || headerValue.trim().isEmpty() || "unknown".equalsIgnoreCase(headerValue.trim())) {
+        if (headerValue == null || headerValue.trim().isEmpty() || UNKNOWN_IP.equalsIgnoreCase(headerValue.trim())) {
             return null;
         }
 
@@ -155,6 +169,8 @@ public class IPAddressUtil {
             ip = ip.trim();
             if (isValidIpAddress(ip)) {
                 return ip;
+            } else {
+                logger.debug("Skipping invalid IP format in header '{}': {}", headerName, ip);
             }
         }
 
@@ -180,7 +196,7 @@ public class IPAddressUtil {
         ip = ip.trim();
 
         // Check for common placeholder values
-        if ("unknown".equalsIgnoreCase(ip) || "0.0.0.0".equals(ip)) {
+        if (UNKNOWN_IP.equalsIgnoreCase(ip) || FALLBACK_IP.equals(ip)) {
             return false;
         }
 
@@ -198,10 +214,16 @@ public class IPAddressUtil {
     }
 
     /**
-     * Validates IPv4 address format.
+     * Validates IPv4 address format using strict parsing rules.
      *
-     * @param ip the IP address to validate
-     * @return true if valid IPv4, false otherwise
+     * <p>
+     * Performs comprehensive IPv4 validation by checking octet count, numeric format,
+     * and value ranges (0-255). This validation is more strict than simple regex
+     * matching to ensure only legitimate IPv4 addresses are accepted.
+     * </p>
+     *
+     * @param ip the IP address string to validate as IPv4
+     * @return true if the string represents a valid IPv4 address, false otherwise
      */
     private static boolean isValidIPv4(String ip) {
         String[] parts = ip.split("\\.");
@@ -223,13 +245,27 @@ public class IPAddressUtil {
     }
 
     /**
-     * Validates IPv6 address format (basic check).
+     * Validates IPv6 address format using basic pattern matching.
      *
-     * @param ip the IP address to validate
-     * @return true if valid IPv6, false otherwise
+     * <p>
+     * Performs basic IPv6 validation by checking for colons and hexadecimal characters.
+     * This is a simplified validation suitable for general IP extraction purposes,
+     * not comprehensive IPv6 RFC compliance checking.
+     * </p>
+     *
+     * @param ip the IP address string to validate as IPv6
+     * @return true if the string appears to be a valid IPv6 address, false otherwise
      */
     private static boolean isValidIPv6(String ip) {
         // Basic IPv6 validation - contains colons and hex characters
-        return ip.contains(":") && ip.matches("[0-9a-fA-F:]+");
+        if (!ip.contains(":")) {
+            return false;
+        }
+        
+        // Handle common IPv6 formats including compressed notation
+        return ip.matches("^([0-9a-fA-F]{0,4}:){1,7}[0-9a-fA-F]{0,4}$") ||
+               ip.matches("^::1$") || // loopback
+               ip.matches("^::[0-9a-fA-F]{1,4}$") || // compressed
+               ip.matches("^[0-9a-fA-F]{1,4}::$"); // compressed trailing
     }
 }

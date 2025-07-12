@@ -38,8 +38,8 @@ public record UserCreateDTO(
 
         /** Desired username for the new account. Must be 3–30 characters. */
         @Pattern(
-                regexp = "^[a-z0-9]+(?:[._][a-z0-9]+)*$",
-                message = "Username must be lowercase and may contain letters, numbers, periods, or underscores, without leading, trailing, or consecutive special characters"
+                regexp = "^[a-zA-Z0-9]+(?:[._][a-zA-Z0-9]+)*$",
+                message = "Username may contain letters, numbers, periods, or underscores, without leading, trailing, or consecutive special characters"
         )
         @NotBlank(message = "Username is required")
         @Size(min = ApplicationConstants.USERNAME_MIN_LENGTH, max = ApplicationConstants.USERNAME_MAX_LENGTH)

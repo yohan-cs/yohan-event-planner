@@ -1,6 +1,7 @@
 package com.yohan.event_planner.exception;
 
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -11,6 +12,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.stream.Collectors;
 
@@ -85,9 +89,9 @@ public class GlobalExceptionHandler {
      * including subclasses like {@link EventNotFoundException} or {@link UserNotFoundException}.
      */
     @ExceptionHandler(ResourceNotFoundException.class)
-    public ResponseEntity<ErrorResponse> handleResourceNotFoundException(ResourceNotFoundException ex) {
+    public ResponseEntity<ErrorResponse> handleResourceNotFoundException(ResourceNotFoundException ex, HttpServletRequest request) {
         logger.warn("ResourceNotFoundException [{}]: {}", (ex instanceof HasErrorCode h ? h.getErrorCode() : "NONE"), ex.getMessage());
-        return buildErrorResponse(HttpStatus.NOT_FOUND, ex);
+        return buildErrorResponse(HttpStatus.NOT_FOUND, ex, request);
     }
 
     /**
@@ -130,6 +134,36 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles {@link BadgeOwnershipException} which occurs when a user
+     * attempts to access or modify a badge they do not own.
+     */
+    @ExceptionHandler(BadgeOwnershipException.class)
+    public ResponseEntity<ErrorResponse> handleBadgeOwnershipException(BadgeOwnershipException ex, HttpServletRequest request) {
+        logger.warn("BadgeOwnershipException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ex, request);
+    }
+
+    /**
+     * Handles {@link LabelOwnershipException} which occurs when a user
+     * attempts to access or modify a label they do not own.
+     */
+    @ExceptionHandler(LabelOwnershipException.class)
+    public ResponseEntity<ErrorResponse> handleLabelOwnershipException(LabelOwnershipException ex, HttpServletRequest request) {
+        logger.warn("LabelOwnershipException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.FORBIDDEN, ex, request);
+    }
+
+    /**
+     * Handles {@link InvalidLabelAssociationException} which occurs when invalid
+     * label IDs are provided in request body for badge or other entity associations.
+     */
+    @ExceptionHandler(InvalidLabelAssociationException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidLabelAssociationException(InvalidLabelAssociationException ex, HttpServletRequest request) {
+        logger.warn("InvalidLabelAssociationException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex, request);
+    }
+
+    /**
      * Handles all password-related exceptions such as weakness or invalid format.
      */
     @ExceptionHandler(PasswordException.class)
@@ -138,6 +172,7 @@ public class GlobalExceptionHandler {
         HttpStatus status = switch (ex.getErrorCode()) {
             case WEAK_PASSWORD, INVALID_PASSWORD_LENGTH -> HttpStatus.BAD_REQUEST;
             case INVALID_RESET_TOKEN, EXPIRED_RESET_TOKEN, USED_RESET_TOKEN -> HttpStatus.UNAUTHORIZED;
+            case DUPLICATE_PASSWORD -> HttpStatus.CONFLICT;
             default -> HttpStatus.BAD_REQUEST;
         };
         return buildErrorResponse(status, ex);
@@ -164,7 +199,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleLabelException(LabelException ex) {
         logger.warn("LabelException [{}]: {}", ex.getErrorCode(), ex.getMessage());
         HttpStatus status = switch (ex.getErrorCode()) {
-            case DUPLICATE_LABEL -> HttpStatus.CONFLICT;
+            case DUPLICATE_LABEL -> HttpStatus.BAD_REQUEST;
             default -> HttpStatus.BAD_REQUEST;
         };
         return buildErrorResponse(status, ex);
@@ -175,12 +210,26 @@ public class GlobalExceptionHandler {
      * aggregating all field error messages into a single, semicolon-separated string.
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationExceptions(MethodArgumentNotValidException ex) {
+    public ResponseEntity<ErrorResponse> handleValidationExceptions(MethodArgumentNotValidException ex, HttpServletRequest request) {
         String errorMessages = ex.getBindingResult().getFieldErrors().stream()
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining("; "));
         logger.warn("Validation failed: {}", errorMessages);
-        return buildErrorResponse(HttpStatus.BAD_REQUEST, errorMessages, null);
+        String path = request != null ? request.getRequestURI() : null;
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, errorMessages, null, path);
+    }
+
+    /**
+     * Handles constraint violations from method parameter validation annotations
+     * like {@code @Min}, {@code @Max}, {@code @NotNull}, etc.
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponse> handleConstraintViolationException(ConstraintViolationException ex) {
+        String errorMessages = ex.getConstraintViolations().stream()
+                .map(violation -> violation.getMessage())
+                .collect(Collectors.joining("; "));
+        logger.warn("Parameter validation failed: {}", errorMessages);
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, errorMessages, "VALIDATION_ERROR");
     }
 
     /**
@@ -215,7 +264,8 @@ public class GlobalExceptionHandler {
                 HttpStatus.TOO_MANY_REQUESTS.value(), 
                 ex.getMessage(), 
                 ErrorCode.RATE_LIMIT_EXCEEDED.name(),
-                System.currentTimeMillis()
+                System.currentTimeMillis(),
+                null
         );
         
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
@@ -260,6 +310,29 @@ public class GlobalExceptionHandler {
 
         logger.warn("MethodArgumentTypeMismatchException [{}]: {}", errorCode, message);
         return buildErrorResponse(HttpStatus.BAD_REQUEST, message, errorCode);
+    }
+
+    /**
+     * Handles {@link HttpMessageNotReadableException}, which occurs when the HTTP request body
+     * cannot be read or parsed, typically due to malformed JSON or invalid date formats.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleHttpMessageNotReadableException(HttpMessageNotReadableException ex) {
+        String message = "Malformed JSON request or invalid data format";
+        String errorCode = "INVALID_REQUEST_BODY";
+
+        logger.warn("HttpMessageNotReadableException: {}", ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, message, errorCode);
+    }
+
+    /**
+     * Handles {@link InvalidCalendarParameterException}, which occurs when calendar-related parameters
+     * are invalid, such as month values outside the range 1-12.
+     */
+    @ExceptionHandler(InvalidCalendarParameterException.class)
+    public ResponseEntity<ErrorResponse> handleInvalidCalendarParameterException(InvalidCalendarParameterException ex) {
+        logger.warn("InvalidCalendarParameterException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, ex);
     }
 
     /**
@@ -362,6 +435,62 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, ex);
     }
 
+    /**
+     * Handles {@link EventRecapException}, thrown when there are business rule violations
+     * related to event recap operations, such as trying to create a duplicate recap.
+     */
+    @ExceptionHandler(EventRecapException.class)
+    public ResponseEntity<ErrorResponse> handleEventRecapException(EventRecapException ex) {
+        logger.warn("EventRecapException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.CONFLICT, ex);
+    }
+
+    /**
+     * Handles {@link EventRecapAlreadyConfirmedException}, thrown when attempting
+     * to confirm an event recap that is already confirmed.
+     */
+    @ExceptionHandler(EventRecapAlreadyConfirmedException.class)
+    public ResponseEntity<ErrorResponse> handleEventRecapAlreadyConfirmedException(EventRecapAlreadyConfirmedException ex) {
+        logger.warn("EventRecapAlreadyConfirmedException [{}]: {}", ex.getErrorCode(), ex.getMessage());
+        return buildErrorResponse(HttpStatus.CONFLICT, ex);
+    }
+
+    /**
+     * Handles {@link HttpRequestMethodNotSupportedException}, which occurs when
+     * the HTTP method is not supported for the requested endpoint.
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleHttpRequestMethodNotSupportedException(HttpRequestMethodNotSupportedException ex, HttpServletRequest request) {
+        String message = "HTTP method '" + ex.getMethod() + "' is not supported for this endpoint. Supported methods: " + ex.getSupportedHttpMethods();
+        logger.warn("HttpRequestMethodNotSupportedException: {} for {} {}", 
+                   ex.getMessage(), ex.getMethod(), request.getRequestURI());
+        String path = request != null ? request.getRequestURI() : null;
+        return buildErrorResponse(HttpStatus.METHOD_NOT_ALLOWED, message, "METHOD_NOT_ALLOWED", path);
+    }
+
+    /**
+     * Handles {@link org.springframework.web.HttpMediaTypeNotSupportedException}, which occurs when
+     * the content type of the request is not supported by the handler method.
+     */
+    @ExceptionHandler(org.springframework.web.HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleHttpMediaTypeNotSupportedException(org.springframework.web.HttpMediaTypeNotSupportedException ex, HttpServletRequest request) {
+        String contentType = ex.getContentType() != null ? ex.getContentType().toString() : "none";
+        String requestMethod = request.getMethod();
+        String requestPath = request.getRequestURI();
+        
+        logger.warn("HttpMediaTypeNotSupportedException: {} for content type: {} on {} {}", 
+                   ex.getMessage(), contentType, requestMethod, requestPath);
+        
+        // Only handle this as 415 for POST/PUT/PATCH requests that actually need content
+        if ("POST".equalsIgnoreCase(requestMethod) || "PUT".equalsIgnoreCase(requestMethod) || "PATCH".equalsIgnoreCase(requestMethod)) {
+            String message = "Unsupported media type: " + contentType + ". Supported types: " + ex.getSupportedMediaTypes();
+            return buildErrorResponse(HttpStatus.UNSUPPORTED_MEDIA_TYPE, message, "UNSUPPORTED_MEDIA_TYPE", requestPath);
+        }
+        
+        // For other cases, let the generic handler deal with it
+        logger.warn("Unexpected HttpMediaTypeNotSupportedException for {} {}, delegating to generic handler", requestMethod, requestPath);
+        return handleGenericException(ex);
+    }
 
     /**
      * Catch-all handler for any unexpected, unhandled exceptions.
@@ -383,10 +512,20 @@ public class GlobalExceptionHandler {
         return buildErrorResponse(status, message, errorCode);
     }
 
+    private ResponseEntity<ErrorResponse> buildErrorResponse(HttpStatus status, Exception ex, HttpServletRequest request) {
+        String message = ex.getMessage();
+        String errorCode = (ex instanceof HasErrorCode codeEx) ? codeEx.getErrorCode().name() : null;
+        String path = request != null ? request.getRequestURI() : null;
+        return buildErrorResponse(status, message, errorCode, path);
+    }
 
     private ResponseEntity<ErrorResponse> buildErrorResponse(HttpStatus status, String message, String errorCode) {
+        return buildErrorResponse(status, message, errorCode, null);
+    }
+
+    private ResponseEntity<ErrorResponse> buildErrorResponse(HttpStatus status, String message, String errorCode, String path) {
         return new ResponseEntity<>(
-                new ErrorResponse(status.value(), message, errorCode, System.currentTimeMillis()),
+                new ErrorResponse(status.value(), message, errorCode, System.currentTimeMillis(), path),
                 status
         );
     }

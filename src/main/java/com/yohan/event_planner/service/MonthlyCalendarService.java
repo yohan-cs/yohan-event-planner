@@ -1,6 +1,5 @@
 package com.yohan.event_planner.service;
 
-import com.yohan.event_planner.dto.DayViewDTO;
 import com.yohan.event_planner.dto.LabelMonthStatsDTO;
 
 import java.time.LocalDate;
@@ -64,7 +63,7 @@ public interface MonthlyCalendarService {
      * @param month The month to fetch stats for.
      * @return A DTO containing the stats for the label in the specified month.
      */
-    LabelMonthStatsDTO getMonthlyBucketStats(Long labelId, int year, int month);
+    LabelMonthStatsDTO getMonthlyBucketStats(Long labelId, Integer year, Integer month);
 
     /**
      * Retrieves the dates for the selected label in a given month where the user has events.
@@ -74,8 +73,42 @@ public interface MonthlyCalendarService {
      * @param month The month to fetch the event dates for.
      * @return A list of LocalDate objects in the month where the user has events with the selected label.
      */
-    List<LocalDate> getDatesByLabel(Long labelId, int year, int month);
+    List<LocalDate> getDatesByLabel(Long labelId, Integer year, Integer month);
 
+    /**
+     * Retrieves all dates in a given month where the authenticated user has any events.
+     * 
+     * <p>This method combines dates from both regular scheduled events and recurring events
+     * to provide a comprehensive view of all dates with user activity in the specified month.
+     * It handles timezone conversion to ensure accurate date boundaries and supports both
+     * confirmed scheduled events and expanded recurring event occurrences.</p>
+     * 
+     * <h3>Event Sources</h3>
+     * <ul>
+     *   <li><strong>Scheduled Events</strong>: Confirmed one-time and modified events</li>
+     *   <li><strong>Recurring Events</strong>: Expanded occurrences from recurrence patterns</li>
+     * </ul>
+     * 
+     * <h3>Date Handling</h3>
+     * <ul>
+     *   <li><strong>Multi-day Events</strong>: Includes all dates from start to end (inclusive)</li>
+     *   <li><strong>Timezone Conversion</strong>: Converts UTC event times to user's timezone for accurate date extraction</li>
+     *   <li><strong>Month Boundaries</strong>: Respects calendar month boundaries in user's timezone</li>
+     *   <li><strong>Deduplication</strong>: Returns unique dates in chronological order</li>
+     * </ul>
+     * 
+     * <h3>Default Behavior</h3>
+     * <p>When year or month parameters are null, defaults to the current year/month
+     * in the authenticated user's timezone.</p>
+     * 
+     * @param year The year for the selected month (null defaults to current year)
+     * @param month The month to fetch event dates for (null defaults to current month)
+     * @return A list of LocalDate objects representing all dates in the month where the user has events,
+     *         sorted in chronological order with duplicates removed
+     * @throws InvalidCalendarParameterException if month is not between 1 and 12
+     * @see #getDatesByLabel(Long, Integer, Integer)
+     * @see RecurringEventBO#getConfirmedRecurringEventsForUserInRange(Long, LocalDate, LocalDate)
+     */
     List<LocalDate> getDatesWithEventsByMonth(Integer year, Integer month);
 
 }

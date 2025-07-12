@@ -102,12 +102,20 @@ public class RecurringEventBOImpl implements RecurringEventBO {
 
     /**
      * {@inheritDoc}
+     * 
+     * <p><strong>Implementation Details:</strong>
+     * Delegates to repository layer with exact parameter mapping to ensure correct date range queries.
+     * Critical: Parameter order must match repository method signature exactly.</p>
+     * 
+     * @param userId the ID of the user whose confirmed recurring events to retrieve
+     * @param fromDate the start date of the range (inclusive) - passed as fromDate to repository
+     * @param toDate the end date of the range (inclusive) - passed as toDate to repository
      */
     @Override
     public List<RecurringEvent> getConfirmedRecurringEventsForUserInRange(Long userId, LocalDate fromDate, LocalDate toDate) {
         logger.debug("Fetching confirmed recurring events for user ID {} in range {} to {}", userId, fromDate, toDate);
         return recurringEventRepository.findConfirmedRecurringEventsForUserBetween(
-                userId, toDate, fromDate
+                userId, fromDate, toDate
         );
     }
 
@@ -142,6 +150,14 @@ public class RecurringEventBOImpl implements RecurringEventBO {
 
     /**
      * {@inheritDoc}
+     * 
+     * <p><strong>Implementation Details:</strong>
+     * Delegates to repository layer with exact parameter mapping to ensure correct date range queries.
+     * Critical: Parameter order must match repository method signature exactly.</p>
+     * 
+     * @param userId the ID of the user whose unconfirmed recurring events to retrieve
+     * @param fromDate the start date of the range (inclusive) - passed as fromDate to repository
+     * @param toDate the end date of the range (inclusive) - passed as toDate to repository
      */
     @Override
     public List<RecurringEvent> getUnconfirmedRecurringEventsForUserInRange(Long userId, LocalDate fromDate, LocalDate toDate) {
@@ -376,11 +392,20 @@ public class RecurringEventBOImpl implements RecurringEventBO {
             LocalDate startDate,
             LocalDate endDate
     ) {
-        if (!startTime.isBefore(endTime)) {
+        // For time validation, we need to consider the date span:
+        // 1. Same date: startTime must be before endTime (no midnight crossing on same day)
+        // 2. Different dates: allow any time combination (including midnight crossing)
+        // 3. Same start/end time is valid if spanning multiple days (24h+ events)
+        
+        boolean sameDate = (endDate == null || startDate.equals(endDate));
+        
+        if (sameDate && !startTime.isBefore(endTime)) {
+            // Same date and start >= end time means zero or negative duration
             throw new InvalidTimeException(INVALID_EVENT_TIME, startTime, endTime);
         }
 
-        if (endDate != null && !startDate.isBefore(endDate)) {
+        // Date validation: end date must be same or after start date
+        if (endDate != null && endDate.isBefore(startDate)) {
             throw new InvalidTimeException(INVALID_EVENT_TIME, startDate, endDate);
         }
     }

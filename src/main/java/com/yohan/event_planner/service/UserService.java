@@ -21,6 +21,12 @@ import com.yohan.event_planner.exception.UsernameException;
  */
 public interface UserService {
 
+    /**
+     * Retrieves the current authenticated user's settings and preferences.
+     *
+     * @return {@link UserResponseDTO} containing user settings and preferences
+     * @throws UserNotFoundException if no authenticated user is found
+     */
     UserResponseDTO getUserSettings();
 
     /**
@@ -33,6 +39,19 @@ public interface UserService {
      */
     UserResponseDTO createUser(UserCreateDTO dto);
 
+    /**
+     * Updates the current authenticated user's settings with the provided changes.
+     *
+     * <p>Performs validation for username and email uniqueness if those fields are being updated.
+     * Only applies changes for non-null fields in the DTO. Uses atomic patch operations
+     * to ensure data consistency.</p>
+     *
+     * @param dto the user update payload containing fields to modify
+     * @return {@link UserResponseDTO} with the updated user information
+     * @throws UsernameException if the new username is already taken
+     * @throws EmailException if the new email is already taken
+     * @throws UserNotFoundException if the current user does not exist
+     */
     UserResponseDTO updateUserSettings(UserUpdateDTO dto);
 
     /**
@@ -57,8 +76,32 @@ public interface UserService {
      */
     void reactivateCurrentUser();
 
+    /**
+     * Retrieves a user's public profile information by username.
+     *
+     * <p>Returns profile header information and user badges. The {@code isSelf} flag
+     * indicates whether the viewer is looking at their own profile, which may affect
+     * what information is displayed on the client side.</p>
+     *
+     * @param username the username of the profile to retrieve (case-insensitive)
+     * @param viewerId the ID of the user viewing the profile (null for anonymous)
+     * @return {@link UserProfileResponseDTO} containing profile header and badges
+     * @throws UserNotFoundException if the requested username does not exist
+     */
     UserProfileResponseDTO getUserProfile(String username, Long viewerId);
 
+    /**
+     * Updates a user's profile header information (bio and profile picture).
+     *
+     * <p>Validates ownership to ensure users can only modify their own profiles.
+     * Only persists changes if the provided values differ from current values.</p>
+     *
+     * @param userId the ID of the user whose header to update
+     * @param input the header update payload containing bio and profile picture URL
+     * @return {@link UserHeaderResponseDTO} with the updated header information
+     * @throws UserNotFoundException if the user does not exist
+     * @throws RuntimeException if ownership validation fails
+     */
     UserHeaderResponseDTO updateUserHeader(Long userId, UserHeaderUpdateDTO input);
 
     /**

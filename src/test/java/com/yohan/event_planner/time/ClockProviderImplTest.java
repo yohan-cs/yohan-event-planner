@@ -34,6 +34,14 @@ class ClockProviderImplTest {
     }
 
     @Test
+    void testConstructor_withNullClock() {
+        // Act & Assert
+        assertThrows(NullPointerException.class, () -> {
+            new ClockProviderImpl(null);
+        }, "Should throw NullPointerException for null base clock");
+    }
+
+    @Test
     void testGetClockForZone_withUTC() {
         // Act
         Clock utcClock = clockProvider.getClockForZone(ZoneOffset.UTC);
@@ -98,6 +106,18 @@ class ClockProviderImplTest {
         assertThrows(NullPointerException.class, () -> {
             clockProvider.getClockForUser(null);
         }, "Should throw NullPointerException for null user");
+    }
+
+    @Test
+    void testGetClockForUser_withNullTimezone() {
+        // Arrange
+        User user = new User("testuser", "hashedpass", "test@example.com", 
+                            "Test", "User", null);
+        
+        // Act & Assert
+        assertThrows(NullPointerException.class, () -> {
+            clockProvider.getClockForUser(user);
+        }, "Should throw NullPointerException for user with null timezone");
     }
 
     @Test

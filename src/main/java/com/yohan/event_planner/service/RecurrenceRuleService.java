@@ -55,6 +55,9 @@ import java.util.Set;
  * @see RecurringEvent
  * @see ParsedRecurrenceInput
  * @see com.yohan.event_planner.domain.RecurrenceRuleVO
+ * @see com.yohan.event_planner.domain.enums.RecurrenceFrequency
+ * @since 1.0
+ * @author Event Planner Team
  */
 public interface RecurrenceRuleService {
 
@@ -65,9 +68,10 @@ public interface RecurrenceRuleService {
      * and complex RRULE syntax. Returns a parsed representation that can be used for
      * date expansion and occurrence testing.</p>
      * 
-     * @param rule the string representation of the recurrence rule
+     * @param rule the string representation of the recurrence rule (must not be null)
      * @return a {@link ParsedRecurrenceInput} containing the structured recurrence data
-     * @throws IllegalArgumentException if the rule format is invalid or unsupported
+     * @throws InvalidRecurrenceRuleException if the rule format is invalid or unsupported
+     * @throws NullPointerException if rule is null
      */
     ParsedRecurrenceInput parseFromString(String rule);
 
@@ -78,11 +82,12 @@ public interface RecurrenceRuleService {
      * then filters out any dates that appear in the skip days set. The result is a complete
      * list of actual event dates for the specified time period.</p>
      * 
-     * @param input the parsed recurrence pattern to expand
-     * @param startInclusive the earliest date to include in the expansion (inclusive)
-     * @param endInclusive the latest date to include in the expansion (inclusive)
-     * @param skipDays set of dates to exclude from the expansion
-     * @return ordered list of dates where events should occur
+     * @param input the parsed recurrence pattern to expand (must not be null)
+     * @param startInclusive the earliest date to include in the expansion (inclusive, must not be null)
+     * @param endInclusive the latest date to include in the expansion (inclusive, must not be null)
+     * @param skipDays set of dates to exclude from the expansion (must not be null, can be empty)
+     * @return ordered list of dates where events should occur (never null, can be empty)
+     * @throws NullPointerException if any parameter is null
      */
     List<LocalDate> expandRecurrence(ParsedRecurrenceInput input, LocalDate startInclusive, LocalDate endInclusive, Set<LocalDate> skipDays);
 
@@ -93,10 +98,11 @@ public interface RecurrenceRuleService {
      * in language that users can easily understand. Useful for UI display and user
      * confirmation of recurrence settings.</p>
      * 
-     * @param parsedRecurrence the parsed recurrence pattern to describe
-     * @param startDate the start date of the recurrence period
+     * @param parsedRecurrence the parsed recurrence pattern to describe (must not be null)
+     * @param startDate the start date of the recurrence period (must not be null)
      * @param endDate the end date of the recurrence period (may be null for infinite recurrence)
-     * @return a human-readable description of the recurrence pattern
+     * @return a human-readable description of the recurrence pattern (never null)
+     * @throws NullPointerException if parsedRecurrence or startDate is null
      */
     String buildSummary(ParsedRecurrenceInput parsedRecurrence, LocalDate startDate, LocalDate endDate);
 
@@ -107,9 +113,10 @@ public interface RecurrenceRuleService {
      * an event on the specified date, ignoring skip days. This is useful for validation
      * and conflict detection without expanding entire date ranges.</p>
      * 
-     * @param parsed the parsed recurrence pattern to test
-     * @param date the specific date to test for occurrence
+     * @param parsed the parsed recurrence pattern to test (must not be null)
+     * @param date the specific date to test for occurrence (must not be null)
      * @return true if the pattern would create an occurrence on the specified date
+     * @throws NullPointerException if any parameter is null
      */
     boolean occursOn(ParsedRecurrenceInput parsed, LocalDate date);
 }

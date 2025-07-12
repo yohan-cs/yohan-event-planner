@@ -4,19 +4,22 @@ import com.yohan.event_planner.domain.LabelTimeBucket;
 import com.yohan.event_planner.domain.enums.TimeBucketType;
 import com.yohan.event_planner.dto.EventChangeContextDTO;
 import com.yohan.event_planner.repository.LabelTimeBucketRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.List;
 
+import static com.yohan.event_planner.constants.ApplicationConstants.DATE_MONTH_MULTIPLIER;
+import static com.yohan.event_planner.constants.ApplicationConstants.DATE_YEAR_MULTIPLIER;
 import static com.yohan.event_planner.domain.enums.TimeBucketType.DAY;
 import static com.yohan.event_planner.domain.enums.TimeBucketType.MONTH;
 import static com.yohan.event_planner.domain.enums.TimeBucketType.WEEK;
@@ -161,6 +164,8 @@ import static com.yohan.event_planner.domain.enums.TimeBucketType.WEEK;
 @Service
 public class LabelTimeBucketServiceImpl implements LabelTimeBucketService{
 
+    private static final Logger logger = LoggerFactory.getLogger(LabelTimeBucketServiceImpl.class);
+
     private final LabelService labelService;
     private final LabelTimeBucketRepository bucketRepository;
 
@@ -169,20 +174,56 @@ public class LabelTimeBucketServiceImpl implements LabelTimeBucketService{
         this.bucketRepository = bucketRepository;
     }
 
+    /**
+     * {@inheritDoc}
+     * 
+     * <p>Delegates to {@link #adjust(Long, Long, ZonedDateTime, int, ZoneId, int)} with 
+     * direction=-1 to subtract the specified duration from all relevant time buckets.</p>
+     */
     @Override
     @Transactional
     public void revert(Long userId, Long labelId, ZonedDateTime startTime, int durationMinutes, ZoneId timezone) {
+        logger.debug("Reverting time bucket allocation: userId={}, labelId={}, duration={}min", 
+            userId, labelId, durationMinutes);
         adjust(userId, labelId, startTime, durationMinutes, timezone, -1);
     }
 
+    /**
+     * {@inheritDoc}
+     * 
+     * <p>Delegates to {@link #adjust(Long, Long, ZonedDateTime, int, ZoneId, int)} with 
+     * direction=+1 to add the specified duration to all relevant time buckets.</p>
+     */
     @Override
     @Transactional
     public void apply(Long userId, Long labelId, ZonedDateTime startTime, int durationMinutes, ZoneId timezone) {
+        logger.debug("Applying time bucket allocation: userId={}, labelId={}, duration={}min", 
+            userId, labelId, durationMinutes);
         adjust(userId, labelId, startTime, durationMinutes, timezone, +1);
     }
 
+    /**
+     * {@inheritDoc}
+     * 
+     * <p>Processes event change context by conditionally reverting old time allocations
+     * and applying new time allocations based on completion status changes.</p>
+     * 
+     * <p>Operation sequence:</p>
+     * <ol>
+     *   <li>If event was previously completed, revert old time allocation</li>
+     *   <li>If event is now completed, apply new time allocation</li>
+     * </ol>
+     */
     @Override
     public void handleEventChange(EventChangeContextDTO dto) {
+        logger.debug("Processing event change: userId={}, wasCompleted={}, isNowCompleted={}", 
+            dto.userId(), dto.wasCompleted(), dto.isNowCompleted());
+            
+        if (dto.wasCompleted() && dto.isNowCompleted()) {
+            logger.info("Event modification requires both revert and apply: userId={}, oldLabel={}, newLabel={}", 
+                dto.userId(), dto.oldLabelId(), dto.newLabelId());
+        }
+        
         if (dto.wasCompleted()) {
             revert(dto.userId(), dto.oldLabelId(), dto.oldStartTime(), dto.oldDurationMinutes(), dto.timezone());
         }
@@ -192,10 +233,34 @@ public class LabelTimeBucketServiceImpl implements LabelTimeBucketService{
         }
     }
 
+    /**
+     * Adjusts time bucket values by applying duration changes across all bucket types.
+     * 
+     * <p>This method orchestrates the core time bucket adjustment logic by:</p>
+     * <ul>
+     *   <li>Retrieving label information for bucket creation</li>
+     *   <li>Splitting duration across day boundaries for accurate allocation</li>
+     *   <li>Creating or updating buckets for day, week, and month granularities</li>
+     *   <li>Persisting all changes atomically</li>
+     * </ul>
+     * 
+     * @param userId the ID of the user who owns the buckets
+     * @param labelId the label associated with the time tracking
+     * @param startTime the start time of the event in UTC
+     * @param durationMinutes the duration to adjust (positive value)
+     * @param timezone the user's timezone for local time calculations
+     * @param direction +1 to add time, -1 to subtract time
+     */
     private void adjust(Long userId, Long labelId, ZonedDateTime startTime, int durationMinutes, ZoneId timezone, int direction) {
+        logger.debug("Starting time bucket adjustment: userId={}, labelId={}, duration={}min, direction={}", 
+            userId, labelId, durationMinutes, direction > 0 ? "apply" : "revert");
+            
         String labelName = labelService.getLabelById(labelId).name();
 
         List<TimeSlice> slices = splitByDay(startTime, durationMinutes, timezone);
+        logger.debug("Created {} time slices for event spanning {} to {}", 
+            slices.size(), startTime, startTime.plusMinutes(durationMinutes));
+            
         List<LabelTimeBucket> bucketsToSave = new ArrayList<>();
 
         for (TimeSlice slice : slices) {
@@ -204,7 +269,7 @@ public class LabelTimeBucketServiceImpl implements LabelTimeBucketService{
 
             // DAY
             LocalDate date = localTime.toLocalDate();
-            int dayValue = date.getYear() * 10000 + date.getMonthValue() * 100 + date.getDayOfMonth();
+            int dayValue = date.getYear() * DATE_YEAR_MULTIPLIER + date.getMonthValue() * DATE_MONTH_MULTIPLIER + date.getDayOfMonth();
             LabelTimeBucket dayBucket = resolveOrCreateBucket(userId, labelId, labelName, DAY, date.getYear(), dayValue);
             dayBucket.incrementMinutes(direction * minutes);
             bucketsToSave.add(dayBucket);
@@ -225,25 +290,82 @@ public class LabelTimeBucketServiceImpl implements LabelTimeBucketService{
         }
 
         bucketRepository.saveAll(bucketsToSave);
+        
+        logger.info("Updated {} time buckets for user={}, label={}: {} minutes {}", 
+            bucketsToSave.size(), userId, labelId, durationMinutes, direction > 0 ? "added" : "removed");
     }
 
+    /**
+     * Resolves an existing time bucket or creates a new one if none exists.
+     * 
+     * <p>This method implements an upsert pattern, returning existing bucket data
+     * for updates or creating new buckets with zero initial duration.</p>
+     * 
+     * @param userId the ID of the user who owns the bucket
+     * @param labelId the label associated with the bucket  
+     * @param labelName the name of the label for bucket creation
+     * @param type the type of time bucket (DAY, WEEK, MONTH)
+     * @param year the year component of the bucket
+     * @param value the bucket-specific value (YYYYMMDD for DAY, week number for WEEK, month number for MONTH)
+     * @return existing bucket with current data or new bucket with zero duration
+     */
     private LabelTimeBucket resolveOrCreateBucket(Long userId, Long labelId, String labelName,
                                                   TimeBucketType type, int year, int value) {
         return bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                 userId, labelId, type, year, value
-        ).orElseGet(() ->
-                new LabelTimeBucket(userId, labelId, labelName, type, year, value)
-        );
+        ).orElseGet(() -> {
+            logger.debug("Creating new {} bucket for user={}, label={}, year={}, value={}", 
+                type, userId, labelId, year, value);
+            return new LabelTimeBucket(userId, labelId, labelName, type, year, value);
+        });
     }
 
+    /**
+     * Calculates the ISO week number for the given local date time.
+     * 
+     * <p>Uses ISO 8601 week numbering where weeks start on Monday and 
+     * week 1 is the first week with at least 4 days in the new year.</p>
+     * 
+     * @param localTime the local date time to calculate week for
+     * @return ISO week number (1-53)
+     */
     private int getIsoWeek(LocalDateTime localTime) {
         return (int) WeekFields.ISO.weekOfWeekBasedYear().getFrom(localTime);
     }
 
+    /**
+     * Calculates the ISO week-based year for the given local date time.
+     * 
+     * <p>The week-based year may differ from the calendar year for dates
+     * in the first or last week of the year. For example, January 1st may
+     * belong to the previous week-based year if it falls early in the week.</p>
+     * 
+     * @param localTime the local date time to calculate week-based year for
+     * @return ISO week-based year
+     */
     private int getIsoWeekYear(LocalDateTime localTime) {
         return (int) WeekFields.ISO.weekBasedYear().getFrom(localTime);
     }
 
+    /**
+     * Splits an event duration across multiple days to handle events that span midnight.
+     * 
+     * <p>This method ensures accurate time allocation by:</p>
+     * <ul>
+     *   <li>Converting UTC times to user's local timezone</li>
+     *   <li>Detecting day boundary crossings at local midnight</li>
+     *   <li>Creating separate time slices for each day portion</li>
+     *   <li>Calculating precise minute allocations per day</li>
+     * </ul>
+     * 
+     * <p>For example, an event from 11:30 PM to 1:30 AM would create two slices:
+     * one for 30 minutes on the first day and one for 90 minutes on the second day.</p>
+     * 
+     * @param startTimeUtc the event start time in UTC
+     * @param totalMinutes the total duration of the event in minutes
+     * @param timezone the user's timezone for day boundary calculations  
+     * @return list of time slices, each representing a portion within a single day
+     */
     private List<TimeSlice> splitByDay(ZonedDateTime startTimeUtc, int totalMinutes, ZoneId timezone) {
         List<TimeSlice> slices = new ArrayList<>();
 
@@ -265,5 +387,11 @@ public class LabelTimeBucketServiceImpl implements LabelTimeBucketService{
         return slices;
     }
 
+    /**
+     * Represents a time slice within a single day for accurate bucket allocation.
+     * 
+     * @param start the start time of this slice in the user's timezone
+     * @param minutes the duration of this slice in minutes
+     */
     private record TimeSlice(ZonedDateTime start, int minutes) {}
 }

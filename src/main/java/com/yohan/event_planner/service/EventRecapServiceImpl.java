@@ -3,12 +3,10 @@ package com.yohan.event_planner.service;
 import com.yohan.event_planner.business.EventBO;
 import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.EventRecap;
-import com.yohan.event_planner.domain.RecapMedia;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.dto.EventRecapCreateDTO;
 import com.yohan.event_planner.dto.EventRecapResponseDTO;
 import com.yohan.event_planner.dto.EventRecapUpdateDTO;
-import com.yohan.event_planner.dto.RecapMediaCreateDTO;
 import com.yohan.event_planner.dto.RecapMediaResponseDTO;
 import com.yohan.event_planner.exception.ErrorCode;
 import com.yohan.event_planner.exception.EventNotFoundException;
@@ -20,15 +18,13 @@ import com.yohan.event_planner.mapper.EventRecapMapper;
 import com.yohan.event_planner.repository.EventRecapRepository;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Clock;
 import java.util.List;
 import java.util.Objects;
-
-import static com.yohan.event_planner.exception.ErrorCode.DUPLICATE_EVENT_RECAP;
-import static com.yohan.event_planner.exception.ErrorCode.RECAP_ON_INCOMPLETE_EVENT;
 
 /**
  * Implementation of {@link EventRecapService} providing comprehensive event recap management.
@@ -158,6 +154,8 @@ import static com.yohan.event_planner.exception.ErrorCode.RECAP_ON_INCOMPLETE_EV
 @Transactional
 public class EventRecapServiceImpl implements EventRecapService {
 
+    private static final Logger logger = LoggerFactory.getLogger(EventRecapServiceImpl.class);
+
     private final EventBO eventBO;
     private final EventRecapRepository recapRepository;
     private final OwnershipValidator ownershipValidator;
@@ -165,6 +163,24 @@ public class EventRecapServiceImpl implements EventRecapService {
     private final AuthenticatedUserProvider authenticatedUserProvider;
     private final RecapMediaService recapMediaService;
 
+    /**
+     * Constructs an EventRecapServiceImpl with required dependencies.
+     * 
+     * <p>
+     * Initializes the service with all required dependencies for comprehensive event recap
+     * management including media integration, security validation, and entity mapping.
+     * The service coordinates between multiple components to provide secure, transactional
+     * recap operations with comprehensive multimedia support.
+     * </p>
+     *
+     * @param eventBO business object for event operations and validation
+     * @param recapRepository repository for event recap persistence
+     * @param ownershipValidator validator for user ownership verification
+     * @param eventRecapMapper mapper for entity-DTO conversions
+     * @param authenticatedUserProvider provider for current user context
+     * @param recapMediaService service for managing recap multimedia content
+     * @throws IllegalArgumentException if any required dependency is null (handled by Spring)
+     */
     public EventRecapServiceImpl(
             EventBO eventBO,
             EventRecapRepository recapRepository,
@@ -181,31 +197,53 @@ public class EventRecapServiceImpl implements EventRecapService {
         this.recapMediaService = recapMediaService;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public EventRecapResponseDTO getEventRecap(Long eventId) {
+        logger.info("Retrieving event recap for eventId: {}", eventId);
         Event event = getOwnedEvent(eventId);
 
         EventRecap recap = event.getRecap();
         if (recap == null) {
+            logger.warn("No recap found for eventId: {}", eventId);
             throw new EventRecapNotFoundException(eventId);
         }
 
         List<RecapMediaResponseDTO> mediaDTOs = recapMediaService.getOrderedMediaForRecap(recap.getId());
+        logger.debug("Retrieved {} media items for recap: {}", mediaDTOs.size(), recap.getId());
 
-        return eventRecapMapper.toResponseDTO(recap, event, mediaDTOs);
+        EventRecapResponseDTO response = eventRecapMapper.toResponseDTO(recap, event, mediaDTOs);
+        logger.info("Successfully retrieved event recap for eventId: {}", eventId);
+        return response;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public EventRecapResponseDTO addEventRecap(EventRecapCreateDTO dto) {
+        logger.info("Adding event recap for eventId: {}", dto.eventId());
         Event event = getOwnedEvent(dto.eventId());
 
         if (event.getRecap() != null) {
+            logger.warn("Attempt to create duplicate recap for eventId: {}", event.getId());
             throw new EventRecapException(ErrorCode.DUPLICATE_EVENT_RECAP, event.getId());
         }
 
-        boolean isDraft = !event.isCompleted() || dto.isUnconfirmed();
+        // For incomplete events, force creation of draft/unconfirmed recap
+        // For completed events, use the DTO preference (confirmed by default)
+        boolean shouldCreateDraftRecap = !event.isCompleted() || dto.isUnconfirmed();
+        
+        if (!event.isCompleted()) {
+            logger.debug("Creating draft recap for incomplete eventId: {}", event.getId());
+        } else {
+            logger.debug("Creating {} recap for completed eventId: {}, dto unconfirmed: {}", 
+                shouldCreateDraftRecap ? "draft" : "confirmed", event.getId(), dto.isUnconfirmed());
+        }
 
-        EventRecap recap = isDraft
+        EventRecap recap = shouldCreateDraftRecap
                 ? EventRecap.createUnconfirmedRecap(event, event.getCreator(), dto.notes(), dto.recapName())
                 : EventRecap.createConfirmedRecap(event, event.getCreator(), dto.notes(), dto.recapName());
 
@@ -216,6 +254,7 @@ public class EventRecapServiceImpl implements EventRecapService {
 
         // Persist media if provided
         if (dto.media() != null && !dto.media().isEmpty()) {
+            logger.debug("Adding {} media items to recap: {}", dto.media().size(), saved.getRecap().getId());
             recapMediaService.addMediaItemsToRecap(saved.getRecap(), dto.media());
         }
 
@@ -223,41 +262,58 @@ public class EventRecapServiceImpl implements EventRecapService {
         List<RecapMediaResponseDTO> orderedMedia = recapMediaService.getOrderedMediaForRecap(saved.getRecap().getId());
 
         // Return response including ordered media
-        return eventRecapMapper.toResponseDTO(saved.getRecap(), saved, orderedMedia);
+        EventRecapResponseDTO response = eventRecapMapper.toResponseDTO(saved.getRecap(), saved, orderedMedia);
+        logger.info("Successfully created {} recap for eventId: {}", shouldCreateDraftRecap ? "draft" : "confirmed", event.getId());
+        return response;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public EventRecapResponseDTO confirmEventRecap(Long eventId) {
+        logger.info("Confirming event recap for eventId: {}", eventId);
         Event event = getOwnedEvent(eventId);
 
         if (!event.isCompleted()) {
+            logger.warn("Attempt to confirm recap for incomplete event: {}", eventId);
             throw new InvalidEventStateException(ErrorCode.RECAP_ON_INCOMPLETE_EVENT);
         }
 
         EventRecap recap = event.getRecap();
         if (recap == null) {
+            logger.warn("No recap found to confirm for eventId: {}", eventId);
             throw new EventRecapNotFoundException(eventId);
         }
 
         if (!recap.isUnconfirmed()) {
+            logger.warn("Attempt to confirm already confirmed recap for eventId: {}", eventId);
             throw new EventRecapAlreadyConfirmedException(eventId);
         }
 
         recap.setUnconfirmed(false);
         recapRepository.save(recap);
+        logger.debug("Recap confirmed and saved for eventId: {}", eventId);
 
         // Retrieve ordered media for response
         List<RecapMediaResponseDTO> orderedMedia = recapMediaService.getOrderedMediaForRecap(recap.getId());
 
-        return eventRecapMapper.toResponseDTO(recap, event, orderedMedia);
+        EventRecapResponseDTO response = eventRecapMapper.toResponseDTO(recap, event, orderedMedia);
+        logger.info("Successfully confirmed event recap for eventId: {}", eventId);
+        return response;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public EventRecapResponseDTO updateEventRecap(Long eventId, EventRecapUpdateDTO dto) {
+        logger.info("Updating event recap for eventId: {}", eventId);
         Event event = getOwnedEvent(eventId);
 
         EventRecap recap = event.getRecap();
         if (recap == null) {
+            logger.warn("No recap found to update for eventId: {}", eventId);
             throw new EventRecapNotFoundException(eventId);
         }
 
@@ -265,46 +321,77 @@ public class EventRecapServiceImpl implements EventRecapService {
 
         String newNotes = dto.notes();
         if (newNotes != null && !Objects.equals(recap.getNotes(), newNotes)) {
+            logger.debug("Updating notes for recap: {}", recap.getId());
             recap.setNotes(newNotes);
             updated = true;
         }
 
         // Replace media if provided
         if (dto.media() != null) {
+            logger.debug("Replacing media for recap: {} with {} items", recap.getId(), dto.media().size());
             recapMediaService.replaceRecapMedia(recap, dto.media());
             updated = true;
         }
 
         if (updated) {
             recapRepository.save(recap);
+            logger.debug("Recap saved after updates for eventId: {}", eventId);
+        } else {
+            logger.debug("No changes detected for recap update on eventId: {}", eventId);
         }
 
         // Retrieve ordered media for response
         List<RecapMediaResponseDTO> orderedMedia = recapMediaService.getOrderedMediaForRecap(recap.getId());
 
-        return eventRecapMapper.toResponseDTO(recap, event, orderedMedia);
+        EventRecapResponseDTO response = eventRecapMapper.toResponseDTO(recap, event, orderedMedia);
+        logger.info("Successfully updated event recap for eventId: {}", eventId);
+        return response;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void deleteEventRecap(Long eventId) {
+        logger.info("Deleting event recap for eventId: {}", eventId);
         Event event = getOwnedEvent(eventId);
 
         EventRecap recap = event.getRecap();
         if (recap == null) {
+            logger.warn("No recap found to delete for eventId: {}", eventId);
             throw new EventRecapNotFoundException(eventId);
         }
 
+        logger.debug("Deleting all media for recap: {}", recap.getId());
         recapMediaService.deleteAllMediaForRecap(recap.getId());
 
         event.setRecap(null);
         eventBO.updateEvent(null, event);
+        logger.info("Successfully deleted event recap for eventId: {}", eventId);
     }
 
+    /**
+     * Retrieves an event and validates that it is owned by the current user.
+     * 
+     * <p>
+     * This method encapsulates the common pattern of event retrieval with ownership
+     * validation used across all recap operations. It ensures security by validating
+     * user ownership before allowing any recap operations, maintaining data integrity
+     * and access control.
+     * </p>
+     *
+     * @param eventId the ID of the event to retrieve
+     * @return the event if it exists and is owned by the current user
+     * @throws EventNotFoundException if the event doesn't exist
+     * @throws UserOwnershipException if the current user doesn't own the event
+     */
     private Event getOwnedEvent(Long eventId) {
+        logger.debug("Retrieving and validating ownership for eventId: {}", eventId);
         Event event = eventBO.getEventById(eventId)
                 .orElseThrow(() -> new EventNotFoundException(eventId));
 
         User user = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Validating ownership for user: {} on event: {}", user.getId(), eventId);
         ownershipValidator.validateEventOwnership(user.getId(), event);
 
         return event;

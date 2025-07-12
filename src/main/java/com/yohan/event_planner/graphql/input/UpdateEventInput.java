@@ -1,8 +1,18 @@
 package com.yohan.event_planner.graphql.input;
 
 /**
- * GraphQL input type for updating an event.
- * Uses {@link UpdateFieldInput} to distinguish omitted vs provided fields.
+ * Input for updating event properties with selective field updates.
+ * 
+ * Uses {@link UpdateFieldInput} wrapper to distinguish between omitted fields
+ * and explicitly provided values (including null). This enables partial updates
+ * where only specified fields are modified.
+ * 
+ * @param name Event name (optional update)
+ * @param startTime Event start time in user's timezone (optional update)
+ * @param endTime Event end time in user's timezone (optional update)
+ * @param description Event description (optional update)
+ * @param labelId Associated label ID (optional update)
+ * @param isCompleted Whether event is completed (optional update)
  */
 public record UpdateEventInput(
         UpdateFieldInput<String> name,

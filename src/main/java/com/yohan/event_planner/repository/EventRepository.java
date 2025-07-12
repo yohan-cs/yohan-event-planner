@@ -138,8 +138,8 @@ public interface EventRepository extends JpaRepository<Event, Long> {
     SELECT e FROM Event e
     WHERE e.creator.id = :userId
       AND e.unconfirmed = false
-      AND e.endTime > :windowStart
-      AND e.startTime < :windowEnd
+      AND e.endTime >= :windowStart
+      AND e.startTime <= :windowEnd
 """)
     List<Event> findConfirmedEventsForUserBetween(
             @Param("userId") Long userId,
@@ -212,8 +212,8 @@ public interface EventRepository extends JpaRepository<Event, Long> {
     @Query("""
         SELECT e FROM Event e
         WHERE e.label.id = :labelId
-        AND e.startTime >= :startDate
-        AND e.endTime <= :endDate
+        AND e.endTime >= :startDate
+        AND e.startTime <= :endDate
         AND e.isCompleted = true
     """)
     List<Event> findByLabelIdAndEventDateBetweenAndIsCompleted(
@@ -225,8 +225,8 @@ public interface EventRepository extends JpaRepository<Event, Long> {
     @Query("""
     SELECT COUNT(e) FROM Event e
     WHERE e.label.id = :labelId
-    AND e.startTime >= :startDate
-    AND e.endTime <= :endDate
+    AND e.endTime >= :startDate
+    AND e.startTime <= :endDate
     AND e.isCompleted = true
 """)
     long countByLabelIdAndEventDateBetweenAndIsCompleted(

@@ -18,6 +18,10 @@ import com.yohan.event_planner.validation.ConflictValidator;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -50,32 +54,30 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 
+@ExtendWith(MockitoExtension.class)
 public class RecurringEventBOImplTest {
 
+    @Mock
     private RecurringEventRepository recurringEventRepository;
+    @Mock
     private RecurrenceRuleService recurrenceRuleService;
+    @Mock
     private ConflictValidator conflictValidator;
+    @Mock
+    private EventResponseDTOFactory eventResponseDTOFactory;
+    @Mock
+    private ClockProvider clockProvider;
+    
     private Clock fixedClock;
     private User user;
 
+    @InjectMocks
     private RecurringEventBOImpl recurringEventBO;
 
     @BeforeEach
     void setUp() {
-        this.recurringEventRepository = mock(RecurringEventRepository.class);
-        this.recurrenceRuleService = mock(RecurrenceRuleService.class);
-        this.conflictValidator = mock(ConflictValidator.class);
-
         user = createValidUserEntityWithId();
         fixedClock = Clock.fixed(Instant.parse("2025-06-29T12:00:00Z"), ZoneId.of("UTC"));
-
-        recurringEventBO = new RecurringEventBOImpl(
-                recurringEventRepository,
-                recurrenceRuleService,
-                mock(EventResponseDTOFactory.class),
-                mock(ClockProvider.class),
-                conflictValidator
-        );
     }
 
     @Nested
@@ -126,7 +128,7 @@ public class RecurringEventBOImplTest {
 
             List<RecurringEvent> expected = List.of(event1, event2);
 
-            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate))
+            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, fromDate, toDate))
                     .thenReturn(expected);
 
             // Act
@@ -137,7 +139,7 @@ public class RecurringEventBOImplTest {
             assertEquals(2, result.size());
             assertTrue(result.containsAll(expected));
 
-            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate);
+            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, fromDate, toDate);
         }
 
         @Test
@@ -147,7 +149,7 @@ public class RecurringEventBOImplTest {
             LocalDate fromDate = TestConstants.getValidEventStartDate(fixedClock);
             LocalDate toDate = TestConstants.getValidEventEndDate(fixedClock);
 
-            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate))
+            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, fromDate, toDate))
                     .thenReturn(Collections.emptyList());
 
             // Act
@@ -157,7 +159,7 @@ public class RecurringEventBOImplTest {
             assertNotNull(result);
             assertTrue(result.isEmpty());
 
-            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate);
+            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, fromDate, toDate);
         }
 
     }
@@ -652,9 +654,6 @@ public class RecurringEventBOImplTest {
             LocalDate futureDate = LocalDate.now(fixedClock).plusDays(1);
             event.addSkipDay(futureDate);
 
-            // Mock recurrence rule to include the date
-            when(recurrenceRuleService.occursOn(any(), eq(futureDate))).thenReturn(true);
-
             // Mock the conflict validation
             doNothing().when(conflictValidator).validateNoConflictsForSkipDays(any(RecurringEvent.class), any(Set.class));
 
@@ -692,9 +691,6 @@ public class RecurringEventBOImplTest {
             LocalDate futureDate = LocalDate.now(fixedClock).plusDays(3);
             event.addSkipDay(futureDate);
 
-            // Mock recurrence rule to include the date
-            when(recurrenceRuleService.occursOn(any(), eq(futureDate))).thenReturn(true);
-
             // Mock conflict validator to throw ConflictException
             doThrow(new ConflictException(event, Set.of(999L)))
                     .when(conflictValidator).validateNoConflictsForSkipDays(any(RecurringEvent.class), any(Set.class));
@@ -731,7 +727,7 @@ public class RecurringEventBOImplTest {
                     TestUtils.createValidUserEntityWithId(), VALID_RECURRING_EVENT_ID, fixedClock
             );
 
-            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate))
+            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, fromDate, toDate))
                     .thenReturn(List.of(recurringEvent));
 
             List<LocalDate> occurrenceDates = List.of(fromDate.plusDays(1), fromDate.plusDays(2));
@@ -767,7 +763,7 @@ public class RecurringEventBOImplTest {
             assertTrue(result.contains(dto1));
             assertTrue(result.contains(dto2));
 
-            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate);
+            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, fromDate, toDate);
             verify(recurrenceRuleService).expandRecurrence(any(), eq(fromDate), eq(toDate), any());
             verify(eventResponseDTOFactory).createFromRecurringEvent(recurringEvent, occurrenceDates.get(0));
             verify(eventResponseDTOFactory).createFromRecurringEvent(recurringEvent, occurrenceDates.get(1));
@@ -824,7 +820,7 @@ public class RecurringEventBOImplTest {
                     TestUtils.createValidUserEntityWithId(), VALID_RECURRING_EVENT_ID, fixedClock
             );
 
-            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate))
+            when(recurringEventRepository.findConfirmedRecurringEventsForUserBetween(userId, fromDate, toDate))
                     .thenReturn(List.of(recurringEvent));
 
             // Past date
@@ -853,7 +849,7 @@ public class RecurringEventBOImplTest {
             assertNotNull(result);
             assertTrue(result.isEmpty());
 
-            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, toDate, fromDate);
+            verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(userId, fromDate, toDate);
             verify(recurrenceRuleService).expandRecurrence(any(), eq(fromDate), eq(toDate), any());
             verifyNoInteractions(eventResponseDTOFactory);
         }
@@ -1118,7 +1114,7 @@ public class RecurringEventBOImplTest {
             assertNotNull(result);
             assertTrue(result.isEmpty());
             verify(recurringEventRepository).findConfirmedRecurringEventsForUserBetween(
-                    userId, veryFutureDate, veryOldDate);
+                    userId, veryOldDate, veryFutureDate);
         }
 
         @Test
@@ -1244,6 +1240,10 @@ public class RecurringEventBOImplTest {
             // Arrange
             RecurringEvent invalidTimeEvent = TestUtils.createValidRecurringEventWithId(user, VALID_RECURRING_EVENT_ID, fixedClock);
             invalidTimeEvent.setUnconfirmed(false);
+            // Set same date to ensure same-day validation applies
+            LocalDate sameDate = LocalDate.of(2025, 6, 27);
+            invalidTimeEvent.setStartDate(sameDate);
+            invalidTimeEvent.setEndDate(sameDate);
             invalidTimeEvent.setStartTime(LocalTime.of(15, 0)); // 3 PM
             invalidTimeEvent.setEndTime(LocalTime.of(14, 0));   // 2 PM - before start time
 
@@ -1276,9 +1276,13 @@ public class RecurringEventBOImplTest {
             // Arrange
             RecurringEvent sameTimeEvent = TestUtils.createValidRecurringEventWithId(user, VALID_RECURRING_EVENT_ID, fixedClock);
             sameTimeEvent.setUnconfirmed(false);
+            // Set same date to ensure same-day validation applies
+            LocalDate sameDate = LocalDate.of(2025, 6, 27);
+            sameTimeEvent.setStartDate(sameDate);
+            sameTimeEvent.setEndDate(sameDate);
             LocalTime sameTime = LocalTime.of(14, 30);
             sameTimeEvent.setStartTime(sameTime);
-            sameTimeEvent.setEndTime(sameTime); // Same time not allowed
+            sameTimeEvent.setEndTime(sameTime); // Same time not allowed on same day
 
             // Act & Assert
             assertThrows(InvalidTimeException.class, () -> 

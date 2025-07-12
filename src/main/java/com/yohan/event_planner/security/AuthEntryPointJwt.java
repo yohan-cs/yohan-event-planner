@@ -44,7 +44,8 @@ public class AuthEntryPointJwt implements AuthenticationEntryPoint {
                 HttpServletResponse.SC_UNAUTHORIZED,
                 "User not authenticated",
                 UNAUTHORIZED_ACCESS.name(),
-                Instant.now().toEpochMilli()
+                Instant.now().toEpochMilli(),
+                request.getRequestURI()
         );
 
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

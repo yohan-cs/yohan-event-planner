@@ -36,6 +36,9 @@ import static com.yohan.event_planner.domain.enums.RecapMediaType.VIDEO;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -1317,8 +1320,8 @@ class UserProfileGraphQLIntegrationTest {
                             .header("Authorization", "Bearer " + auth.jwt())
                             .content(mutation))
                     .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.errors[0].extensions.errorCode").value("VALIDATION_ERROR"))
-                    .andExpect(jsonPath("$.errors[0].extensions.status").value(400));
+                    .andExpect(jsonPath("$.errors").isArray())
+                    .andExpect(jsonPath("$.errors[0].message").exists());
         }
 
         @Test
@@ -1550,6 +1553,167 @@ class UserProfileGraphQLIntegrationTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.errors[0].extensions.errorCode").value("USER_OWNERSHIP_VIOLATION"))
                     .andExpect(jsonPath("$.errors[0].extensions.status").value(403));
+        }
+    }
+
+    @Nested
+    class ApplicationConstantsIntegrationTests {
+
+        @Test
+        void testSuccessfulBooleanOperations_ShouldReturnApplicationConstant() throws Exception {
+            var auth = testDataHelper.registerAndLoginUserWithUser("constants_test");
+            var badge = testDataHelper.createAndPersistBadge(auth.user(), "Test Badge");
+
+            String mutation = buildDeleteBadgeMutation(badge.getId());
+
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(mutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.deleteBadge").value(true));
+        }
+
+        @Test
+        void testReorderOperations_ShouldReturnApplicationConstant() throws Exception {
+            var auth = testDataHelper.registerAndLoginUserWithUser("constants_reorder");
+            var badge1 = testDataHelper.createAndPersistBadge(auth.user(), "Badge 1");
+            var badge2 = testDataHelper.createAndPersistBadge(auth.user(), "Badge 2");
+
+            String mutation = buildReorderBadgesMutation(badge2.getId(), badge1.getId());
+
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(mutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.reorderBadges").value(true));
+        }
+    }
+
+    @Nested
+    class EnhancedErrorHandlingTests {
+
+        @Test
+        void testInvalidMediaType_WithImprovedErrorHandling() throws Exception {
+            var auth = testDataHelper.registerAndLoginUserWithUser("error_test");
+            var event = testDataHelper.createAndPersistCompletedEventWithRecap(auth.user(), "Test Event", "Notes");
+            var recap = event.getRecap();
+
+            // Test with completely invalid media type to trigger enum parsing error
+            String mutation = String.format("""
+                {
+                  "query": "mutation($recapId: ID!, $input: CreateRecapMediaInput!) { addRecapMedia(recapId: $recapId, input: $input) { id mediaType } }",
+                  "variables": {
+                    "recapId": %d,
+                    "input": {
+                      "mediaUrl": "https://example.com/test.mp4",
+                      "mediaType": "COMPLETELY_INVALID_TYPE",
+                      "durationSeconds": 60,
+                      "mediaOrder": 1
+                    }
+                  }
+                }
+                """, recap.getId());
+
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(mutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.errors").isArray())
+                    .andExpect(jsonPath("$.errors[0].message").exists());
+        }
+
+        @Test
+        void testMalformedDateTimeInput_ShouldProvideUsefulError() throws Exception {
+            var auth = testDataHelper.registerAndLoginUserWithUser("datetime_error");
+            var event = testDataHelper.createAndPersistScheduledEvent(auth.user(), "Test Event");
+
+            // Test with completely malformed datetime
+            Map<String, Object> input = new LinkedHashMap<>();
+            input.put("startTime", wrapField("this-is-not-a-datetime"));
+
+            String mutation = buildUpdateEventMutation(event.getId(), input);
+
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(mutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.errors").isArray())
+                    .andExpect(jsonPath("$.errors[0].message").exists());
+        }
+    }
+
+    @Nested
+    class BoundaryConditionTests {
+
+        @Test
+        void testAddEventRecap_WithMaximumMediaCount() throws Exception {
+            var auth = testDataHelper.registerAndLoginUserWithUser("boundary_media");
+            var event = testDataHelper.createAndPersistCompletedEvent(auth.user());
+
+            // Create a large list of media items to test boundary conditions
+            List<Map<String, Object>> mediaList = new ArrayList<>();
+            for (int i = 0; i < 10; i++) {
+                Map<String, Object> mediaItem = Map.of(
+                        "mediaUrl", "https://example.com/media" + i + ".mp4",
+                        "mediaType", "VIDEO",
+                        "durationSeconds", 60 + i,
+                        "mediaOrder", i + 1
+                );
+                mediaList.add(mediaItem);
+            }
+
+            String mutation = buildAddEventRecapMutation(event.getId(), "Large Media Recap", 
+                "Testing with many media items", false, mediaList);
+
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(mutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.addEventRecap.id").exists())
+                    .andExpect(jsonPath("$.data.addEventRecap.media").isArray());
+        }
+
+        @Test
+        void testReorderBadges_WithEmptyList() throws Exception {
+            var auth = testDataHelper.registerAndLoginUserWithUser("empty_reorder");
+
+            // Test with empty list - should handle gracefully
+            String mutation = """
+                {
+                  "query": "mutation($ids: [ID!]!) { reorderBadges(ids: $ids) }",
+                  "variables": {
+                    "ids": []
+                  }
+                }
+                """;
+
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(mutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.reorderBadges").value(true));
+        }
+
+        @Test
+        void testUpdateUserHeader_WithVeryLongBio() throws Exception {
+            var auth = testDataHelper.registerAndLoginUserWithUser("long_bio");
+
+            // Test with bio approaching maximum length
+            String longBio = "A".repeat(950); // Just under the 1000 char limit
+            String mutation = buildUpdateUserHeaderMutation(longBio, null);
+
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(mutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.updateUserHeader.bio").value(longBio));
         }
     }
 

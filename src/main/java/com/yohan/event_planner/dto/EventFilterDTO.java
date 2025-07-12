@@ -116,7 +116,8 @@ import java.time.ZonedDateTime;
  * <h2>Important Notes</h2>
  * <ul>
  *   <li><strong>User Context</strong>: Target user determined by route path, not DTO content</li>
- *   <li><strong>Service Resolution</strong>: Query context and privacy rules resolved at service layer</li>
+ *   <li><strong>Service Resolution</strong>: TimeFilter enum resolved to actual start/end times by service layer</li>
+ *   <li><strong>DAO Integration</strong>: Pre-resolved start/end times passed to DAO for pure data access</li>
  *   <li><strong>Performance Impact</strong>: Complex filters may require query optimization</li>
  *   <li><strong>Privacy Enforcement</strong>: Public query restrictions applied automatically</li>
  * </ul>
