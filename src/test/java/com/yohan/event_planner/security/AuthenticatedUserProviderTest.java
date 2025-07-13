@@ -9,11 +9,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
 
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -22,6 +25,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 
+@ExtendWith(MockitoExtension.class)
 class AuthenticatedUserProviderTest {
 
     private JwtUtils jwtUtils;
@@ -35,6 +39,22 @@ class AuthenticatedUserProviderTest {
         userBO = mock(UserBO.class);
         request = mock(HttpServletRequest.class);
         authenticatedUserProvider = new AuthenticatedUserProvider(jwtUtils, userBO, request);
+    }
+
+    @Nested
+    class ConstructorTests {
+
+        @Test
+        void constructor_withValidDependencies_createsInstance() {
+            // Act & Assert
+            assertDoesNotThrow(() -> new AuthenticatedUserProvider(jwtUtils, userBO, request));
+        }
+
+        @Test
+        void constructor_withNullDependencies_allowsCreation() {
+            // Act & Assert - Spring handles null injection validation
+            assertDoesNotThrow(() -> new AuthenticatedUserProvider(null, null, null));
+        }
     }
 
     @Nested
@@ -95,6 +115,66 @@ class AuthenticatedUserProviderTest {
 
             // Act + Assert
             assertThrows(UserNotFoundException.class, () -> authenticatedUserProvider.getCurrentUser());
+            verify(jwtUtils).getJwtFromHeader(request);
+            verify(jwtUtils).getUserIdFromJwtToken(token);
+            verify(userBO).getUserById(userId);
+        }
+    }
+
+    @Nested
+    class LoggingBehaviorTests {
+
+        @Test
+        void getCurrentUser_success_completesWithoutLoggingExceptions() {
+            // Arrange
+            Long userId = 1L;
+            String jwtToken = "valid.jwt.token";
+            User expectedUser = TestUtils.createValidUserEntityWithId(userId);
+
+            when(jwtUtils.getJwtFromHeader(request)).thenReturn(jwtToken);
+            when(jwtUtils.getUserIdFromJwtToken(jwtToken)).thenReturn(userId);
+            when(userBO.getUserById(userId)).thenReturn(Optional.of(expectedUser));
+
+            // Act & Assert - Should complete without throwing exceptions from logging
+            assertDoesNotThrow(() -> authenticatedUserProvider.getCurrentUser());
+        }
+
+        @Test
+        void getCurrentUser_userNotFound_logsWarningAndThrowsException() {
+            // Arrange
+            String token = "valid.token";
+            Long userId = 999L;
+            when(jwtUtils.getJwtFromHeader(request)).thenReturn(token);
+            when(jwtUtils.getUserIdFromJwtToken(token)).thenReturn(userId);
+            when(userBO.getUserById(userId)).thenReturn(Optional.empty());
+
+            // Act & Assert - Should log warning before throwing exception
+            assertThrows(UserNotFoundException.class, () -> authenticatedUserProvider.getCurrentUser());
+            
+            // Verify the method calls that trigger logging
+            verify(jwtUtils).getJwtFromHeader(request);
+            verify(jwtUtils).getUserIdFromJwtToken(token);
+            verify(userBO).getUserById(userId);
+        }
+    }
+
+    @Nested
+    class EdgeCaseTests {
+
+        @Test
+        void getCurrentUser_userBOThrowsRuntimeException_propagatesException() {
+            // Arrange
+            String token = "valid.token";
+            Long userId = 123L;
+            when(jwtUtils.getJwtFromHeader(request)).thenReturn(token);
+            when(jwtUtils.getUserIdFromJwtToken(token)).thenReturn(userId);
+            when(userBO.getUserById(userId)).thenThrow(new RuntimeException("Database connection failed"));
+
+            // Act & Assert
+            RuntimeException thrown = assertThrows(RuntimeException.class, 
+                    () -> authenticatedUserProvider.getCurrentUser());
+            assertEquals("Database connection failed", thrown.getMessage());
+            
             verify(jwtUtils).getJwtFromHeader(request);
             verify(jwtUtils).getUserIdFromJwtToken(token);
             verify(userBO).getUserById(userId);

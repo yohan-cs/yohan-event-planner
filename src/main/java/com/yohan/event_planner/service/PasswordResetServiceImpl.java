@@ -179,7 +179,8 @@ public class PasswordResetServiceImpl implements PasswordResetService {
      */
     @Override
     public ResetPasswordResponseDTO resetPassword(ResetPasswordRequestDTO request) {
-        logger.info("Password reset attempt with token: {}", request.token().substring(0, 8) + "...");
+        logger.info("Password reset attempt with token: {}", 
+            request.token().substring(0, ApplicationConstants.PASSWORD_RESET_TOKEN_LOG_PREFIX_LENGTH) + "...");
         logger.debug("Validating reset token and processing password change");
         
         Instant now = clockProvider.getClockForZone(java.time.ZoneOffset.UTC).instant();
@@ -188,7 +189,8 @@ public class PasswordResetServiceImpl implements PasswordResetService {
         Optional<PasswordResetToken> tokenOptional = passwordResetTokenRepository.findValidToken(request.token(), now);
         
         if (tokenOptional.isEmpty()) {
-            logger.warn("Invalid or expired reset token used: {}", request.token().substring(0, 8) + "...");
+            logger.warn("Invalid or expired reset token used: {}", 
+                request.token().substring(0, ApplicationConstants.PASSWORD_RESET_TOKEN_LOG_PREFIX_LENGTH) + "...");
             throw new PasswordException(ErrorCode.INVALID_RESET_TOKEN);
         }
         

@@ -2,6 +2,8 @@ package com.yohan.event_planner.security;
 
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.Role;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -12,28 +14,64 @@ import java.util.stream.Collectors;
 /**
  * Custom implementation of {@link UserDetails} that wraps the application's {@link User} domain object.
  *
+ * <h2>Architecture Integration</h2>
  * <p>
- * This class is used by Spring Security to perform authentication and authorization.
- * It provides user credentials and authorities (roles) as required by the framework.
+ * This adapter class bridges the domain {@link User} entity with Spring Security's authentication
+ * and authorization framework. It is primarily used by {@link UserDetailsServiceImpl} during
+ * JWT authentication processing in {@link AuthTokenFilter}, and integrates with the security
+ * context through {@link org.springframework.security.authentication.UsernamePasswordAuthenticationToken}.
  * </p>
  *
+ * <h2>Security Features</h2>
+ * <ul>
+ *   <li><strong>Role Mapping</strong>: Converts domain {@link Role} enums to Spring Security authorities</li>
+ *   <li><strong>Account Status</strong>: Implements account validation including soft deletion checks</li>
+ *   <li><strong>Credential Access</strong>: Provides secure access to hashed passwords</li>
+ * </ul>
+ *
+ * <h2>Account Status Implementation</h2>
  * <p>
- * All account-related flags (non-expired, non-locked, credentials non-expired, enabled)
- * are currently hardcoded for simplicity, except {@code isEnabled()}, which delegates to
- * the {@code User#isActive()} flag.
+ * Most account status methods return {@code true} for simplicity, except {@code isEnabled()}
+ * which delegates to the domain user's deletion status. This design allows for future
+ * enhancement without breaking existing functionality.
  * </p>
+ *
+ * @see UserDetailsServiceImpl
+ * @see AuthTokenFilter
+ * @see User
+ * @see Role
  */
 public class CustomUserDetails implements UserDetails {
 
+    private static final Logger logger = LoggerFactory.getLogger(CustomUserDetails.class);
     private final User user;
 
     /**
      * Constructs a {@code CustomUserDetails} instance by wrapping a domain {@code User}.
      *
-     * @param user the user entity from the domain layer
+     * <p>
+     * This constructor creates a Spring Security-compatible user details object that adapts
+     * the domain {@link User} entity for authentication and authorization processing.
+     * The wrapped user provides credentials, authorities, and account status information
+     * required by the Spring Security framework.
+     * </p>
+     *
+     * <p>
+     * <strong>Security Context:</strong> The created instance will be used in authentication
+     * tokens stored in the {@link org.springframework.security.core.context.SecurityContextHolder}
+     * and accessed throughout the request lifecycle by security-aware components.
+     * </p>
+     *
+     * @param user the user entity from the domain layer, must not be null
+     * @throws IllegalArgumentException if user is null
      */
     public CustomUserDetails(User user) {
+        if (user == null) {
+            throw new IllegalArgumentException("User cannot be null");
+        }
         this.user = user;
+        logger.debug("Created CustomUserDetails for user ID: {}, username: {}", 
+                    user.getId(), user.getUsername());
     }
 
     /**
@@ -76,17 +114,37 @@ public class CustomUserDetails implements UserDetails {
 
     /**
      * Returns the authorities granted to the user.
-     * Maps each {@link Role} to a {@link SimpleGrantedAuthority} using its string representation.
      *
-     * @return a collection of granted authorities (e.g., ROLE_USER, ROLE_ADMIN)
+     * <p>
+     * Maps each {@link Role} enum to a {@link SimpleGrantedAuthority} using the role's
+     * authority string representation. The mapping follows Spring Security conventions
+     * where role names are prefixed with "ROLE_".
+     * </p>
+     *
+     * <p>
+     * <strong>Authority Format Examples:</strong>
+     * </p>
+     * <ul>
+     *   <li>{@code Role.USER} → {@code "ROLE_USER"}</li>
+     *   <li>{@code Role.ADMIN} → {@code "ROLE_ADMIN"}</li>
+     *   <li>{@code Role.MODERATOR} → {@code "ROLE_MODERATOR"}</li>
+     * </ul>
+     *
+     * @return a collection of granted authorities based on the user's roles
      */
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return user.getRoles()
+        Collection<? extends GrantedAuthority> authorities = user.getRoles()
                 .stream()
                 .map(Role::getAuthority)
                 .map(SimpleGrantedAuthority::new)
                 .collect(Collectors.toList());
+        
+        logger.debug("Mapped {} roles to authorities for user {}: {}", 
+                    user.getRoles().size(), user.getUsername(), 
+                    authorities.stream().map(GrantedAuthority::getAuthority).collect(Collectors.toList()));
+        
+        return authorities;
     }
 
     /**
@@ -130,6 +188,9 @@ public class CustomUserDetails implements UserDetails {
      */
     @Override
     public boolean isEnabled() {
-        return !user.isPendingDeletion();
+        boolean enabled = !user.isPendingDeletion();
+        logger.debug("User {} enabled status: {} (pending deletion: {})", 
+                    user.getUsername(), enabled, user.isPendingDeletion());
+        return enabled;
     }
 }

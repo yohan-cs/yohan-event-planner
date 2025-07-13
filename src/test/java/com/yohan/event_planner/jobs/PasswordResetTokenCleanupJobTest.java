@@ -123,6 +123,21 @@ class PasswordResetTokenCleanupJobTest {
             assertTrue(statistics.contains("Initial delay: 5 minutes"));
             assertTrue(statistics.contains("Status: ENABLED"));
         }
+
+        @Test
+        void getCleanupStatistics_containsAllExpectedElements() {
+            // Act
+            String statistics = cleanupJob.getCleanupStatistics();
+
+            // Assert
+            assertAll("Statistics should contain all expected elements",
+                () -> assertTrue(statistics.contains("PasswordResetTokenCleanupJob"), "Should contain job name"),
+                () -> assertTrue(statistics.contains("30 minutes"), "Should contain schedule interval"),
+                () -> assertTrue(statistics.contains("5 minutes"), "Should contain initial delay"),
+                () -> assertTrue(statistics.contains("ENABLED"), "Should contain status"),
+                () -> assertTrue(statistics.contains("Token log prefix: 8 chars"), "Should contain token log prefix info")
+            );
+        }
     }
 
     @Nested

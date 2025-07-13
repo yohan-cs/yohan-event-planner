@@ -378,11 +378,12 @@ class CalendarControllerIntegrationTest {
             testDataHelper.saveAndFlush(regularEvent);
             
             // Create recurring event that occurs daily starting July 10, 2025
-            // The default recurring event from TestUtils starts on July 10 (fixed clock date)
             var recurringEvent = testDataHelper.createAndPersistRecurringEvent(user, "Daily Recurring Event");
             recurringEvent.setLabel(label);
             recurringEvent.setUnconfirmed(false); // Make it confirmed so it shows up in calendar
-            // Keep the default start/end dates (July 10 - August 9) to ensure it spans July
+            // Explicitly set start and end dates to match test expectations
+            recurringEvent.setStartDate(LocalDate.of(2025, 7, 10)); // Start July 10, 2025
+            recurringEvent.setEndDate(LocalDate.of(2025, 8, 9));   // End August 9, 2025
             testDataHelper.saveAndFlush(recurringEvent);
             
             // Act + Assert: calendar should include both regular and recurring events

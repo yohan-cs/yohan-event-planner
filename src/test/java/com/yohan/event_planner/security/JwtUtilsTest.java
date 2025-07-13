@@ -18,6 +18,7 @@ import java.util.Base64;
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -140,6 +141,104 @@ class JwtUtilsTest {
             // Act + Assert
             UnauthorizedException ex = assertThrows(UnauthorizedException.class, () -> jwtUtils.getUserIdFromJwtToken("not.a.jwt"));
             assertEquals(UNAUTHORIZED_ACCESS, ex.getErrorCode());
+        }
+    }
+
+    @Nested
+    class RefreshTokenTests {
+
+        @Test
+        void generateRefreshToken_shouldReturnValidUUID() {
+            // Act
+            String token1 = jwtUtils.generateRefreshToken();
+            String token2 = jwtUtils.generateRefreshToken();
+
+            // Assert
+            assertNotNull(token1);
+            assertNotNull(token2);
+            assertNotEquals(token1, token2); // Should be unique
+            // Verify UUID v4 format
+            assertTrue(token1.matches("[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"));
+        }
+
+        @Test
+        void hashRefreshToken_shouldReturnConsistentHash() {
+            // Arrange
+            String token = "test-token";
+
+            // Act
+            String hash1 = jwtUtils.hashRefreshToken(token);
+            String hash2 = jwtUtils.hashRefreshToken(token);
+
+            // Assert
+            assertEquals(hash1, hash2); // Should be deterministic
+            assertNotEquals(token, hash1); // Should be different from input
+            assertNotNull(hash1);
+            assertFalse(hash1.isEmpty());
+        }
+
+        @Test
+        void validateRefreshToken_shouldReturnTrueForValidToken() {
+            // Arrange
+            String token = "test-token";
+            String hash = jwtUtils.hashRefreshToken(token);
+
+            // Act & Assert
+            assertTrue(jwtUtils.validateRefreshToken(token, hash));
+        }
+
+        @Test
+        void validateRefreshToken_shouldReturnFalseForInvalidToken() {
+            // Arrange
+            String validToken = "valid-token";
+            String invalidToken = "invalid-token";
+            String hash = jwtUtils.hashRefreshToken(validToken);
+
+            // Act & Assert
+            assertFalse(jwtUtils.validateRefreshToken(invalidToken, hash));
+        }
+
+        @Test
+        void hashRefreshToken_withNullInput_shouldThrowException() {
+            // Act & Assert
+            IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, 
+                () -> jwtUtils.hashRefreshToken(null));
+            assertEquals("Refresh token cannot be null or blank", ex.getMessage());
+        }
+
+        @Test
+        void hashRefreshToken_withBlankInput_shouldThrowException() {
+            // Act & Assert
+            IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, 
+                () -> jwtUtils.hashRefreshToken("   "));
+            assertEquals("Refresh token cannot be null or blank", ex.getMessage());
+        }
+
+        @Test
+        void validateRefreshToken_withDifferentTokens_shouldReturnFalse() {
+            // Arrange
+            String token1 = "token1";
+            String token2 = "token2";
+            String hash1 = jwtUtils.hashRefreshToken(token1);
+
+            // Act & Assert
+            assertFalse(jwtUtils.validateRefreshToken(token2, hash1));
+        }
+    }
+
+    @Nested
+    class ConfigurationTests {
+
+        @Test
+        void getRefreshTokenExpirationMs_shouldReturnConfiguredValue() throws Exception {
+            // Arrange - Set refresh token expiration via reflection
+            Field refreshExpirationField = JwtUtils.class.getDeclaredField("refreshTokenExpirationMs");
+            refreshExpirationField.setAccessible(true);
+            long expectedExpiration = 604800000L; // 7 days
+            refreshExpirationField.set(jwtUtils, expectedExpiration);
+
+            // Act & Assert
+            assertEquals(expectedExpiration, jwtUtils.getRefreshTokenExpirationMs());
         }
     }
 }

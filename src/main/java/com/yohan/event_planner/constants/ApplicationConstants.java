@@ -52,6 +52,9 @@ public final class ApplicationConstants {
      * This constant is provided for reference and fallback purposes.
      */
     public static final long DEFAULT_JWT_EXPIRATION_MS = 3600000L;
+    
+    /** HMAC-SHA256 algorithm name used for JWT signing and refresh token hashing */
+    public static final String HMAC_SHA256_ALGORITHM = "HmacSHA256";
 
     // ================================
     // User Management Constants
@@ -176,6 +179,23 @@ public final class ApplicationConstants {
     
     /** Character set used for password reset token generation */
     public static final String PASSWORD_RESET_TOKEN_CHARACTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    
+    /** Length of token prefix to show in logs for debugging while maintaining security */
+    public static final int PASSWORD_RESET_TOKEN_LOG_PREFIX_LENGTH = 8;
+
+    // ================================
+    // Refresh Token Cleanup Constants
+    // ================================
+    
+    /** Number of days to retain revoked refresh tokens for audit purposes */
+    public static final int REFRESH_TOKEN_REVOKED_RETENTION_DAYS = 30;
+
+    // ================================
+    // Unverified User Cleanup Constants
+    // ================================
+    
+    /** Maximum age in hours for unverified user accounts before cleanup */
+    public static final int UNVERIFIED_USER_MAX_AGE_HOURS = 24;
 
     // ================================
     // Pagination Constants

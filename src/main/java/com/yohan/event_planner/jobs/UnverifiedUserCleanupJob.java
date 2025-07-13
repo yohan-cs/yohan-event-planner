@@ -1,5 +1,6 @@
 package com.yohan.event_planner.jobs;
 
+import com.yohan.event_planner.constants.ApplicationConstants;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.repository.UserRepository;
 import org.slf4j.Logger;
@@ -74,7 +75,7 @@ public class UnverifiedUserCleanupJob {
     private static final Logger logger = LoggerFactory.getLogger(UnverifiedUserCleanupJob.class);
 
     /** Default maximum age for unverified accounts in hours */
-    private static final long DEFAULT_MAX_AGE_HOURS = 24;
+    private static final long DEFAULT_MAX_AGE_HOURS = ApplicationConstants.UNVERIFIED_USER_MAX_AGE_HOURS;
 
     private final UserRepository userRepository;
 
@@ -134,8 +135,8 @@ public class UnverifiedUserCleanupJob {
             
             long startTime = System.currentTimeMillis();
             
-            // Calculate cutoff time (24 hours ago)
-            ZonedDateTime cutoffTime = ZonedDateTime.now().minusHours(DEFAULT_MAX_AGE_HOURS);
+            // Calculate cutoff time
+            ZonedDateTime cutoffTime = calculateCutoffTime();
             
             // Find unverified users older than cutoff time
             List<User> unverifiedUsers = userRepository.findAllByEmailVerifiedFalseAndCreatedAtBefore(cutoffTime);
@@ -146,19 +147,7 @@ public class UnverifiedUserCleanupJob {
             }
             
             // Delete unverified users
-            int deletedCount = 0;
-            for (User user : unverifiedUsers) {
-                try {
-                    logger.info("Deleting unverified user: {} (created: {}, email: {})", 
-                               user.getUsername(), user.getCreatedAt(), user.getEmail());
-                    userRepository.delete(user);
-                    deletedCount++;
-                } catch (Exception e) {
-                    logger.error("Failed to delete unverified user: {} (id: {})", 
-                                user.getUsername(), user.getId(), e);
-                    // Continue with next user - don't let one failure stop the cleanup
-                }
-            }
+            int deletedCount = deleteUnverifiedUsers(unverifiedUsers);
             
             long duration = System.currentTimeMillis() - startTime;
             
@@ -196,30 +185,20 @@ public class UnverifiedUserCleanupJob {
      * @return the number of unverified users that were deleted
      */
     public int performImmediateCleanup() {
+        logger.debug("Starting immediate unverified user cleanup");
         logger.info("Performing immediate unverified user cleanup");
         
         try {
             long startTime = System.currentTimeMillis();
             
-            // Calculate cutoff time (24 hours ago)
-            ZonedDateTime cutoffTime = ZonedDateTime.now().minusHours(DEFAULT_MAX_AGE_HOURS);
+            // Calculate cutoff time
+            ZonedDateTime cutoffTime = calculateCutoffTime();
             
             // Find unverified users older than cutoff time
             List<User> unverifiedUsers = userRepository.findAllByEmailVerifiedFalseAndCreatedAtBefore(cutoffTime);
             
             // Delete unverified users
-            int deletedCount = 0;
-            for (User user : unverifiedUsers) {
-                try {
-                    logger.info("Deleting unverified user: {} (created: {}, email: {})", 
-                               user.getUsername(), user.getCreatedAt(), user.getEmail());
-                    userRepository.delete(user);
-                    deletedCount++;
-                } catch (Exception e) {
-                    logger.error("Failed to delete unverified user: {} (id: {})", 
-                                user.getUsername(), user.getId(), e);
-                }
-            }
+            int deletedCount = deleteUnverifiedUsers(unverifiedUsers);
             
             long duration = System.currentTimeMillis() - startTime;
             
@@ -254,7 +233,57 @@ public class UnverifiedUserCleanupJob {
     }
 
     /**
+     * Calculates the cutoff time for unverified user cleanup.
+     *
+     * <p>
+     * This method calculates the cutoff time by subtracting the maximum age
+     * for unverified accounts from the current time. Users created before
+     * this cutoff time are eligible for cleanup.
+     * </p>
+     *
+     * @return the cutoff time (current time minus max age hours)
+     */
+    private ZonedDateTime calculateCutoffTime() {
+        return ZonedDateTime.now().minusHours(DEFAULT_MAX_AGE_HOURS);
+    }
+
+    /**
+     * Deletes a list of unverified users with individual error handling.
+     *
+     * <p>
+     * This method iterates through the provided list of users and attempts
+     * to delete each one individually. If deletion of a single user fails,
+     * the error is logged and processing continues with the next user.
+     * </p>
+     *
+     * @param unverifiedUsers the list of users to delete
+     * @return the number of users successfully deleted
+     */
+    private int deleteUnverifiedUsers(List<User> unverifiedUsers) {
+        int deletedCount = 0;
+        for (User user : unverifiedUsers) {
+            try {
+                logger.info("Deleting unverified user: {} (created: {}, email: {})", 
+                           user.getUsername(), user.getCreatedAt(), user.getEmail());
+                userRepository.delete(user);
+                deletedCount++;
+            } catch (Exception e) {
+                logger.error("Failed to delete unverified user: {} (id: {})", 
+                            user.getUsername(), user.getId(), e);
+                // Continue with next user - don't let one failure stop the cleanup
+            }
+        }
+        return deletedCount;
+    }
+
+    /**
      * Checks if the cleanup job is currently enabled.
+     * 
+     * <p>
+     * This method always returns true since the component is only created
+     * when the {@code app.user-cleanup.unverified.enabled} property is true
+     * or missing (default behavior).
+     * </p>
      *
      * @return true if the cleanup job is enabled, false otherwise
      */

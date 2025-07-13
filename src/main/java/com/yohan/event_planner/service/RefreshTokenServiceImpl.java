@@ -41,11 +41,11 @@ import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
  *   <li>{@link JwtUtils} - Cryptographic token operations (generation, hashing, validation)</li>
  *   <li>{@link RefreshTokenRepository} - Persistent token storage with optimized queries</li>
  *   <li>{@link UserRepository} - User validation for token refresh operations</li>
- *   <li>{@link com.yohan.event_planner.jobs.TokenCleanupJob} - Automated maintenance of token hygiene</li>
+ *   <li>{@link com.yohan.event_planner.jobs.RefreshTokenCleanupJob} - Automated maintenance of token hygiene</li>
  * </ul>
  *
  * @see RefreshTokenService
- * @see com.yohan.event_planner.jobs.TokenCleanupJob
+ * @see com.yohan.event_planner.jobs.RefreshTokenCleanupJob
  */
 @Service
 public class RefreshTokenServiceImpl implements RefreshTokenService {

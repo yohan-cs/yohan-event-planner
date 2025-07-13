@@ -1,5 +1,6 @@
 package com.yohan.event_planner.jobs;
 
+import com.yohan.event_planner.constants.ApplicationConstants;
 import com.yohan.event_planner.service.PasswordResetService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -167,6 +168,7 @@ public class PasswordResetTokenCleanupJob {
      * @return the number of tokens that were deleted
      */
     public int performImmediateCleanup() {
+        logger.debug("Starting immediate password reset token cleanup");
         logger.info("Performing immediate password reset token cleanup");
         
         try {
@@ -197,15 +199,23 @@ public class PasswordResetTokenCleanupJob {
      * @return a string containing cleanup job statistics
      */
     public String getCleanupStatistics() {
+        logger.debug("Retrieving cleanup job statistics");
         return String.format(
             "PasswordResetTokenCleanupJob - Schedule: every 30 minutes, " +
-            "Initial delay: 5 minutes, Status: %s",
-            isJobEnabled() ? "ENABLED" : "DISABLED"
+            "Initial delay: 5 minutes, Status: %s, Token log prefix: %d chars",
+            isJobEnabled() ? "ENABLED" : "DISABLED",
+            ApplicationConstants.PASSWORD_RESET_TOKEN_LOG_PREFIX_LENGTH
         );
     }
 
     /**
      * Checks if the cleanup job is currently enabled.
+     * 
+     * <p>
+     * This method always returns true since the component is only created
+     * when the {@code app.password-reset.cleanup.enabled} property is true
+     * or missing (default behavior).
+     * </p>
      *
      * @return true if the cleanup job is enabled, false otherwise
      */

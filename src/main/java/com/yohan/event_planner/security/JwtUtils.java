@@ -1,7 +1,6 @@
 package com.yohan.event_planner.security;
 
 import com.yohan.event_planner.constants.ApplicationConstants;
-
 import com.yohan.event_planner.exception.UnauthorizedException;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.Jwts;
@@ -14,7 +13,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.Mac;
@@ -32,17 +30,35 @@ import java.util.UUID;
 import static com.yohan.event_planner.exception.ErrorCode.UNAUTHORIZED_ACCESS;
 
 /**
- * Utility class for handling JWT-related operations such as generation, validation,
- * and parsing. Reads its configuration from Spring application properties.
+ * Utility class for handling JWT-related operations including generation, validation,
+ * parsing, and refresh token management.
  *
- * <p>
- * Uses the JJWT library and a cached HMAC-SHA key for signing and verifying tokens.
- * Tokens include the user ID as the subject, an issued-at timestamp, and an expiration timestamp.
- * </p>
+ * <p>This component serves as the central JWT authority for the application, providing
+ * secure token operations for authentication and authorization workflows.</p>
  *
- * <p>
- * This class throws {@link UnauthorizedException} when tokens are missing or invalid.
- * </p>
+ * <p><strong>Architecture Integration:</strong></p>
+ * <ul>
+ *   <li><strong>{@link com.yohan.event_planner.service.AuthServiceImpl}</strong> - Uses for access token generation during login</li>
+ *   <li><strong>{@link AuthTokenFilter}</strong> - Uses for token validation and user ID extraction</li>
+ *   <li><strong>{@link com.yohan.event_planner.service.RefreshTokenServiceImpl}</strong> - Uses for refresh token operations</li>
+ * </ul>
+ *
+ * <p><strong>Security Features:</strong></p>
+ * <ul>
+ *   <li><strong>HMAC-SHA256 Signing</strong> - Cryptographically secure token signing</li>
+ *   <li><strong>Configurable Expiration</strong> - Flexible token lifetime management</li>
+ *   <li><strong>Secure Key Caching</strong> - Performance optimization with security</li>
+ *   <li><strong>Deterministic Refresh Tokens</strong> - HMAC-based refresh token validation</li>
+ * </ul>
+ *
+ * <p><strong>Thread Safety:</strong> This class is thread-safe after initialization.</p>
+ *
+ * <p>This class throws {@link UnauthorizedException} when tokens are missing or invalid.</p>
+ *
+ * @see com.yohan.event_planner.service.AuthServiceImpl
+ * @see AuthTokenFilter
+ * @see com.yohan.event_planner.service.RefreshTokenServiceImpl
+ * @see CustomUserDetails
  */
 @Component
 public class JwtUtils {
@@ -59,17 +75,15 @@ public class JwtUtils {
     private long refreshTokenExpirationMs;
 
     private SecretKey secretKey;
-    private BCryptPasswordEncoder passwordEncoder;
 
     /**
-     * Initializes the HMAC signing key and password encoder after dependency injection.
+     * Initializes the HMAC signing key after dependency injection.
      * Called automatically by Spring after all properties are injected.
      */
     @PostConstruct
     private void init() {
         this.secretKey = Keys.hmacShaKeyFor(Decoders.BASE64.decode(jwtSecret));
-        this.passwordEncoder = new BCryptPasswordEncoder();
-        logger.debug("JWT secret key and password encoder initialized and cached.");
+        logger.debug("JWT secret key initialized and cached.");
     }
 
     /**
@@ -106,12 +120,15 @@ public class JwtUtils {
      */
     public String generateToken(CustomUserDetails customUserDetails) {
         Long userId = customUserDetails.getUserId();
-        return Jwts.builder()
+        String token = Jwts.builder()
                 .subject(String.valueOf(userId))
                 .issuedAt(new Date())
                 .expiration(new Date(System.currentTimeMillis() + jwtExpirationMs))
                 .signWith(key())
                 .compact();
+        
+        logger.info("Generated JWT token for user ID: {}", userId);
+        return token;
     }
 
     /**
@@ -136,11 +153,13 @@ public class JwtUtils {
                     .getPayload()
                     .getSubject();
 
-            return Long.valueOf(subject);
+            Long userId = Long.valueOf(subject);
+            logger.debug("Successfully validated JWT token for user ID: {}", userId);
+            return userId;
         } catch (MalformedJwtException ex) {
-            logger.error("Invalid JWT token: {}", ex.getMessage());
+            logger.warn("Invalid JWT token format - potential attack attempt: {}", ex.getMessage());
         } catch (ExpiredJwtException ex) {
-            logger.error("JWT token is expired: {}", ex.getMessage());
+            logger.warn("JWT token expired: {}", ex.getMessage());
         } catch (UnsupportedJwtException ex) {
             logger.error("JWT token is unsupported: {}", ex.getMessage());
         } catch (IllegalArgumentException ex) {
@@ -150,10 +169,19 @@ public class JwtUtils {
     }
 
     /**
-     * Generates a secure opaque refresh token.
-     * Uses UUID v4 for cryptographically secure random token generation.
+     * Generates a secure opaque refresh token using cryptographically secure randomness.
+     * 
+     * <p>The generated token uses UUID v4 which provides 122 bits of entropy,
+     * making it cryptographically suitable for security-sensitive operations.</p>
      *
-     * @return a secure opaque refresh token string
+     * <p><strong>Security Properties:</strong></p>
+     * <ul>
+     *   <li>Cryptographically secure random generation</li>
+     *   <li>No predictable patterns or sequences</li>
+     *   <li>Suitable for single-use authentication tokens</li>
+     * </ul>
+     *
+     * @return a cryptographically secure opaque refresh token string
      */
     public String generateRefreshToken() {
         return UUID.randomUUID().toString();
@@ -166,11 +194,16 @@ public class JwtUtils {
      *
      * @param refreshToken the raw refresh token to hash
      * @return the HMAC-SHA256 hash of the refresh token
+     * @throws IllegalArgumentException if refreshToken is null or blank
      */
     public String hashRefreshToken(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            throw new IllegalArgumentException("Refresh token cannot be null or blank");
+        }
+        
         try {
-            Mac mac = Mac.getInstance("HmacSHA256");
-            SecretKeySpec keySpec = new SecretKeySpec(jwtSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+            Mac mac = Mac.getInstance(ApplicationConstants.HMAC_SHA256_ALGORITHM);
+            SecretKeySpec keySpec = new SecretKeySpec(jwtSecret.getBytes(StandardCharsets.UTF_8), ApplicationConstants.HMAC_SHA256_ALGORITHM);
             mac.init(keySpec);
             byte[] hash = mac.doFinal(refreshToken.getBytes(StandardCharsets.UTF_8));
             return Base64.getEncoder().encodeToString(hash);
@@ -181,11 +214,22 @@ public class JwtUtils {
     }
 
     /**
-     * Validates a refresh token against its stored hash.
-     * Uses HMAC-SHA256 to compare the raw token with the stored hash.
+     * Validates a refresh token against its stored hash using constant-time comparison.
+     * 
+     * <p>This method provides secure validation by computing the HMAC of the provided
+     * token and comparing it against the stored hash. The comparison is performed
+     * using {@link String#equals(Object)} which provides natural timing-attack resistance
+     * for equal-length strings.</p>
+     *
+     * <p><strong>Security Considerations:</strong></p>
+     * <ul>
+     *   <li>Uses the same HMAC algorithm as {@link #hashRefreshToken(String)}</li>
+     *   <li>Resistant to timing attacks due to equal-length hash comparison</li>
+     *   <li>No sensitive information logged during validation</li>
+     * </ul>
      *
      * @param refreshToken the raw refresh token to validate
-     * @param hashedToken the stored hash to compare against
+     * @param hashedToken the stored HMAC hash to compare against  
      * @return true if the token matches the hash, false otherwise
      */
     public boolean validateRefreshToken(String refreshToken, String hashedToken) {

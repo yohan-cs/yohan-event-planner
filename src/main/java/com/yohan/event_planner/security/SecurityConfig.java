@@ -36,13 +36,16 @@ public class SecurityConfig {
 
     private final AuthTokenFilter authTokenFilter;
     private final AuthEntryPointJwt authEntryPointJwt;
+    private final CustomAccessDeniedHandler customAccessDeniedHandler;
     private final UserDetailsServiceImpl userDetailsService;
 
     public SecurityConfig(AuthTokenFilter authTokenFilter,
                           AuthEntryPointJwt authEntryPointJwt,
+                          CustomAccessDeniedHandler customAccessDeniedHandler,
                           UserDetailsServiceImpl userDetailsService) {
         this.authTokenFilter = authTokenFilter;
         this.authEntryPointJwt = authEntryPointJwt;
+        this.customAccessDeniedHandler = customAccessDeniedHandler;
         this.userDetailsService = userDetailsService;
     }
 
@@ -53,6 +56,8 @@ public class SecurityConfig {
      *     <li>JWT filter added before username/password filter</li>
      *     <li>{@code /auth/**} is publicly accessible</li>
      *     <li>All other endpoints require authentication</li>
+     *     <li>Custom authentication entry point for 401 (unauthorized) responses</li>
+     *     <li>Custom access denied handler for 403 (forbidden) responses</li>
      * </ul>
      *
      * @param http the HTTP security builder
@@ -77,6 +82,7 @@ public class SecurityConfig {
 
         http.exceptionHandling(exception ->
                 exception.authenticationEntryPoint(authEntryPointJwt)
+                         .accessDeniedHandler(customAccessDeniedHandler)
         );
 
         http.addFilterBefore(authTokenFilter, UsernamePasswordAuthenticationFilter.class);
