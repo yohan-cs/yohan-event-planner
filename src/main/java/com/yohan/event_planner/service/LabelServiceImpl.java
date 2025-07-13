@@ -294,7 +294,7 @@ public class LabelServiceImpl implements LabelService {
             throw new LabelException(DUPLICATE_LABEL, trimmedName);
         }
 
-        Label savedLabel = labelRepository.save(new Label(trimmedName, creator));
+        Label savedLabel = labelRepository.save(new Label(trimmedName, dto.color(), creator));
         logger.debug("Successfully created label with ID {} for user {}", savedLabel.getId(), creator.getId());
         return labelMapper.toResponseDTO(savedLabel);
     }
@@ -365,6 +365,12 @@ public class LabelServiceImpl implements LabelService {
             } else {
                 logger.debug("Label {} name unchanged (after trimming), skipping update", labelId);
             }
+        }
+
+        if (dto.color() != null && !dto.color().equals(label.getColor())) {
+            logger.debug("Updating label {} color from '{}' to '{}'", labelId, label.getColor(), dto.color());
+            label.setColor(dto.color());
+            updated = true;
         }
 
         if (updated) {

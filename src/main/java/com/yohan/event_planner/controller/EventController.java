@@ -234,6 +234,27 @@ public class EventController {
         return response;
     }
 
+    @Operation(
+            summary = "Create impromptu event",
+            description = "Create a new impromptu event with current timestamp. The event is automatically pinned for the user as a dashboard reminder."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(
+                    responseCode = "201", 
+                    description = "Impromptu event created successfully and automatically pinned",
+                    content = @Content(schema = @Schema(implementation = EventResponseDTO.class))
+            ),
+            @ApiResponse(responseCode = "401", description = "Unauthorized - JWT token required")
+    })
+    @PostMapping("/impromptu")
+    @ResponseStatus(HttpStatus.CREATED)
+    public EventResponseDTO createImpromptuEvent() {
+        logger.info("Creating impromptu event");
+        EventResponseDTO response = eventService.createImpromptuEvent();
+        logger.info("Successfully created impromptu event with ID: {}", response.id());
+        return response;
+    }
+
     // ==============================
     // region Event Recaps
     // ==============================

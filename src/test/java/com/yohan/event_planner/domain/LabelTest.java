@@ -1,5 +1,6 @@
 package com.yohan.event_planner.domain;
 
+import com.yohan.event_planner.domain.enums.LabelColor;
 import com.yohan.event_planner.util.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
@@ -24,25 +25,28 @@ class LabelTest {
 
         @Test
         void constructor_shouldSetNameAndCreator() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.RED, creator);
 
             assertThat(label.getName()).isEqualTo(LABEL_NAME);
+            assertThat(label.getColor()).isEqualTo(LabelColor.RED);
             assertThat(label.getCreator()).isEqualTo(creator);
         }
 
         @Test
         void constructor_withNullName_shouldAllowNull() {
-            Label label = new Label(null, creator);
+            Label label = new Label(null, LabelColor.BLUE, creator);
 
             assertThat(label.getName()).isNull();
+            assertThat(label.getColor()).isEqualTo(LabelColor.BLUE);
             assertThat(label.getCreator()).isEqualTo(creator);
         }
 
         @Test
         void constructor_withNullCreator_shouldAllowNull() {
-            Label label = new Label(LABEL_NAME, null);
+            Label label = new Label(LABEL_NAME, LabelColor.GREEN, null);
 
             assertThat(label.getName()).isEqualTo(LABEL_NAME);
+            assertThat(label.getColor()).isEqualTo(LabelColor.GREEN);
             assertThat(label.getCreator()).isNull();
         }
 
@@ -51,13 +55,14 @@ class LabelTest {
             Label label = new Label();
 
             assertThat(label.getName()).isNull();
+            assertThat(label.getColor()).isNull();
             assertThat(label.getCreator()).isNull();
             assertThat(label.getId()).isNull();
         }
 
         @Test
         void newLabel_shouldHaveNullId() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.PURPLE, creator);
 
             assertThat(label.getId()).isNull(); // Not persisted yet
         }
@@ -68,7 +73,7 @@ class LabelTest {
 
         @Test
         void setName_shouldUpdateName() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.ORANGE, creator);
             String newName = "Updated Label Name";
 
             label.setName(newName);
@@ -78,7 +83,7 @@ class LabelTest {
 
         @Test
         void setName_withNull_shouldSetNull() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.YELLOW, creator);
 
             label.setName(null);
 
@@ -87,7 +92,7 @@ class LabelTest {
 
         @Test
         void setCreator_shouldUpdateCreator() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.TEAL, creator);
 
             label.setCreator(otherUser);
 
@@ -96,7 +101,7 @@ class LabelTest {
 
         @Test
         void setCreator_withNull_shouldSetNull() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.PINK, creator);
 
             label.setCreator(null);
 
@@ -109,8 +114,8 @@ class LabelTest {
 
         @Test
         void equals_withSameId_shouldReturnTrue() {
-            Label label1 = new Label("Label 1", creator);
-            Label label2 = new Label("Label 2", otherUser);
+            Label label1 = new Label("Label 1", LabelColor.RED, creator);
+            Label label2 = new Label("Label 2", LabelColor.BLUE, otherUser);
             
             setLabelId(label1, 1L);
             setLabelId(label2, 1L);
@@ -120,8 +125,8 @@ class LabelTest {
 
         @Test
         void equals_withDifferentIds_shouldReturnFalse() {
-            Label label1 = new Label(LABEL_NAME, creator);
-            Label label2 = new Label(LABEL_NAME, creator);
+            Label label1 = new Label(LABEL_NAME, LabelColor.GREEN, creator);
+            Label label2 = new Label(LABEL_NAME, LabelColor.GREEN, creator);
             
             setLabelId(label1, 1L);
             setLabelId(label2, 2L);
@@ -131,8 +136,8 @@ class LabelTest {
 
         @Test
         void equals_withNullIds_shouldReturnFalse() {
-            Label label1 = new Label(LABEL_NAME, creator);
-            Label label2 = new Label(LABEL_NAME, creator);
+            Label label1 = new Label(LABEL_NAME, LabelColor.PURPLE, creator);
+            Label label2 = new Label(LABEL_NAME, LabelColor.PURPLE, creator);
 
             // Without IDs, they should not be equal (ID-only equality)
             assertThat(label1).isNotEqualTo(label2);
@@ -140,8 +145,8 @@ class LabelTest {
 
         @Test
         void equals_withOneNullId_shouldReturnFalse() {
-            Label label1 = new Label(LABEL_NAME, creator);
-            Label label2 = new Label(LABEL_NAME, creator);
+            Label label1 = new Label(LABEL_NAME, LabelColor.ORANGE, creator);
+            Label label2 = new Label(LABEL_NAME, LabelColor.ORANGE, creator);
             
             setLabelId(label1, 1L);
             // label2 has null ID
@@ -151,8 +156,8 @@ class LabelTest {
 
         @Test
         void equals_withSameNameDifferentCreators_shouldNotMatterForEquality() {
-            Label label1 = new Label(LABEL_NAME, creator);
-            Label label2 = new Label(LABEL_NAME, otherUser);
+            Label label1 = new Label(LABEL_NAME, LabelColor.TEAL, creator);
+            Label label2 = new Label(LABEL_NAME, LabelColor.TEAL, otherUser);
             
             setLabelId(label1, 1L);
             setLabelId(label2, 1L);
@@ -163,28 +168,28 @@ class LabelTest {
 
         @Test
         void equals_withSelf_shouldReturnTrue() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.YELLOW, creator);
 
             assertThat(label).isEqualTo(label);
         }
 
         @Test
         void equals_withNull_shouldReturnFalse() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.GRAY, creator);
 
             assertThat(label).isNotEqualTo(null);
         }
 
         @Test
         void equals_withDifferentClass_shouldReturnFalse() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.BLUE, creator);
 
             assertThat(label).isNotEqualTo("not a label");
         }
 
         @Test
         void hashCode_withId_shouldUseIdHashCode() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.BLUE, creator);
             setLabelId(label, 1L);
 
             assertThat(label.hashCode()).isEqualTo(Long.valueOf(1L).hashCode());
@@ -192,15 +197,15 @@ class LabelTest {
 
         @Test
         void hashCode_withNullId_shouldReturnZero() {
-            Label label = new Label(LABEL_NAME, creator);
+            Label label = new Label(LABEL_NAME, LabelColor.BLUE, creator);
 
             assertThat(label.hashCode()).isZero();
         }
 
         @Test
         void hashCode_shouldBeConsistentWithEquals() {
-            Label label1 = new Label("Label 1", creator);
-            Label label2 = new Label("Label 2", otherUser);
+            Label label1 = new Label("Label 1", LabelColor.RED, creator);
+            Label label2 = new Label("Label 2", LabelColor.GREEN, otherUser);
             
             setLabelId(label1, 1L);
             setLabelId(label2, 1L);
@@ -210,8 +215,8 @@ class LabelTest {
 
         @Test
         void hashCode_shouldIgnoreNameAndCreator() {
-            Label label1 = new Label("Label 1", creator);
-            Label label2 = new Label("Label 2", otherUser);
+            Label label1 = new Label("Label 1", LabelColor.RED, creator);
+            Label label2 = new Label("Label 2", LabelColor.GREEN, otherUser);
             
             setLabelId(label1, 1L);
             setLabelId(label2, 1L);
@@ -226,8 +231,8 @@ class LabelTest {
 
         @Test
         void idBasedEquality_shouldWorkForCollections() {
-            Label label1 = new Label(LABEL_NAME, creator);
-            Label label2 = new Label(LABEL_NAME, creator);
+            Label label1 = new Label(LABEL_NAME, LabelColor.BLUE, creator);
+            Label label2 = new Label(LABEL_NAME, LabelColor.BLUE, creator);
             
             setLabelId(label1, 1L);
             setLabelId(label2, 1L);
@@ -242,8 +247,8 @@ class LabelTest {
 
         @Test
         void differentIds_shouldBeTreatedAsDifferentEntities() {
-            Label label1 = new Label(LABEL_NAME, creator);
-            Label label2 = new Label(LABEL_NAME, creator);
+            Label label1 = new Label(LABEL_NAME, LabelColor.BLUE, creator);
+            Label label2 = new Label(LABEL_NAME, LabelColor.BLUE, creator);
             
             setLabelId(label1, 1L);
             setLabelId(label2, 2L);
@@ -257,8 +262,8 @@ class LabelTest {
 
         @Test
         void transientEntities_shouldNotBeEqual() {
-            Label label1 = new Label(LABEL_NAME, creator);
-            Label label2 = new Label(LABEL_NAME, creator);
+            Label label1 = new Label(LABEL_NAME, LabelColor.BLUE, creator);
+            Label label2 = new Label(LABEL_NAME, LabelColor.BLUE, creator);
 
             // Both have null IDs (transient entities)
             java.util.Set<Label> labelSet = new java.util.HashSet<>();
@@ -274,8 +279,8 @@ class LabelTest {
 
         @Test
         void sameNameDifferentUsers_shouldBeAllowed() {
-            Label label1 = new Label(LABEL_NAME, creator);
-            Label label2 = new Label(LABEL_NAME, otherUser);
+            Label label1 = new Label(LABEL_NAME, LabelColor.BLUE, creator);
+            Label label2 = new Label(LABEL_NAME, LabelColor.TEAL, otherUser);
 
             assertThat(label1.getName()).isEqualTo(label2.getName());
             assertThat(label1.getCreator()).isNotEqualTo(label2.getCreator());
@@ -283,8 +288,8 @@ class LabelTest {
 
         @Test
         void differentNamesSameUser_shouldBeAllowed() {
-            Label label1 = new Label("Work", creator);
-            Label label2 = new Label("Personal", creator);
+            Label label1 = new Label("Work", LabelColor.ORANGE, creator);
+            Label label2 = new Label("Personal", LabelColor.PURPLE, creator);
 
             assertThat(label1.getName()).isNotEqualTo(label2.getName());
             assertThat(label1.getCreator()).isEqualTo(label2.getCreator());
@@ -292,8 +297,8 @@ class LabelTest {
 
         @Test
         void caseSensitiveNames_shouldBeTreatedAsDifferent() {
-            Label label1 = new Label("work", creator);
-            Label label2 = new Label("Work", creator);
+            Label label1 = new Label("work", LabelColor.YELLOW, creator);
+            Label label2 = new Label("Work", LabelColor.PINK, creator);
 
             // Names are case-sensitive, so these should be different
             assertThat(label1.getName()).isNotEqualTo(label2.getName());
@@ -305,7 +310,7 @@ class LabelTest {
 
         @Test
         void emptyName_shouldBeAllowed() {
-            Label label = new Label("", creator);
+            Label label = new Label("", LabelColor.TEAL, creator);
 
             assertThat(label.getName()).isEmpty();
         }
@@ -313,7 +318,7 @@ class LabelTest {
         @Test
         void whitespaceOnlyName_shouldBePreserved() {
             String whitespaceName = "   ";
-            Label label = new Label(whitespaceName, creator);
+            Label label = new Label(whitespaceName, LabelColor.GRAY, creator);
 
             assertThat(label.getName()).isEqualTo(whitespaceName);
         }
@@ -321,7 +326,7 @@ class LabelTest {
         @Test
         void longName_shouldBeAllowed() {
             String longName = "This is a very long label name that might be used for detailed categorization";
-            Label label = new Label(longName, creator);
+            Label label = new Label(longName, LabelColor.RED, creator);
 
             assertThat(label.getName()).isEqualTo(longName);
         }
@@ -329,7 +334,7 @@ class LabelTest {
         @Test
         void specialCharactersInName_shouldBePreserved() {
             String specialName = "Work@Home-2024_#1";
-            Label label = new Label(specialName, creator);
+            Label label = new Label(specialName, LabelColor.ORANGE, creator);
 
             assertThat(label.getName()).isEqualTo(specialName);
         }
@@ -337,7 +342,7 @@ class LabelTest {
         @Test
         void unicodeCharactersInName_shouldBeSupported() {
             String unicodeName = "工作 🏢 Travail";
-            Label label = new Label(unicodeName, creator);
+            Label label = new Label(unicodeName, LabelColor.PURPLE, creator);
 
             assertThat(label.getName()).isEqualTo(unicodeName);
         }

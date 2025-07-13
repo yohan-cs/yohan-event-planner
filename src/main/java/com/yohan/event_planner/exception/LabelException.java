@@ -52,6 +52,7 @@ public class LabelException extends RuntimeException implements HasErrorCode {
     private static String buildMessage(ErrorCode errorCode, String labelName) {
         return switch (errorCode) {
             case DUPLICATE_LABEL -> "Label with name '" + labelName + "' already exists.";
+            case NULL_FIELD_NOT_ALLOWED -> labelName != null ? labelName : "Field cannot be null or empty.";
             default -> "Label validation error with code: " + errorCode.name();
         };
     }

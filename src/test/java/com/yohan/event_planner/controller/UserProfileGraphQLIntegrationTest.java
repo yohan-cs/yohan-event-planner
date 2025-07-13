@@ -1717,4 +1717,121 @@ class UserProfileGraphQLIntegrationTest {
         }
     }
 
+    @Nested
+    class UnpinImpromptuEventTests {
+
+        @Test
+        void testUnpinImpromptuEvent_Success() throws Exception {
+            // Arrange
+            var auth = testDataHelper.registerAndLoginUserWithUser("unpin_user");
+            
+            // Create and pin an impromptu event using TestDataHelper
+            testDataHelper.createAndPinImpromptuEvent(auth.user());
+
+            // Build unpin mutation
+            String unpinMutation = """
+                {
+                  "query": "mutation { unpinImpromptuEvent }"
+                }
+                """;
+
+            // Act & Assert
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(unpinMutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.unpinImpromptuEvent").value(true));
+        }
+
+        @Test
+        void testUnpinImpromptuEvent_WhenNoPinnedEvent_StillReturnsTrue() throws Exception {
+            // Arrange
+            var auth = testDataHelper.registerAndLoginUserWithUser("no_pinned_user");
+
+            // Build unpin mutation without creating any pinned event first
+            String unpinMutation = """
+                {
+                  "query": "mutation { unpinImpromptuEvent }"
+                }
+                """;
+
+            // Act & Assert
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(unpinMutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.unpinImpromptuEvent").value(true));
+        }
+
+        @Test
+        void testUnpinImpromptuEvent_RequiresAuthentication() throws Exception {
+            // Build unpin mutation
+            String unpinMutation = """
+                {
+                  "query": "mutation { unpinImpromptuEvent }"
+                }
+                """;
+
+            // Act & Assert - GraphQL returns 200 but with errors in response
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(unpinMutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.errors").exists())
+                    .andExpect(jsonPath("$.errors[0].message").exists());
+        }
+
+        @Test
+        void testCreateImpromptuEventAndThenUnpin_IntegrationFlow() throws Exception {
+            // Arrange
+            var auth = testDataHelper.registerAndLoginUserWithUser("flow_user");
+            
+            // Step 1: Create and pin an impromptu event using TestDataHelper
+            testDataHelper.createAndPinImpromptuEvent(auth.user());
+
+            // Step 2: Check user profile shows pinned event
+            String profileQuery = String.format("""
+                {
+                  "query": "query($username: String!) { userProfile(username: $username) { isSelf pinnedImpromptuEvent { id impromptu } } }",
+                  "variables": { "username": "%s" }
+                }
+                """, auth.user().getUsername());
+            
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(profileQuery))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.userProfile.isSelf").value(true))
+                    .andExpect(jsonPath("$.data.userProfile.pinnedImpromptuEvent").exists())
+                    .andExpect(jsonPath("$.data.userProfile.pinnedImpromptuEvent.impromptu").value(true));
+
+            // Step 3: Unpin the event
+            String unpinMutation = """
+                {
+                  "query": "mutation { unpinImpromptuEvent }"
+                }
+                """;
+            
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(unpinMutation))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.unpinImpromptuEvent").value(true));
+
+            // Step 4: Verify pinned event is removed from profile
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + auth.jwt())
+                            .content(profileQuery))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.userProfile.isSelf").value(true))
+                    .andExpect(jsonPath("$.data.userProfile.pinnedImpromptuEvent").doesNotExist());
+        }
+
+    }
+
 }

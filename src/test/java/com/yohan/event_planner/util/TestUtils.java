@@ -10,6 +10,7 @@ import com.yohan.event_planner.domain.RecurrenceRuleVO;
 import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.RefreshToken;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.domain.enums.LabelColor;
 import com.yohan.event_planner.domain.enums.RecapMediaType;
 import com.yohan.event_planner.domain.enums.RecurrenceFrequency;
 import com.yohan.event_planner.domain.enums.TimeBucketType;
@@ -357,6 +358,7 @@ public class TestUtils {
                 labelDto,
                 event.isCompleted(),
                 event.isUnconfirmed(),
+                event.isImpromptu(),
                 false
         );
     }
@@ -379,6 +381,7 @@ public class TestUtils {
                 VALID_USERNAME,
                 VALID_TIMEZONE,
                 labelDto,
+                false,
                 false,
                 false,
                 false
@@ -404,6 +407,7 @@ public class TestUtils {
                 VALID_TIMEZONE,
                 labelDto,
                 true,   // completed flag
+                false,
                 false,
                 false
         );
@@ -614,6 +618,17 @@ public class TestUtils {
         return event;
     }
 
+    /**
+     * Creates a valid impromptu event with an assigned ID.
+     */
+    public static Event createValidImpromptuEventWithId(Long id, User creator, Clock clock) {
+        Objects.requireNonNull(clock, "clock must not be null");
+
+        Event event = createValidImpromptuEvent(creator, clock);
+        setEventId(event, id);
+        return event;
+    }
+
     public static void setEventId(Event event, Long id) {
         setId(event, id);
     }
@@ -678,6 +693,7 @@ public class TestUtils {
                 recurringEvent.getCreator().getUsername(),
                 recurringEvent.getCreator().getTimezone(),
                 label,
+                false,
                 false,
                 false,
                 true
@@ -746,6 +762,7 @@ public class TestUtils {
         return new LabelResponseDTO(
                 label.getId(),
                 label.getName(),
+                label.getColor(),
                 label.getCreator() != null ? label.getCreator().getUsername() : null
         );
     }
@@ -770,7 +787,7 @@ public class TestUtils {
         Objects.requireNonNull(name, "label name must not be null");
         Objects.requireNonNull(creator, "creator must not be null");
 
-        Label label = new Label(name, creator);
+        Label label = new Label(name, LabelColor.BLUE, creator);
         setLabelId(label, id);
         return label;
     }
@@ -782,7 +799,7 @@ public class TestUtils {
         Objects.requireNonNull(creator, "creator must not be null");
         Objects.requireNonNull(name, "name must not be null");
 
-        return new Label(name, creator);
+        return new Label(name, LabelColor.GRAY, creator);
     }
 
     /**

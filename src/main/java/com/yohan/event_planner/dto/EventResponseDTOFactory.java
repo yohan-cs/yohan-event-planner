@@ -29,6 +29,7 @@ public class EventResponseDTOFactory {
         LabelResponseDTO labelDto = new LabelResponseDTO(
                 label.getId(),
                 label.getName(),
+                label.getColor(),
                 label.getCreator() != null ? label.getCreator().getUsername() : null
         );
 
@@ -46,6 +47,7 @@ public class EventResponseDTOFactory {
                 labelDto,
                 event.isCompleted(),
                 event.isUnconfirmed(),
+                event.isImpromptu(),
                 false
         );
     }
@@ -65,6 +67,7 @@ public class EventResponseDTOFactory {
         LabelResponseDTO labelDto = new LabelResponseDTO(
                 label.getId(),
                 label.getName(),
+                label.getColor(),
                 label.getCreator() != null ? label.getCreator().getUsername() : null
         );
 
@@ -80,6 +83,7 @@ public class EventResponseDTOFactory {
                 recurringEvent.getCreator().getUsername(),
                 recurringEvent.getCreator().getTimezone(),
                 labelDto,
+                false,
                 false,
                 false,
                 true

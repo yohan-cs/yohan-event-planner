@@ -96,7 +96,7 @@ public class LabelController {
      */
     @Operation(
             summary = "Get label by ID",
-            description = "Retrieve detailed information about a specific label including color and categorization settings"
+            description = "Retrieve detailed information about a specific label including name, color scheme (with base/pastel/metallic variants), and categorization settings"
     )
     @ApiResponses(value = {
             @ApiResponse(
@@ -131,7 +131,7 @@ public class LabelController {
      */
     @Operation(
             summary = "Create a new label",
-            description = "Create a new label for categorizing and organizing events with custom colors and names"
+            description = "Create a new label for categorizing and organizing events. Requires both a unique name and a color from the predefined palette (RED, ORANGE, YELLOW, GREEN, TEAL, BLUE, PURPLE, PINK, GRAY). Each color provides base, pastel, and metallic variants for different event states."
     )
     @ApiResponses(value = {
             @ApiResponse(
@@ -170,7 +170,7 @@ public class LabelController {
      */
     @Operation(
             summary = "Update an existing label",
-            description = "Perform partial updates to a label including name, color, and display settings"
+            description = "Perform partial updates to a label including name and/or color. Color updates allow changing between any predefined palette colors (RED, ORANGE, YELLOW, GREEN, TEAL, BLUE, PURPLE, PINK, GRAY). Name updates enforce uniqueness within the user's labels."
     )
     @ApiResponses(value = {
             @ApiResponse(
@@ -212,7 +212,7 @@ public class LabelController {
      */
     @Operation(
             summary = "Delete a label",
-            description = "Permanently delete a label and remove it from all associated events and badges"
+            description = "Permanently delete a label and remove it from all associated events and badges. The label's color assignment is also removed from the system."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Label deleted successfully"),

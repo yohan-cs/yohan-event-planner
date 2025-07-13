@@ -40,6 +40,14 @@ type Mutation {
   deleteRecapMedia(mediaId: ID!): Boolean!
   # Reorder media within a recap
   reorderRecapMedia(recapId: ID!, mediaOrder: [ID!]!): Boolean!
+  # Create a new label with name and color
+  createLabel(input: CreateLabelInput!): Label!
+  # Update label properties
+  updateLabel(id: ID!, input: UpdateLabelInput!): Label!
+  # Delete a label and remove it from all associations
+  deleteLabel(id: ID!): Boolean!
+  # Unpin the currently pinned impromptu event for the authenticated user
+  unpinImpromptuEvent: Boolean!
 }
 
 # Media types supported for event recaps
@@ -47,6 +55,20 @@ enum RecapMediaType {
   IMAGE   # Static image files (jpg, png, gif, etc.)
   VIDEO   # Video files (mp4, avi, mov, etc.)
   AUDIO   # Audio files (mp3, wav, etc.)
+}
+
+# Predefined color palette for labels with variants for different event states
+# Each color provides base, pastel, and metallic hex variants for visual identification
+enum LabelColor {
+  RED     # Red color scheme - base: #FF4D4F, pastel: #FFD6D7, metallic: #D72631
+  ORANGE  # Orange color scheme - base: #FA8C16, pastel: #FFE0B2, metallic: #D46B08
+  YELLOW  # Yellow color scheme - base: #FADB14, pastel: #FFF7AE, metallic: #D4B106
+  GREEN   # Green color scheme - base: #52C41A, pastel: #C7EFCF, metallic: #237804
+  TEAL    # Teal color scheme - base: #13C2C2, pastel: #A6E6E6, metallic: #08979C
+  BLUE    # Blue color scheme - base: #1890FF, pastel: #A3D3FF, metallic: #0050B3
+  PURPLE  # Purple color scheme - base: #722ED1, pastel: #D3C6F1, metallic: #391085
+  PINK    # Pink color scheme - base: #EB2F96, pastel: #FDCFE8, metallic: #C41D7F
+  GRAY    # Gray color scheme - base: #8C8C8C, pastel: #D9D9D9, metallic: #595959
 }
 
 # Input for updating user header information
@@ -118,12 +140,29 @@ input UpdateFieldInput_DateTime {
   value: DateTime
 }
 
+input UpdateFieldInput_LabelColor {
+  value: LabelColor
+}
+
+# Input for creating a new label
+input CreateLabelInput {
+  name: String!                 # Label name (required)
+  color: LabelColor!            # Label color from predefined palette (required)
+}
+
+# Input for updating label properties
+input UpdateLabelInput {
+  name: UpdateFieldInput_String     # Updated label name (optional)
+  color: UpdateFieldInput_LabelColor # Updated label color (optional)
+}
+
 # User profile containing header info, badges, and calendar view
 type UserProfile {
   isSelf: Boolean!                          # Whether this profile belongs to the requesting user
   header: UserHeader!                       # User's basic information
   badges: [Badge!]!                         # User's badges ordered by sortOrder
   weekView(anchorDate: Date!): WeekView!    # Week view starting from anchor date
+  pinnedImpromptuEvent: EventResponse       # Currently pinned impromptu event (optional, owner-only)
 }
 
 # User's basic header information
@@ -170,6 +209,7 @@ type DayView {
 type Label {
   id: ID!                       # Unique label identifier
   name: String!                 # Label display name
+  color: LabelColor!            # Color scheme for visual identification
 }
 
 # Complete event information with timezone and status details
@@ -186,7 +226,8 @@ type EventResponse {
   creatorTimezone: String!      # Creator's timezone
   label: Label                  # Associated label (optional)
   isCompleted: Boolean!         # Whether event is marked as completed
-  unconfirmed: Boolean!         # Whether event is unconfirmed/impromptu
+  unconfirmed: Boolean!         # Whether event is unconfirmed/draft
+  impromptu: Boolean!           # Whether event is impromptu (spontaneous)
   isVirtual: Boolean!           # Whether event is virtual/online
 }
 

@@ -709,4 +709,92 @@ class EventControllerIntegrationTest {
                     .andExpect(jsonPath("$.unconfirmed").value(false));
         }
     }
+
+    @Nested
+    class CreateImpromptuEventTests {
+
+        @Test
+        void testCreateImpromptuEvent_ShouldCreateImpromptuEvent() throws Exception {
+            mockMvc.perform(post("/events/impromptu")
+                            .header("Authorization", "Bearer " + jwt))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.impromptu").value(true))
+                    .andExpect(jsonPath("$.unconfirmed").value(true))
+                    .andExpect(jsonPath("$.name").doesNotExist())
+                    .andExpect(jsonPath("$.endTimeUtc").doesNotExist())
+                    .andExpect(jsonPath("$.startTimeUtc").exists());
+        }
+
+        @Test
+        void testCreateImpromptuEvent_ShouldAutomaticallyPinEvent() throws Exception {
+            // Create impromptu event
+            mockMvc.perform(post("/events/impromptu")
+                            .header("Authorization", "Bearer " + jwt))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.impromptu").value(true));
+
+            // Check user profile shows pinned event
+            String profileQuery = String.format("""
+                {
+                  "query": "query($username: String!) { userProfile(username: $username) { isSelf pinnedImpromptuEvent { id impromptu } } }",
+                  "variables": { "username": "%s" }
+                }
+                """, user.getUsername());
+
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + jwt)
+                            .content(profileQuery))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.userProfile.isSelf").value(true))
+                    .andExpect(jsonPath("$.data.userProfile.pinnedImpromptuEvent").exists())
+                    .andExpect(jsonPath("$.data.userProfile.pinnedImpromptuEvent.impromptu").value(true));
+        }
+
+        @Test
+        void testCreateImpromptuEvent_RequiresAuthentication() throws Exception {
+            mockMvc.perform(post("/events/impromptu"))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        @Test
+        void testCreateMultipleImpromptuEvents_ShouldReplacePin() throws Exception {
+            // Create first impromptu event
+            mockMvc.perform(post("/events/impromptu")
+                            .header("Authorization", "Bearer " + jwt))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.impromptu").value(true));
+
+            // Create second impromptu event  
+            var secondEventResult = mockMvc.perform(post("/events/impromptu")
+                            .header("Authorization", "Bearer " + jwt))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.impromptu").value(true))
+                    .andReturn();
+
+            // Extract the second event ID from response
+            String responseContent = secondEventResult.getResponse().getContentAsString();
+            var responseJson = objectMapper.readTree(responseContent);
+            String secondEventId = responseJson.get("id").asText();
+
+            // Check user profile shows the second (latest) pinned event
+            String profileQuery = String.format("""
+                {
+                  "query": "query($username: String!) { userProfile(username: $username) { isSelf pinnedImpromptuEvent { id impromptu } } }",
+                  "variables": { "username": "%s" }
+                }
+                """, user.getUsername());
+
+            mockMvc.perform(post("/graphql")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .header("Authorization", "Bearer " + jwt)
+                            .content(profileQuery))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.userProfile.isSelf").value(true))
+                    .andExpect(jsonPath("$.data.userProfile.pinnedImpromptuEvent").exists())
+                    .andExpect(jsonPath("$.data.userProfile.pinnedImpromptuEvent.id").value(secondEventId))
+                    .andExpect(jsonPath("$.data.userProfile.pinnedImpromptuEvent.impromptu").value(true));
+        }
+
+    }
 }

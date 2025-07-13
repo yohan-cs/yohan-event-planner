@@ -3,6 +3,7 @@ package com.yohan.event_planner.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.yohan.event_planner.domain.Label;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.domain.enums.LabelColor;
 import com.yohan.event_planner.dto.LabelCreateDTO;
 import com.yohan.event_planner.dto.LabelUpdateDTO;
 import com.yohan.event_planner.repository.LabelRepository;
@@ -60,7 +61,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabel_ShouldCreateAndReturnLabel() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("New Label");
+            LabelCreateDTO dto = new LabelCreateDTO("New Label", LabelColor.BLUE);
 
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
@@ -77,7 +78,7 @@ class LabelControllerIntegrationTest {
             testDataHelper.createAndPersistLabelWithExactName(user, "Duplicate Name");
 
             // Try to create another label with same name
-            LabelCreateDTO dto = new LabelCreateDTO("Duplicate Name");
+            LabelCreateDTO dto = new LabelCreateDTO("Duplicate Name", LabelColor.RED);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -87,7 +88,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithBlankName_ShouldReturn400() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("");
+            LabelCreateDTO dto = new LabelCreateDTO("", LabelColor.GREEN);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -108,7 +109,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithWhitespaceOnlyName_ShouldReturn400() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("   ");
+            LabelCreateDTO dto = new LabelCreateDTO("   ", LabelColor.YELLOW);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -118,7 +119,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithValidMinimumLength_ShouldSucceed() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("A"); // 1 character
+            LabelCreateDTO dto = new LabelCreateDTO("A", LabelColor.PURPLE); // 1 character
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -129,7 +130,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithoutAuth_ShouldReturn401() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("New Label");
+            LabelCreateDTO dto = new LabelCreateDTO("New Label", LabelColor.BLUE);
             mockMvc.perform(post("/labels")
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(dto)))
@@ -187,7 +188,7 @@ class LabelControllerIntegrationTest {
         @Test
         void testUpdateLabel_ShouldUpdateLabel() throws Exception {
             Label testLabel = testDataHelper.createAndPersistLabel(user, "Old Label");
-            LabelUpdateDTO dto = new LabelUpdateDTO("Updated Label");
+            LabelUpdateDTO dto = new LabelUpdateDTO("Updated Label", null);
 
             mockMvc.perform(patch("/labels/{id}", testLabel.getId())
                             .header("Authorization", "Bearer " + jwt)
@@ -200,7 +201,7 @@ class LabelControllerIntegrationTest {
         @Test
         void testUpdateNonExistentLabel_ShouldReturn404() throws Exception {
             Long nonExistentId = 99999L;
-            LabelUpdateDTO dto = new LabelUpdateDTO("Updated Label");
+            LabelUpdateDTO dto = new LabelUpdateDTO("Updated Label", null);
             mockMvc.perform(patch("/labels/{id}", nonExistentId)
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -215,7 +216,7 @@ class LabelControllerIntegrationTest {
             testDataHelper.createAndPersistLabelWithExactName(user, "Label Two");
 
             // Try to update label1 to have same name as label2
-            LabelUpdateDTO dto = new LabelUpdateDTO("Label Two");
+            LabelUpdateDTO dto = new LabelUpdateDTO("Label Two", null);
             mockMvc.perform(patch("/labels/{id}", label1.getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -230,7 +231,7 @@ class LabelControllerIntegrationTest {
             Label otherUserLabel = testDataHelper.createAndPersistLabel(otherUserAuth.user(), "other-label");
 
             // Try to update other user's label
-            LabelUpdateDTO dto = new LabelUpdateDTO("Hacked Label");
+            LabelUpdateDTO dto = new LabelUpdateDTO("Hacked Label", null);
             mockMvc.perform(patch("/labels/{id}", otherUserLabel.getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -241,7 +242,7 @@ class LabelControllerIntegrationTest {
         @Test
         void testUpdateSystemManagedLabel_ShouldReturn403() throws Exception {
             // Try to update the user's "Unlabeled" label
-            LabelUpdateDTO dto = new LabelUpdateDTO("Modified System Label");
+            LabelUpdateDTO dto = new LabelUpdateDTO("Modified System Label", null);
             mockMvc.perform(patch("/labels/{id}", user.getUnlabeled().getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -254,7 +255,7 @@ class LabelControllerIntegrationTest {
             Label testLabel = testDataHelper.createAndPersistLabel(user, "Test Label");
             // Create a name that's 101 characters (exceeds 100 char limit)
             String tooLongName = "A".repeat(101);
-            LabelUpdateDTO dto = new LabelUpdateDTO(tooLongName);
+            LabelUpdateDTO dto = new LabelUpdateDTO(tooLongName, null);
             mockMvc.perform(patch("/labels/{id}", testLabel.getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -267,7 +268,7 @@ class LabelControllerIntegrationTest {
             Label testLabel = testDataHelper.createAndPersistLabel(user, "Test Label");
             // Create a name that's exactly 100 characters (at the limit)
             String maxLengthName = "A".repeat(100);
-            LabelUpdateDTO dto = new LabelUpdateDTO(maxLengthName);
+            LabelUpdateDTO dto = new LabelUpdateDTO(maxLengthName, null);
             mockMvc.perform(patch("/labels/{id}", testLabel.getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -279,7 +280,7 @@ class LabelControllerIntegrationTest {
         @Test
         void testUpdateLabelWithWhitespaceOnlyName_ShouldReturn400() throws Exception {
             Label testLabel = testDataHelper.createAndPersistLabel(user, "Test Label");
-            LabelUpdateDTO dto = new LabelUpdateDTO("   ");
+            LabelUpdateDTO dto = new LabelUpdateDTO("   ", null);
             mockMvc.perform(patch("/labels/{id}", testLabel.getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -288,15 +289,17 @@ class LabelControllerIntegrationTest {
         }
 
         @Test
-        void testUpdateLabelWithNullName_ShouldReturn400() throws Exception {
+        void testUpdateLabelWithNullName_ShouldPreserveOriginalName() throws Exception {
             Label testLabel = testDataHelper.createAndPersistLabel(user, "Test Label");
-            // Create JSON manually to include null value
+            String originalName = testLabel.getName(); // Get the actual name with suffix
+            // Create JSON manually to include null value - in PATCH this means "don't update"
             String jsonWithNull = "{\"name\": null}";
             mockMvc.perform(patch("/labels/{id}", testLabel.getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(jsonWithNull))
-                    .andExpect(status().isBadRequest());
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.name").value(originalName)); // Original name preserved
         }
 
         @Test
@@ -305,7 +308,7 @@ class LabelControllerIntegrationTest {
             Label userLabel = testDataHelper.createAndPersistLabel(user, "User Label");
 
             // Create an update DTO with a new name
-            LabelUpdateDTO dto = new LabelUpdateDTO("Updated Label");
+            LabelUpdateDTO dto = new LabelUpdateDTO("Updated Label", null);
 
             // Try updating the label without providing an authorization token
             mockMvc.perform(patch("/labels/{id}", userLabel.getId())
@@ -406,7 +409,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithMissingContentType_ShouldReturn415() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("Test Label");
+            LabelCreateDTO dto = new LabelCreateDTO("Test Label", LabelColor.TEAL);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .content(objectMapper.writeValueAsString(dto)))
@@ -429,7 +432,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithMalformedToken_ShouldReturn401() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("Test Label");
+            LabelCreateDTO dto = new LabelCreateDTO("Test Label", LabelColor.TEAL);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer malformed.jwt.token")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -439,7 +442,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithInvalidTokenFormat_ShouldReturn401() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("Test Label");
+            LabelCreateDTO dto = new LabelCreateDTO("Test Label", LabelColor.TEAL);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "InvalidFormat " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -449,7 +452,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithEmptyToken_ShouldReturn401() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("Test Label");
+            LabelCreateDTO dto = new LabelCreateDTO("Test Label", LabelColor.TEAL);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer ")
                             .contentType(MediaType.APPLICATION_JSON)
@@ -459,7 +462,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithMissingBearerPrefix_ShouldReturn401() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("Test Label");
+            LabelCreateDTO dto = new LabelCreateDTO("Test Label", LabelColor.TEAL);
             mockMvc.perform(post("/labels")
                             .header("Authorization", jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -494,7 +497,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testUpdateLabelWithNonNumericId_ShouldReturn400() throws Exception {
-            LabelUpdateDTO dto = new LabelUpdateDTO("Updated Label");
+            LabelUpdateDTO dto = new LabelUpdateDTO("Updated Label", null);
             mockMvc.perform(patch("/labels/invalid")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -515,7 +518,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithEmoji_ShouldSucceed() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("Work 🎉");
+            LabelCreateDTO dto = new LabelCreateDTO("Work 🎉", LabelColor.ORANGE);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -526,7 +529,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithUnicodeCharacters_ShouldSucceed() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("Tâches importantes");
+            LabelCreateDTO dto = new LabelCreateDTO("Tâches importantes", LabelColor.PINK);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -537,7 +540,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithSpecialCharacters_ShouldSucceed() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("Client/Project & Tasks");
+            LabelCreateDTO dto = new LabelCreateDTO("Client/Project & Tasks", LabelColor.GRAY);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -548,7 +551,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithMixedLanguageCharacters_ShouldSucceed() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("日本語 English Français");
+            LabelCreateDTO dto = new LabelCreateDTO("日本語 English Français", LabelColor.RED);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -560,7 +563,7 @@ class LabelControllerIntegrationTest {
         @Test
         void testUpdateLabelWithUnicodeCharacters_ShouldSucceed() throws Exception {
             Label testLabel = testDataHelper.createAndPersistLabel(user, "Original Name");
-            LabelUpdateDTO dto = new LabelUpdateDTO("Nuevos nombres 🌟");
+            LabelUpdateDTO dto = new LabelUpdateDTO("Nuevos nombres 🌟", null);
             mockMvc.perform(patch("/labels/{id}", testLabel.getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -575,7 +578,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelTrimsLeadingWhitespace_ShouldSucceed() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("   Trimmed Label");
+            LabelCreateDTO dto = new LabelCreateDTO("   Trimmed Label", LabelColor.BLUE);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -586,7 +589,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelTrimsTrailingWhitespace_ShouldSucceed() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("Trimmed Label   ");
+            LabelCreateDTO dto = new LabelCreateDTO("Trimmed Label   ", LabelColor.GREEN);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -597,7 +600,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelTrimsBothSidesWhitespace_ShouldSucceed() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("   Trimmed Label   ");
+            LabelCreateDTO dto = new LabelCreateDTO("   Trimmed Label   ", LabelColor.PURPLE);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -609,7 +612,7 @@ class LabelControllerIntegrationTest {
         @Test
         void testUpdateLabelTrimsWhitespace_ShouldSucceed() throws Exception {
             Label testLabel = testDataHelper.createAndPersistLabel(user, "Original Label");
-            LabelUpdateDTO dto = new LabelUpdateDTO("   Updated Label   ");
+            LabelUpdateDTO dto = new LabelUpdateDTO("   Updated Label   ", null);
             mockMvc.perform(patch("/labels/{id}", testLabel.getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -620,7 +623,7 @@ class LabelControllerIntegrationTest {
 
         @Test
         void testCreateLabelWithOnlyWhitespaceAfterTrimming_ShouldReturn400() throws Exception {
-            LabelCreateDTO dto = new LabelCreateDTO("     ");
+            LabelCreateDTO dto = new LabelCreateDTO("     ", LabelColor.YELLOW);
             mockMvc.perform(post("/labels")
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
@@ -631,12 +634,242 @@ class LabelControllerIntegrationTest {
         @Test
         void testUpdateLabelWithOnlyWhitespaceAfterTrimming_ShouldReturn400() throws Exception {
             Label testLabel = testDataHelper.createAndPersistLabel(user, "Original Label");
-            LabelUpdateDTO dto = new LabelUpdateDTO("     ");
+            LabelUpdateDTO dto = new LabelUpdateDTO("     ", null);
             mockMvc.perform(patch("/labels/{id}", testLabel.getId())
                             .header("Authorization", "Bearer " + jwt)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(dto)))
                     .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Nested
+    class ColorTests {
+
+        @Test
+        void testCreateLabelWithColor_ShouldCreateAndReturnWithColor() throws Exception {
+            LabelCreateDTO dto = new LabelCreateDTO("Work Tasks", LabelColor.BLUE);
+
+            mockMvc.perform(post("/labels")
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(dto)))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.name").value("Work Tasks"))
+                    .andExpect(jsonPath("$.color").value("BLUE"));
+        }
+
+        @Test
+        void testCreateLabelWithAllColorValues_ShouldSucceed() throws Exception {
+            for (LabelColor color : LabelColor.values()) {
+                String labelName = "Test-" + color.name();
+                LabelCreateDTO dto = new LabelCreateDTO(labelName, color);
+
+                mockMvc.perform(post("/labels")
+                                .header("Authorization", "Bearer " + jwt)
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content(objectMapper.writeValueAsString(dto)))
+                        .andExpect(status().isCreated())
+                        .andExpect(jsonPath("$.name").value(labelName))
+                        .andExpect(jsonPath("$.color").value(color.name()));
+            }
+        }
+
+        @Test
+        void testCreateLabelWithMissingColor_ShouldReturn400() throws Exception {
+            String requestJson = """
+                {
+                    "name": "Work Tasks"
+                }
+                """;
+
+            mockMvc.perform(post("/labels")
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(requestJson))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testCreateLabelWithInvalidColor_ShouldReturn400() throws Exception {
+            String requestJson = """
+                {
+                    "name": "Work Tasks",
+                    "color": "INVALID_COLOR"
+                }
+                """;
+
+            mockMvc.perform(post("/labels")
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(requestJson))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testUpdateLabelColor_ShouldUpdateOnlyColor() throws Exception {
+            Label testLabel = testDataHelper.createAndPersistLabel(user, "Focus", LabelColor.RED);
+            String originalName = testLabel.getName(); // Get the actual name with suffix
+            String updateJson = """
+                {
+                    "color": "GREEN"
+                }
+                """;
+
+            mockMvc.perform(patch("/labels/{id}", testLabel.getId())
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(updateJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.name").value(originalName))
+                    .andExpect(jsonPath("$.color").value("GREEN"));
+        }
+
+        @Test
+        void testUpdateLabelBothNameAndColor_ShouldUpdateBoth() throws Exception {
+            Label testLabel = testDataHelper.createAndPersistLabel(user, "OldName", LabelColor.RED);
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", LabelColor.BLUE);
+
+            mockMvc.perform(patch("/labels/{id}", testLabel.getId())
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(dto)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.name").value("NewName"))
+                    .andExpect(jsonPath("$.color").value("BLUE"));
+        }
+
+        @Test
+        void testUpdateLabelWithInvalidColor_ShouldReturn400() throws Exception {
+            Label testLabel = testDataHelper.createAndPersistLabel(user, "Focus", LabelColor.RED);
+            String invalidJson = """
+                {
+                    "color": "NOT_A_VALID_COLOR"
+                }
+                """;
+
+            mockMvc.perform(patch("/labels/{id}", testLabel.getId())
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(invalidJson))
+                    .andExpect(status().isBadRequest());
+        }
+
+        @Test
+        void testGetLabel_ShouldReturnLabelWithColor() throws Exception {
+            Label testLabel = testDataHelper.createAndPersistLabel(user, "ColoredLabel", LabelColor.PURPLE);
+            String actualName = testLabel.getName(); // Get the actual name with suffix
+
+            mockMvc.perform(get("/labels/{id}", testLabel.getId())
+                            .header("Authorization", "Bearer " + jwt))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(testLabel.getId()))
+                    .andExpect(jsonPath("$.name").value(actualName))
+                    .andExpect(jsonPath("$.color").value("PURPLE"));
+        }
+
+        @Test
+        void testUpdateLabelNameOnly_ShouldPreserveColor() throws Exception {
+            Label testLabel = testDataHelper.createAndPersistLabel(user, "OriginalName", LabelColor.ORANGE);
+            LabelUpdateDTO dto = new LabelUpdateDTO("UpdatedName", null);
+
+            mockMvc.perform(patch("/labels/{id}", testLabel.getId())
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(objectMapper.writeValueAsString(dto)))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.name").value("UpdatedName"))
+                    .andExpect(jsonPath("$.color").value("ORANGE")); // Color should be preserved
+        }
+
+        @Test
+        void testUpdateLabelWithExplicitNullColor_ShouldPreserveOriginalColor() throws Exception {
+            Label testLabel = testDataHelper.createAndPersistLabel(user, "TestLabel", LabelColor.PURPLE);
+            String requestJson = """
+                {
+                    "name": "UpdatedName",
+                    "color": null
+                }
+                """;
+
+            mockMvc.perform(patch("/labels/{id}", testLabel.getId())
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(requestJson))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.name").value("UpdatedName"))
+                    .andExpect(jsonPath("$.color").value("PURPLE")); // Original color should be preserved
+        }
+
+        @Test
+        void testColorFieldSerializationInResponse() throws Exception {
+            // Test that color field appears correctly in JSON response
+            Label testLabel = testDataHelper.createAndPersistLabel(user, "SerializationTest", LabelColor.TEAL);
+
+            String response = mockMvc.perform(get("/labels/{id}", testLabel.getId())
+                            .header("Authorization", "Bearer " + jwt))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.color").value("TEAL"))
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+
+            // Verify the JSON structure contains color field
+            assertThat(response).contains("\"color\":\"TEAL\"");
+        }
+
+        @Test
+        void testCaseSensitiveColorValidation() throws Exception {
+            // Test that color values are case-sensitive
+            String lowercaseColorJson = """
+                {
+                    "name": "Test Label",
+                    "color": "blue"
+                }
+                """;
+
+            mockMvc.perform(post("/labels")
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(lowercaseColorJson))
+                    .andExpect(status().isBadRequest()); // Should reject lowercase
+
+            String mixedCaseColorJson = """
+                {
+                    "name": "Test Label",
+                    "color": "Blue"
+                }
+                """;
+
+            mockMvc.perform(post("/labels")
+                            .header("Authorization", "Bearer " + jwt)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(mixedCaseColorJson))
+                    .andExpect(status().isBadRequest()); // Should reject mixed case
+        }
+
+        @Test
+        void testColorFieldOrderingInJsonResponse() throws Exception {
+            // Test that color field appears in expected position in JSON response
+            Label testLabel = testDataHelper.createAndPersistLabel(user, "OrderTest", LabelColor.GRAY);
+            String actualName = testLabel.getName(); // Get the actual name with suffix
+
+            String response = mockMvc.perform(get("/labels/{id}", testLabel.getId())
+                            .header("Authorization", "Bearer " + jwt))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").exists())
+                    .andExpect(jsonPath("$.name").exists())
+                    .andExpect(jsonPath("$.color").exists())
+                    .andExpect(jsonPath("$.creatorUsername").exists())
+                    .andReturn()
+                    .getResponse()
+                    .getContentAsString();
+
+            // Verify all expected fields are present
+            assertThat(response).contains("\"id\":");
+            assertThat(response).contains("\"name\":\"" + actualName + "\"");
+            assertThat(response).contains("\"color\":\"GRAY\"");
+            assertThat(response).contains("\"creatorUsername\":");
         }
     }
 }

@@ -37,6 +37,7 @@ class EventTest {
             assertThat(event.getEndTime()).isEqualTo(endTime.withZoneSameInstant(ZoneOffset.UTC));
             assertThat(event.getCreator()).isEqualTo(creator);
             assertThat(event.isUnconfirmed()).isFalse();
+            assertThat(event.isImpromptu()).isFalse();
         }
 
         @Test
@@ -48,6 +49,7 @@ class EventTest {
             assertThat(event.getEndTime()).isNull();
             assertThat(event.getCreator()).isEqualTo(creator);
             assertThat(event.isUnconfirmed()).isTrue();
+            assertThat(event.isImpromptu()).isTrue();
         }
 
         @Test
@@ -59,6 +61,7 @@ class EventTest {
             assertThat(event.getEndTime()).isNull();
             assertThat(event.getCreator()).isEqualTo(creator);
             assertThat(event.isUnconfirmed()).isTrue();
+            assertThat(event.isImpromptu()).isFalse();
         }
 
         @Test
@@ -70,6 +73,7 @@ class EventTest {
             assertThat(event.getEndTime()).isNull();
             assertThat(event.getCreator()).isEqualTo(creator);
             assertThat(event.isUnconfirmed()).isTrue();
+            assertThat(event.isImpromptu()).isFalse();
         }
     }
 

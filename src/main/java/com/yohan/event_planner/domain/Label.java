@@ -1,7 +1,10 @@
 package com.yohan.event_planner.domain;
 
+import com.yohan.event_planner.domain.enums.LabelColor;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.EnumType;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -22,6 +25,15 @@ import java.util.Objects;
  *   <li><strong>Track time</strong>: Generate time statistics and analytics by category</li>
  *   <li><strong>Filter and search</strong>: Find events based on categorization</li>
  *   <li><strong>Create badges</strong>: Combine multiple labels into higher-level groupings</li>
+ *   <li><strong>Visual identification</strong>: Use colors to quickly identify event categories</li>
+ * </ul>
+ * 
+ * <h2>Color System</h2>
+ * <p>Each label has a mandatory color from the {@link LabelColor} enum, providing:</p>
+ * <ul>
+ *   <li><strong>Base color</strong>: Default appearance for normal event display</li>
+ *   <li><strong>Pastel variant</strong>: Softer appearance for incomplete or draft events</li>
+ *   <li><strong>Metallic variant</strong>: Rich appearance for completed or successful events</li>
  * </ul>
  * 
  * <h2>Uniqueness Constraints</h2>
@@ -75,6 +87,14 @@ public class Label {
     private String name;
 
     /** 
+     * The color scheme for this label from the predefined palette.
+     * Provides visual identification and supports different event states.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private LabelColor color;
+
+    /** 
      * The user who created and owns this label.
      * Labels are scoped to individual users for privacy and organization.
      */
@@ -88,13 +108,15 @@ public class Label {
     public Label() {}
 
     /**
-     * Creates a new label with the specified name and creator.
+     * Creates a new label with the specified name, color, and creator.
      * 
      * @param name the display name for the label (must be unique per user)
+     * @param color the color scheme for visual identification
      * @param creator the user who will own this label
      */
-    public Label(String name, User creator) {
+    public Label(String name, LabelColor color, User creator) {
         this.name = name;
+        this.color = color;
         this.creator = creator;
     }
 
@@ -107,12 +129,20 @@ public class Label {
         return name;
     }
 
+    public LabelColor getColor() {
+        return color;
+    }
+
     public User getCreator() {
         return creator;
     }
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public void setColor(LabelColor color) {
+        this.color = color;
     }
 
     public void setCreator(User creator) {

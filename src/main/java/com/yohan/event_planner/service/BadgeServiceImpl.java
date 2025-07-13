@@ -547,11 +547,11 @@ public class BadgeServiceImpl implements BadgeService {
      * The method leverages the LabelService to ensure proper access control and data retrieval.</p>
      * 
      * @param badge the badge whose labels to resolve
-     * @return set of label DTOs with ID and name information, empty set if no labels associated
+     * @return set of label DTOs with ID, name, and color information, empty set if no labels associated
      */
     private Set<BadgeLabelDTO> resolveLabelsForBadge(Badge badge) {
         return labelService.getLabelsByIds(badge.getLabelIds()).stream()
-                .map(label -> new BadgeLabelDTO(label.getId(), label.getName()))
+                .map(label -> new BadgeLabelDTO(label.getId(), label.getName(), label.getColor()))
                 .collect(Collectors.toSet());
     }
 }

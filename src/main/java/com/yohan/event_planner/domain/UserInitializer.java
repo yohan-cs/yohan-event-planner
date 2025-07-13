@@ -1,6 +1,7 @@
 package com.yohan.event_planner.domain;
 
 import com.yohan.event_planner.business.UserBO;
+import com.yohan.event_planner.domain.enums.LabelColor;
 import com.yohan.event_planner.repository.LabelRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -99,7 +100,7 @@ public class UserInitializer {
     public User initializeUser(User user) {
         User savedUser = userBO.createUser(user);
 
-        Label unlabeled = new Label("Unlabeled", savedUser);
+        Label unlabeled = new Label("Unlabeled", LabelColor.GRAY, savedUser);
 
         labelRepository.save(unlabeled);
 

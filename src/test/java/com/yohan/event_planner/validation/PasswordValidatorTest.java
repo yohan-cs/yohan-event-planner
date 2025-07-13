@@ -10,9 +10,16 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-import static org.junit.jupiter.api.Assertions.*;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 
 @ExtendWith(MockitoExtension.class)
 class PasswordValidatorTest {
@@ -29,11 +36,12 @@ class PasswordValidatorTest {
     void setUp() {
         passwordValidator = new PasswordValidator();
         passwordValidator.initialize(null);
+    }
 
-        // Set up mock chain for custom messages - use lenient() to avoid UnnecessaryStubbing warnings
-        lenient().when(context.buildConstraintViolationWithTemplate(anyString()))
+    private void setupValidationMocks() {
+        when(context.buildConstraintViolationWithTemplate(anyString()))
                 .thenReturn(violationBuilder);
-        lenient().when(violationBuilder.addConstraintViolation()).thenReturn(context);
+        when(violationBuilder.addConstraintViolation()).thenReturn(context);
     }
 
     @Nested
@@ -108,6 +116,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withTooShortPassword_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "Aa1!bcd"; // 7 characters
 
                 // Act
@@ -123,6 +132,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withEmptyString_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "";
 
                 // Act
@@ -137,6 +147,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withTooLongPassword_returnsFalse() {
                 // Arrange - Create 73 character password (exceeds max)
+                setupValidationMocks();
                 String password = "A1a!" + "x".repeat(69); // 73 chars
 
                 // Act
@@ -155,6 +166,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withoutUppercase_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "mypassw0rd!"; // No uppercase
 
                 // Act
@@ -169,6 +181,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withoutLowercase_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "MYPASSW0RD!"; // No lowercase
 
                 // Act
@@ -183,6 +196,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withoutDigit_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "MyPassword!"; // No digit
 
                 // Act
@@ -197,6 +211,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withoutSpecialCharacter_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "MyPassword123"; // No special character
 
                 // Act
@@ -215,6 +230,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withKnownCommonPassword_returnsFalse() {
                 // Arrange - Use a password that has all required char types but is in the common list
+                setupValidationMocks();
                 String password = "Password123!"; // This should be in the common passwords list
 
                 // Act
@@ -228,6 +244,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withCommonPasswordVariation_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "Welcome123!"; // Common base word with required chars
 
                 // Act
@@ -241,6 +258,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withCommonPasswordDifferentCase_returnsFalse() {
                 // Arrange - Test case insensitive common password detection
+                setupValidationMocks();
                 String password = "PASSWORD123!"; // Uppercase version should fail on missing lowercase
 
                 // Act
@@ -254,6 +272,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withSimpleCommonPassword_returnsFalse() {
                 // Arrange - Test a simple common password from the list
+                setupValidationMocks();
                 String password = "password"; // Definitely in common list but missing requirements
 
                 // Act
@@ -267,6 +286,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withCompleteCommonPassword_returnsFalse() {
                 // Arrange - Test common password that has all required character types
+                setupValidationMocks();
                 String password = "P@ssw0rd"; // In common list but has all char requirements
 
                 // Act
@@ -281,6 +301,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withCaseInsensitiveCommonPassword_returnsFalse() {
                 // Arrange - Test that common password detection is case-insensitive
+                setupValidationMocks();
                 String password = "ADMIN123!"; // "admin" is in common list, but uppercase with requirements
 
                 // Act
@@ -296,6 +317,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withCommonPasswordCaseVariation_returnsFalse() {
                 // Arrange - Test common password with mixed case
+                setupValidationMocks();
                 String password = "Password1!"; // "password" base is common, has all requirements
 
                 // Act
@@ -315,6 +337,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withRepeatedCharacters_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "MyPaaassw0rd!"; // Contains "aaa"
 
                 // Act
@@ -329,6 +352,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withSequentialNumbers_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "MyPass123w0rd!"; // Contains "123"
 
                 // Act
@@ -343,6 +367,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withSequentialLetters_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "MyPassabc123!"; // Contains "abc"
 
                 // Act
@@ -357,6 +382,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withKeyboardPattern_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "MyPassqwe123!"; // Contains "qwe"
 
                 // Act
@@ -383,6 +409,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withExactlyThreeConsecutiveCharacters_returnsFalse() {
                 // Arrange - Test boundary: exactly 3 consecutive chars should fail
+                setupValidationMocks();
                 String password = "MyPaaassw0rd!"; // Exactly 3 consecutive 'a's
 
                 // Act
@@ -397,6 +424,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withMultipleKeyboardPatterns_returnsFalse() {
                 // Arrange
+                setupValidationMocks();
                 String password = "MyPassasd456!"; // Contains "asd" keyboard pattern
 
                 // Act
@@ -411,6 +439,7 @@ class PasswordValidatorTest {
             @Test
             void isValid_withMultiplePatternViolations_returnsFalse() {
                 // Arrange - Password with both sequential and keyboard patterns
+                setupValidationMocks();
                 String password = "MyPass123qwe!"; // Contains both "123" and "qwe"
 
                 // Act
@@ -554,6 +583,7 @@ class PasswordValidatorTest {
         @Test
         void isValid_checksLengthFirst_beforeOtherValidations() {
             // Arrange - Short password that would fail multiple validations
+            setupValidationMocks();
             String password = "a1!"; // Too short, but has some required chars
 
             // Act
@@ -569,6 +599,7 @@ class PasswordValidatorTest {
         @Test
         void isValid_checksCharacterRequirements_beforePatterns() {
             // Arrange - Password with missing chars but also has patterns
+            setupValidationMocks();
             String password = "mypass123qwe"; // Missing uppercase and special, has keyboard pattern
 
             // Act
@@ -591,6 +622,9 @@ class PasswordValidatorTest {
             "ABCDEFGH", "!@#$%^&*", "password!", "123!@#ABC", "Pass1!", "short"
         })
         void isValid_withInvalidPasswords_returnsFalse(String invalidPassword) {
+            // Arrange
+            setupValidationMocks();
+            
             // Act
             boolean result = passwordValidator.isValid(invalidPassword, context);
 
@@ -617,6 +651,9 @@ class PasswordValidatorTest {
             "123456789", "password!", "Password123!", "p@ssw0rd"
         })
         void isValid_withCommonPasswords_returnsFalse(String commonPassword) {
+            // Arrange
+            setupValidationMocks();
+            
             // Act
             boolean result = passwordValidator.isValid(commonPassword, context);
 
@@ -648,6 +685,7 @@ class PasswordValidatorTest {
         @Test
         void isValid_withLongInvalidPassword_performsReasonably() {
             // Arrange - Test performance with long invalid password (early termination)
+            setupValidationMocks();
             String password = "a1a!" + "invalidpasswordcontent".repeat(3); // Long but missing uppercase
 
             // Act

@@ -883,7 +883,7 @@ public class EventBOImplTest {
                     null, null, // timezone fields
                     "Event crossing midnight", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 ),
                 new EventResponseDTO(
                     2L, "Event 2",
@@ -893,7 +893,7 @@ public class EventBOImplTest {
                     null, null, // timezone fields
                     "Morning event", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 )
             );
             
@@ -906,7 +906,7 @@ public class EventBOImplTest {
                     null, null, // timezone fields
                     "Virtual event crossing midnight", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, true
+                    labelDto, false, false, false, true
                 )
             );
 
@@ -944,7 +944,7 @@ public class EventBOImplTest {
                     "America/New_York", "America/New_York", // timezone fields
                     "Late night event", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 ),
                 // Event on Wednesday in NYC
                 new EventResponseDTO(
@@ -955,7 +955,7 @@ public class EventBOImplTest {
                     "America/New_York", "America/New_York", // timezone fields
                     "Wednesday event", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 )
             );
             
@@ -968,7 +968,7 @@ public class EventBOImplTest {
                     null, null, // timezone fields
                     "Virtual Friday event", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, true
+                    labelDto, false, false, false, true
                 )
             );
 
@@ -1045,7 +1045,7 @@ public class EventBOImplTest {
                     "America/Los_Angeles", "America/Los_Angeles", // timezone fields
                     "Morning event", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 ),
                 new EventResponseDTO(
                     2L, "Afternoon Event",
@@ -1055,7 +1055,7 @@ public class EventBOImplTest {
                     "America/Los_Angeles", "America/Los_Angeles", // timezone fields
                     "Afternoon event", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 )
             );
 
@@ -1099,7 +1099,7 @@ public class EventBOImplTest {
                     "Europe/London", "Europe/London", // timezone fields
                     "Three-day conference", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 ),
                 // Event spanning 2 days
                 new EventResponseDTO(
@@ -1110,7 +1110,7 @@ public class EventBOImplTest {
                     "Europe/London", "Europe/London", // timezone fields
                     "Two-day workshop", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 )
             );
 
@@ -1159,7 +1159,7 @@ public class EventBOImplTest {
                     "Asia/Tokyo", "Asia/Tokyo", // timezone fields
                     "Late night event", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 ),
                 // Event that starts and ends on same day in Tokyo (Thursday)
                 new EventResponseDTO(
@@ -1170,7 +1170,7 @@ public class EventBOImplTest {
                     "Asia/Tokyo", "Asia/Tokyo", // timezone fields
                     "Same day event", 
                     creator.getUsername(), creator.getTimezone(),
-                    labelDto, false, false, false
+                    labelDto, false, false, false, false
                 )
             );
 

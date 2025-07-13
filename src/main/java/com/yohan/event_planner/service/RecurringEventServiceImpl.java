@@ -434,6 +434,7 @@ RecurringEventServiceImpl implements RecurringEventService {
         LabelResponseDTO labelResponseDTO = new LabelResponseDTO(
                 label.getId(),
                 label.getName(),
+                label.getColor(),
                 label.getCreator().getUsername()
         );
 

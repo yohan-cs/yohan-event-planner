@@ -120,7 +120,6 @@ public enum ErrorCode {
     INVALID_COMPLETION_STATUS,
     INVALID_COMPLETION_FOR_DRAFT_EVENT,
 
-
     // Credentials errors
     INVALID_CREDENTIALS,
 

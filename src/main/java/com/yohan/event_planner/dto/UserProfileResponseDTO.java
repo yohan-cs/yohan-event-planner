@@ -7,8 +7,9 @@ import java.util.List;
  * 
  * <p>This DTO provides a complete user profile view that adapts based on the viewing context,
  * distinguishing between self-view and external view scenarios. It combines user header information
- * with badge achievements to create a comprehensive profile display that respects privacy settings
- * and provides appropriate information based on the relationship between viewer and profile owner.</p>
+ * with badge achievements and pinned impromptu events to create a comprehensive profile display that 
+ * respects privacy settings and provides appropriate information based on the relationship between 
+ * viewer and profile owner.</p>
  * 
  * <h2>Core Functionality</h2>
  * <ul>
@@ -16,6 +17,7 @@ import java.util.List;
  *   <li><strong>Complete Profile</strong>: Combines header information with achievement badges</li>
  *   <li><strong>Privacy Respect</strong>: Respects privacy settings and viewing permissions</li>
  *   <li><strong>Achievement Showcase</strong>: Displays user achievements and accomplishments</li>
+ *   <li><strong>Pinned Event Display</strong>: Shows pinned impromptu events as dashboard reminders for profile owners</li>
  * </ul>
  * 
  * <h2>Viewing Context</h2>
@@ -27,6 +29,7 @@ import java.util.List;
  *   <li><strong>Private Details</strong>: Access to private profile elements</li>
  *   <li><strong>Management Controls</strong>: Enable profile editing and management features</li>
  *   <li><strong>Complete Badge List</strong>: All earned badges, including private ones</li>
+ *   <li><strong>Pinned Events</strong>: Access to currently pinned impromptu events for dashboard reminders</li>
  * </ul>
  * 
  * <h3>External View (isSelf = false)</h3>
@@ -35,6 +38,7 @@ import java.util.List;
  *   <li><strong>Privacy Filtered</strong>: Private details filtered based on settings</li>
  *   <li><strong>View-only Mode</strong>: No management controls available</li>
  *   <li><strong>Public Badges</strong>: Only publicly visible badges displayed</li>
+ *   <li><strong>No Pinned Events</strong>: Pinned events are never visible to external viewers</li>
  * </ul>
  * 
  * <h2>Profile Components</h2>
@@ -42,8 +46,19 @@ import java.util.List;
  * <ul>
  *   <li><strong>Header Information</strong>: Core user details via UserHeaderResponseDTO</li>
  *   <li><strong>Achievement Badges</strong>: User accomplishments and milestones</li>
+ *   <li><strong>Pinned Events</strong>: Currently pinned impromptu events for dashboard reminders (owner-only)</li>
  *   <li><strong>Context Metadata</strong>: Viewing context and permission information</li>
  *   <li><strong>Privacy Controls</strong>: Appropriate filtering based on privacy settings</li>
+ * </ul>
+ * 
+ * <h2>Pinned Impromptu Events</h2>
+ * <p>The pinned event functionality provides dashboard reminders for profile owners:</p>
+ * <ul>
+ *   <li><strong>Owner-Only Visibility</strong>: Pinned events are only visible when {@code isSelf = true}</li>
+ *   <li><strong>Qualification Filtering</strong>: Only events with {@code draft = true && impromptu = true} are shown</li>
+ *   <li><strong>Automatic Cleanup</strong>: Invalid pinned events are automatically removed during retrieval</li>
+ *   <li><strong>Null Safety</strong>: Field is null when no qualifying pinned event exists or for external viewers</li>
+ *   <li><strong>Real-time Validation</strong>: Pinned event status is validated on every profile request</li>
  * </ul>
  * 
  * <h2>Use Cases</h2>
@@ -133,9 +148,11 @@ import java.util.List;
  * @param isSelf flag indicating whether the viewer is viewing their own profile
  * @param header user header information including display name and profile details
  * @param badges list of achievement badges earned by the user, filtered by privacy settings
+ * @param pinnedImpromptuEvent currently pinned impromptu event (only visible to profile owner when qualified)
  * 
  * @see UserHeaderResponseDTO
  * @see BadgeResponseDTO
+ * @see EventResponseDTO
  * @see com.yohan.event_planner.controller.UserProfileGraphQLController
  * @see com.yohan.event_planner.service.BadgeService
  * @author Event Planner Development Team
@@ -145,6 +162,7 @@ import java.util.List;
 public record UserProfileResponseDTO(
         boolean isSelf,
         UserHeaderResponseDTO header,
-        List<BadgeResponseDTO> badges
+        List<BadgeResponseDTO> badges,
+        EventResponseDTO pinnedImpromptuEvent
 ) {
 }

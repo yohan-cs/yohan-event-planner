@@ -14,12 +14,29 @@ import java.util.List;
 /**
  * MapStruct mapper for converting between {@link EventRecap} domain entities and related DTOs.
  *
- * <p>
- * This mapper supports the following transformations:
+ * <p>This mapper specializes in creating flat response DTOs that combine data from multiple
+ * related entities (EventRecap, Event, and RecapMedia) into a single, client-friendly structure.
+ * The flat DTO approach simplifies client-side data handling by eliminating the need for
+ * nested object navigation.</p>
+ *
+ * <h3>Supported Transformations:</h3>
  * <ul>
  *     <li>Converting {@link EventRecap} entities to {@link EventRecapResponseDTO} for API responses</li>
+ *     <li>Flattening related entity data into a single response structure</li>
+ *     <li>Including associated media items through {@link RecapMediaMapper} integration</li>
  * </ul>
- * </p>
+ *
+ * <h3>Flat DTO Structure:</h3>
+ * <p>The response DTO flattens hierarchical data into a single level:</p>
+ * <ul>
+ *   <li><strong>Event Data</strong>: Name, date, duration, label information</li>
+ *   <li><strong>Recap Data</strong>: Notes, confirmation status, creator information</li>
+ *   <li><strong>Media Data</strong>: Associated media items with full details</li>
+ * </ul>
+ *
+ * <h3>Null Handling:</h3>
+ * <p>Uses {@code NullValuePropertyMappingStrategy.IGNORE} to skip null fields during mapping,
+ * ensuring clean response structures without null values where appropriate.</p>
  */
 @Mapper(
         componentModel = "spring",

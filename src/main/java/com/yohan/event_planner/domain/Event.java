@@ -29,7 +29,8 @@ import java.util.Objects;
  * <p>This entity supports flexible creation workflows:
  * <ul>
  *     <li><b>Scheduled events</b>: fully defined with name, start, and end times; immediately confirmed.</li>
- *     <li><b>Impromptu events</b>: minimal events that begin immediately with a start time only; confirmed later.</li>
+ *     <li><b>Impromptu events</b>: minimal events that begin immediately with a start time only; confirmed later.
+ *         These events can be pinned to user dashboards as reminders when they remain in draft status.</li>
  *     <li><b>Unconfirmed events</b>: saved drafts with partial or incomplete input, such as just a name or time.</li>
  * </ul>
  * Required fields are enforced at the controller or service layer, depending on the entry point.
@@ -55,6 +56,15 @@ import java.util.Objects;
  *     <li>Scheduled events are created with {@code unconfirmed = false}.</li>
  *     <li>Impromptu events and saved partial drafts are marked {@code unconfirmed = true}.</li>
  *     <li>{@code completed = true} is only valid if {@code endTime} is set.</li>
+ * </ul>
+ * 
+ * <h2>Impromptu Event Pinning</h2>
+ * <ul>
+ *     <li>Impromptu events ({@code impromptu = true && unconfirmed = true}) can be pinned to user dashboards.</li>
+ *     <li>Only one impromptu event can be pinned per user at any time.</li>
+ *     <li>Pinning occurs automatically when impromptu events are created via {@link #createImpromptuEvent}.</li>
+ *     <li>Events are automatically unpinned when confirmed, completed, or deleted to maintain data consistency.</li>
+ *     <li>Users can manually unpin events through GraphQL mutations in the user profile interface.</li>
  * </ul>
  *
  * <p>
@@ -113,6 +123,23 @@ public class Event {
     @Column(nullable = false)
     private boolean unconfirmed = true;
 
+    /**
+     * Indicates whether this event is an impromptu event created via "Quick Add" or "Impromptu" flow.
+     * 
+     * <p>Impromptu events are characterized by:</p>
+     * <ul>
+     *     <li>Being created with minimal information (typically just a start time)</li>
+     *     <li>Starting immediately or very soon after creation</li>
+     *     <li>Having {@code draft = true} initially</li>
+     *     <li>Being eligible for pinning as dashboard reminders</li>
+     * </ul>
+     * 
+     * <p>This field should be set to {@code true} only for events created through impromptu workflows
+     * and should not be modified for scheduled events to maintain data integrity.</p>
+     */
+    @Column(nullable = false)
+    private boolean impromptu = false;
+
     @OneToOne(mappedBy = "event", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private EventRecap recap;
 
@@ -129,7 +156,9 @@ public class Event {
     }
 
     public static Event createImpromptuEvent(ZonedDateTime startTime, User creator) {
-        return new Event(null, startTime, creator, true);
+        Event event = new Event(null, startTime, creator, true);
+        event.impromptu = true;
+        return event;
     }
 
     /**
@@ -183,6 +212,8 @@ public class Event {
 
     public boolean isUnconfirmed() { return unconfirmed; }
 
+    public boolean isImpromptu() { return impromptu; }
+
     public EventRecap getRecap() {
         return recap;
     }
@@ -233,6 +264,10 @@ public class Event {
 
     public void setUnconfirmed(boolean unconfirmed) {
         this.unconfirmed = unconfirmed;
+    }
+
+    public void setImpromptu(boolean impromptu) {
+        this.impromptu = impromptu;
     }
 
     public void setRecap(EventRecap recap) {

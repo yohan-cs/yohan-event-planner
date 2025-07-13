@@ -55,6 +55,7 @@ import java.util.stream.Collectors;
  *   <li>Event management (update, delete)</li>
  *   <li>Event recap operations (create, update, delete)</li>
  *   <li>Recap media management</li>
+ *   <li>Impromptu event pinning and unpinning operations</li>
  * </ul>
  * 
  * <p>All operations require authentication via JWT tokens, enforced through
@@ -64,6 +65,15 @@ import java.util.stream.Collectors;
  * 
  * <p>Supports partial updates using {@link UpdateFieldInput} pattern, allowing
  * clients to specify only fields they want to modify while preserving others.
+ * 
+ * <h2>Impromptu Event Pinning</h2>
+ * <p>Manages pinned impromptu events for dashboard reminders:</p>
+ * <ul>
+ *   <li><strong>Profile Integration</strong>: Pinned events are included in user profile queries for owners</li>
+ *   <li><strong>Manual Unpinning</strong>: Users can unpin events through dedicated GraphQL mutations</li>
+ *   <li><strong>Privacy Protection</strong>: Pinned events are only visible to the profile owner</li>
+ *   <li><strong>Automatic Validation</strong>: Pinned events are validated during profile retrieval</li>
+ * </ul>
  * 
  * <p>Architecture Role: This controller serves as a thin GraphQL adapter layer
  * that translates GraphQL operations into service calls, maintaining clear
@@ -544,6 +554,26 @@ public class UserProfileGraphQLController {
     }
 
 
+
+    // ==============================
+    // region Mutations - Pinned Events
+    // ==============================
+
+    /**
+     * Unpins the currently pinned impromptu event for the authenticated user.
+     * 
+     * @return true if the operation succeeded
+     * @throws UnauthorizedException if no valid JWT token is provided
+     */
+    @MutationMapping
+    public Boolean unpinImpromptuEvent() {
+        Long userId = authenticatedUserProvider.getCurrentUser().getId();
+        logger.info("User {} unpinning impromptu event", userId);
+        
+        eventService.unpinImpromptuEventForCurrentUser();
+        logger.info("Successfully unpinned impromptu event for user {}", userId);
+        return ApplicationConstants.GRAPHQL_OPERATION_SUCCESS;
+    }
 
     // ==============================
     // region Private Mapping Helpers

@@ -23,7 +23,6 @@ import com.yohan.event_planner.exception.EventAlreadyConfirmedException;
 import com.yohan.event_planner.exception.EventNotFoundException;
 import com.yohan.event_planner.exception.InvalidTimeException;
 import com.yohan.event_planner.exception.UserOwnershipException;
-import com.yohan.event_planner.repository.EventRepository;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
 import com.yohan.event_planner.security.OwnershipValidator;
 import com.yohan.event_planner.time.ClockProvider;
@@ -1347,6 +1346,7 @@ public class EventServiceImplTest {
                     null,
                     false,
                     false,
+                    false,
                     true
             );
 
@@ -1745,7 +1745,7 @@ public class EventServiceImplTest {
             // Prepare the created impromptu event
             Event createdEvent = Event.createImpromptuEvent(now, user);
             createdEvent.setLabel(user.getUnlabeled());
-            createdEvent.setUnconfirmed(false); // set as confirmed per new design
+            // impromptu events are created as unconfirmed by default
 
             when(eventBO.createEvent(any(Event.class))).thenReturn(createdEvent);
 
@@ -1764,6 +1764,53 @@ public class EventServiceImplTest {
 
             // Verify DTO conversion
             verify(eventResponseDTOFactory).createFromEvent(createdEvent);
+        }
+
+        @Test
+        void shouldAutomaticallyPinNewImpromptuEvent() {
+            // Arrange
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+            when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
+
+            ZonedDateTime now = ZonedDateTime.now(fixedClock);
+            Event createdEvent = Event.createImpromptuEvent(now, user);
+            createdEvent.setLabel(user.getUnlabeled());
+            // impromptu events are created as unconfirmed by default
+
+            when(eventBO.createEvent(any(Event.class))).thenReturn(createdEvent);
+            when(eventResponseDTOFactory.createFromEvent(createdEvent)).thenReturn(createEventResponseDTO(createdEvent));
+
+            // Act
+            eventService.createImpromptuEvent();
+
+            // Assert
+            verify(userBO).updateUser(user); // User should be updated after setting pinned event
+        }
+
+        @Test
+        void shouldReplacePreviousPinnedEvent() {
+            // Arrange
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+            when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
+
+            ZonedDateTime now = ZonedDateTime.now(fixedClock);
+            
+            // Create a previously pinned event
+            Event previousEvent = Event.createImpromptuEvent(now.minusMinutes(30), user);
+            user.setPinnedImpromptuEvent(previousEvent);
+            
+            Event newEvent = Event.createImpromptuEvent(now, user);
+            newEvent.setLabel(user.getUnlabeled());
+            // impromptu events are created as unconfirmed by default
+
+            when(eventBO.createEvent(any(Event.class))).thenReturn(newEvent);
+            when(eventResponseDTOFactory.createFromEvent(newEvent)).thenReturn(createEventResponseDTO(newEvent));
+
+            // Act
+            eventService.createImpromptuEvent();
+
+            // Assert - user should be updated with new pinned event
+            verify(userBO).updateUser(user);
         }
 
     }
@@ -1804,6 +1851,56 @@ public class EventServiceImplTest {
             verify(ownershipValidator).validateEventOwnership(user.getId(), unconfirmedEvent);
             verify(eventBO).confirmEvent(unconfirmedEvent);
             verify(eventResponseDTOFactory).createFromEvent(confirmedEvent);
+        }
+
+        @Test
+        void shouldAutoUnpinImpromptuEventOnConfirm() {
+            // Arrange
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+
+            Long eventId = TestConstants.EVENT_ID;
+
+            // Create an impromptu event that's pinned
+            Event impromptuEvent = TestUtils.createValidImpromptuEventWithId(eventId, user, fixedClock);
+            impromptuEvent.setUnconfirmed(true);
+            user.setPinnedImpromptuEvent(impromptuEvent);
+
+            when(eventBO.getEventById(eventId)).thenReturn(Optional.of(impromptuEvent));
+            doNothing().when(ownershipValidator).validateEventOwnership(user.getId(), impromptuEvent);
+
+            Event confirmedEvent = TestUtils.createValidScheduledEvent(user, fixedClock);
+            when(eventBO.confirmEvent(impromptuEvent)).thenReturn(confirmedEvent);
+            when(eventResponseDTOFactory.createFromEvent(confirmedEvent)).thenReturn(createEventResponseDTO(confirmedEvent));
+
+            // Act
+            eventService.confirmEvent(eventId);
+
+            // Assert - user should be updated after unpinning
+            verify(userBO).updateUser(user);
+        }
+
+        @Test
+        void shouldNotAutoUnpinIfEventNotImpromptu() {
+            // Arrange
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+
+            Long eventId = TestConstants.EVENT_ID;
+
+            // Create a regular draft event (not impromptu)
+            Event regularEvent = TestUtils.createValidFullDraftEvent(user, fixedClock);
+
+            when(eventBO.getEventById(eventId)).thenReturn(Optional.of(regularEvent));
+            doNothing().when(ownershipValidator).validateEventOwnership(user.getId(), regularEvent);
+
+            Event confirmedEvent = TestUtils.createValidScheduledEvent(user, fixedClock);
+            when(eventBO.confirmEvent(regularEvent)).thenReturn(confirmedEvent);
+            when(eventResponseDTOFactory.createFromEvent(confirmedEvent)).thenReturn(createEventResponseDTO(confirmedEvent));
+
+            // Act
+            eventService.confirmEvent(eventId);
+
+            // Assert - user should not be updated since no unpinning needed
+            verify(userBO, never()).updateUser(any(User.class));
         }
 
         @Test
@@ -1897,10 +1994,40 @@ public class EventServiceImplTest {
             // Verify interactions
             verify(eventBO, times(2)).getEventById(eventId); // once in confirmAndCompleteEvent, once in updateEvent
             verify(ownershipValidator, times(2)).validateEventOwnership(eq(user.getId()), any(Event.class));
-            verify(eventBO).confirmEvent(unconfirmedEvent);
+        }
+
+        @Test
+        void shouldAutoUnpinImpromptuEventOnConfirmAndComplete() {
+            // Arrange
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+
+            Long eventId = TestConstants.EVENT_ID;
+
+            // Create an impromptu event that's pinned
+            Event impromptuEvent = TestUtils.createValidImpromptuEventWithId(eventId, user, fixedClock);
+            impromptuEvent.setUnconfirmed(true);
+            impromptuEvent.setStartTime(ZonedDateTime.now(fixedClock).minusHours(2));
+            impromptuEvent.setEndTime(ZonedDateTime.now(fixedClock).minusHours(1)); // past end time
+            user.setPinnedImpromptuEvent(impromptuEvent);
+
+            when(eventBO.getEventById(eventId)).thenReturn(Optional.of(impromptuEvent));
+            doNothing().when(ownershipValidator).validateEventOwnership(user.getId(), impromptuEvent);
+            when(eventBO.confirmEvent(impromptuEvent)).thenReturn(impromptuEvent);
+            when(clockProvider.getClockForUser(user)).thenReturn(fixedClock);
+            when(eventPatchHandler.applyPatch(any(Event.class), any(EventUpdateDTO.class))).thenReturn(true);
+            when(eventBO.updateEvent(any(), eq(impromptuEvent))).thenReturn(impromptuEvent);
+            when(eventResponseDTOFactory.createFromEvent(impromptuEvent)).thenReturn(createEventResponseDTO(impromptuEvent));
+
+            // Act
+            eventService.confirmAndCompleteEvent(eventId);
+
+            // Assert - user should be updated after unpinning
+            verify(userBO).updateUser(user); // Only once for unpin operation
+
+            verify(eventBO).confirmEvent(impromptuEvent);
             verify(eventPatchHandler).applyPatch(any(Event.class), any(EventUpdateDTO.class));
-            verify(eventBO).updateEvent(any(), eq(unconfirmedEvent));
-            verify(eventResponseDTOFactory).createFromEvent(unconfirmedEvent);
+            verify(eventBO).updateEvent(any(), eq(impromptuEvent));
+            verify(eventResponseDTOFactory).createFromEvent(impromptuEvent);
         }
 
         @Test
@@ -2173,6 +2300,51 @@ public class EventServiceImplTest {
             // Verify interactions
             verify(eventBO).getEventById(eventId);
             verify(ownershipValidator).validateEventOwnership(user.getId(), existingEvent);
+            verify(eventBO).deleteEvent(eventId);
+        }
+
+        @Test
+        void shouldAutoUnpinImpromptuEventOnDelete() {
+            // Arrange
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+
+            Long eventId = TestConstants.EVENT_ID;
+
+            // Create an impromptu event that's pinned
+            Event impromptuEvent = TestUtils.createValidImpromptuEventWithId(eventId, user, fixedClock);
+            user.setPinnedImpromptuEvent(impromptuEvent);
+
+            when(eventBO.getEventById(eventId)).thenReturn(Optional.of(impromptuEvent));
+            doNothing().when(ownershipValidator).validateEventOwnership(user.getId(), impromptuEvent);
+            doNothing().when(eventBO).deleteEvent(eventId);
+
+            // Act
+            eventService.deleteEvent(eventId);
+
+            // Assert - user should be updated before deletion
+            verify(userBO).updateUser(user);
+            verify(eventBO).deleteEvent(eventId);
+        }
+
+        @Test
+        void shouldNotAutoUnpinIfEventNotImpromptuOnDelete() {
+            // Arrange
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+
+            Long eventId = TestConstants.EVENT_ID;
+
+            // Create a regular event (not impromptu)
+            Event regularEvent = TestUtils.createValidScheduledEvent(user, fixedClock);
+
+            when(eventBO.getEventById(eventId)).thenReturn(Optional.of(regularEvent));
+            doNothing().when(ownershipValidator).validateEventOwnership(user.getId(), regularEvent);
+            doNothing().when(eventBO).deleteEvent(eventId);
+
+            // Act
+            eventService.deleteEvent(eventId);
+
+            // Assert - user should not be updated since no unpinning needed
+            verify(userBO, never()).updateUser(any(User.class));
             verify(eventBO).deleteEvent(eventId);
         }
 
@@ -2563,6 +2735,37 @@ public class EventServiceImplTest {
 
             assertEquals(ErrorCode.INVALID_TIME_RANGE, exception.getErrorCode());
             verifyNoInteractions(eventDAO);
+        }
+
+    }
+
+    @Nested
+    class UnpinImpromptuEventForCurrentUserTests {
+
+        @Test
+        void shouldUnpinCurrentUserImpromptuEvent() {
+            // Arrange
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(user);
+
+            // Act
+            eventService.unpinImpromptuEventForCurrentUser();
+
+            // Assert
+            verify(userBO).updateUser(user);
+        }
+
+        @Test
+        void shouldCallUserBODirectly() {
+            // Arrange
+            User testUser = createValidUserEntityWithId();
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+
+            // Act
+            eventService.unpinImpromptuEventForCurrentUser();
+
+            // Assert
+            verify(userBO).updateUser(testUser);
+            verifyNoMoreInteractions(userBO);
         }
 
     }

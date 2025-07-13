@@ -1,22 +1,23 @@
 package com.yohan.event_planner.dto;
 
-import jakarta.validation.constraints.NotBlank;
+import com.yohan.event_planner.domain.enums.LabelColor;
 import jakarta.validation.constraints.Size;
-
-import java.util.Optional;
 
 /**
  * Request DTO for partially updating an existing label.
  *
  * <p>
- * Note: This DTO requires the name field to be present and valid when included in the request.
- * For true optional behavior in PATCH operations, omit the field entirely from the JSON.
+ * Note: Fields are optional in PATCH operations. Only include fields you want to update.
+ * When name is provided, it must be valid. When color is provided, it must be from the 
+ * predefined palette.
  * </p>
  */
 public record LabelUpdateDTO(
 
-        /** Label name. When provided, must be non-blank and between 1-100 characters. */
-        @NotBlank(message = "Label name must not be blank when provided")
+        /** Label name. When provided, must be between 1-100 characters. */
         @Size(min = 1, max = 100, message = "Label name must be between 1 and 100 characters")
-        String name
+        String name,
+
+        /** Label color. When provided, must be from the predefined palette. */
+        LabelColor color
 ) {}

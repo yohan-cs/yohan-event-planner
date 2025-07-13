@@ -3,6 +3,7 @@ package com.yohan.event_planner.service;
 import com.blazebit.persistence.PagedList;
 import com.yohan.event_planner.business.EventBO;
 import com.yohan.event_planner.business.RecurringEventBO;
+import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.business.handler.EventPatchHandler;
 import com.yohan.event_planner.dao.EventDAO;
 import com.yohan.event_planner.domain.Event;
@@ -50,8 +51,9 @@ import java.util.Set;
  * 
  * <p>This service serves as the central orchestrator for event operations, coordinating complex 
  * business logic across multiple domains including time management, recurring events, labeling,
- * and user authorization. It provides full CRUD operations with advanced features like view 
- * generation, event confirmation workflows, and integration with recurring event patterns.</p>
+ * user authorization, and impromptu event pinning. It provides full CRUD operations with advanced 
+ * features like view generation, event confirmation workflows, dashboard pinning capabilities, and 
+ * integration with recurring event patterns.</p>
  * 
  * <h2>Core Functionality</h2>
  * <ul>
@@ -59,6 +61,7 @@ import java.util.Set;
  *   <li><strong>Confirmation Workflows</strong>: Support for draft → confirmed → completed transitions</li>
  *   <li><strong>Time Management</strong>: Advanced timezone handling with UTC storage and local display</li>
  *   <li><strong>Recurring Event Integration</strong>: Bidirectional sync with recurring event patterns</li>
+ *   <li><strong>Impromptu Event Pinning</strong>: Automatic pinning and unpinning for dashboard reminders</li>
  * </ul>
  * 
  * <h2>Advanced Time Handling</h2>
@@ -77,6 +80,17 @@ import java.util.Set;
  *   <li><strong>Unconfirmed (Draft)</strong>: Initial state, visible only to creator</li>
  *   <li><strong>Confirmed</strong>: Finalized events, visible to authorized users</li>
  *   <li><strong>Completed</strong>: Past events marked as finished</li>
+ * </ul>
+ * 
+ * <h2>Impromptu Event Pinning</h2>
+ * <p>Sophisticated pinning system for dashboard reminders:</p>
+ * <ul>
+ *   <li><strong>Automatic Pinning</strong>: New impromptu events are automatically pinned during creation</li>
+ *   <li><strong>Single Pin Constraint</strong>: Only one impromptu event can be pinned per user at a time</li>
+ *   <li><strong>Auto-Unpin Safeguards</strong>: Events are automatically unpinned when confirmed, completed, or deleted</li>
+ *   <li><strong>Transaction Coordination</strong>: Pinning operations are coordinated with UserBO for data consistency</li>
+ *   <li><strong>State Validation</strong>: Pinned events must maintain {@code draft = true && impromptu = true} qualification</li>
+ *   <li><strong>Manual Unpinning</strong>: Users can manually unpin events through dedicated service methods</li>
  * </ul>
  * 
  * <h2>View Generation</h2>
@@ -168,6 +182,7 @@ public class EventServiceImpl implements EventService {
 
     private final EventBO eventBO;
     private final RecurringEventBO recurringEventBO;
+    private final UserBO userBO;
     private final LabelService labelService;
     private final EventDAO eventDAO;
     private final EventPatchHandler eventPatchHandler;
@@ -179,6 +194,7 @@ public class EventServiceImpl implements EventService {
     public EventServiceImpl(
             EventBO eventBO,
             RecurringEventBO recurringEventBO,
+            UserBO userBO,
             LabelService labelService,
             EventDAO eventDAO,
             EventPatchHandler eventPatchHandler,
@@ -189,6 +205,7 @@ public class EventServiceImpl implements EventService {
     ) {
         this.eventBO = eventBO;
         this.recurringEventBO = recurringEventBO;
+        this.userBO = userBO;
         this.labelService = labelService;
         this.eventDAO = eventDAO;
         this.eventPatchHandler = eventPatchHandler;
@@ -453,7 +470,11 @@ public class EventServiceImpl implements EventService {
      *
      * <p>This implementation creates an impromptu event starting at the current time
      * in the user's timezone. The event is automatically assigned to the user's
-     * "Unlabeled" category and is created in confirmed state.</p>
+     * "Unlabeled" category, created in draft status, marked as impromptu, and pinned
+     * to the user's dashboard as a reminder.</p>
+     * 
+     * <p>The pinning operation is performed in the same transaction to ensure atomicity.
+     * If the user already has a pinned impromptu event, it will be replaced by this new event.</p>
      *
      * @return the created impromptu event as EventResponseDTO
      */
@@ -470,7 +491,12 @@ public class EventServiceImpl implements EventService {
         event.setLabel(creator.getUnlabeled());
 
         Event saved = eventBO.createEvent(event);
-        logger.info("Successfully created impromptu event {} for user {}", saved.getId(), creator.getId());
+        
+        // Pin the impromptu event for the user
+        creator.setPinnedImpromptuEvent(saved);
+        userBO.updateUser(creator);
+        
+        logger.info("Successfully created and pinned impromptu event {} for user {}", saved.getId(), creator.getId());
         
         return eventResponseDTOFactory.createFromEvent(saved);
     }
@@ -506,6 +532,15 @@ public class EventServiceImpl implements EventService {
         }
 
         Event confirmed = eventBO.confirmEvent(event);
+        
+        // Auto-unpin if this was the user's pinned impromptu event
+        if (viewer.getPinnedImpromptuEvent() != null && 
+            viewer.getPinnedImpromptuEvent().getId().equals(eventId)) {
+            logger.info("Auto-unpinning confirmed event {} for user {}", eventId, viewer.getId());
+            viewer.setPinnedImpromptuEvent(null);
+            userBO.updateUser(viewer);
+        }
+        
         logger.info("Successfully confirmed event {} for user {}", eventId, viewer.getId());
 
         return eventResponseDTOFactory.createFromEvent(confirmed);
@@ -554,6 +589,14 @@ public class EventServiceImpl implements EventService {
                     event.getEndTime(),
                     now
             );
+        }
+
+        // Auto-unpin if this was the user's pinned impromptu event
+        if (viewer.getPinnedImpromptuEvent() != null && 
+            viewer.getPinnedImpromptuEvent().getId().equals(eventId)) {
+            logger.info("Auto-unpinning confirmed and completed event {} for user {}", eventId, viewer.getId());
+            viewer.setPinnedImpromptuEvent(null);
+            userBO.updateUser(viewer);
         }
 
         EventUpdateDTO completionPatch = new EventUpdateDTO(
@@ -633,6 +676,14 @@ public class EventServiceImpl implements EventService {
                 .orElseThrow(() -> new EventNotFoundException(eventId));
 
         ownershipValidator.validateEventOwnership(viewer.getId(), existing);
+
+        // Auto-unpin if this was the user's pinned impromptu event
+        if (viewer.getPinnedImpromptuEvent() != null && 
+            viewer.getPinnedImpromptuEvent().getId().equals(eventId)) {
+            logger.info("Auto-unpinning deleted event {} for user {}", eventId, viewer.getId());
+            viewer.setPinnedImpromptuEvent(null);
+            userBO.updateUser(viewer);
+        }
 
         eventBO.deleteEvent(eventId);
         logger.info("Successfully deleted event {} for user {}", eventId, viewer.getId());
@@ -945,5 +996,17 @@ public class EventServiceImpl implements EventService {
             
             return new TimeRange(resolvedStart, resolvedEnd);
         }
+    }
+
+    @Override
+    @Transactional
+    public void unpinImpromptuEventForCurrentUser() {
+        User currentUser = authenticatedUserProvider.getCurrentUser();
+        logger.debug("Unpinning impromptu event for current user {}", currentUser.getId());
+        
+        currentUser.setPinnedImpromptuEvent(null);
+        userBO.updateUser(currentUser);
+        
+        logger.info("Successfully unpinned impromptu event for current user {}", currentUser.getId());
     }
 }

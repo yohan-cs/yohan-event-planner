@@ -26,10 +26,32 @@ import java.util.Set;
  * Entity representing a registered user of the application.
  *
  * <p>This entity supports core account functionality including registration, authentication,
- * soft deletion, role-based authorization, profile visibility, and timezone tracking.</p>
+ * soft deletion, role-based authorization, profile visibility, timezone tracking, and 
+ * impromptu event pinning for dashboard reminders.</p>
  *
  * <p>All persistence is managed via JPA. User records are stored in the {@code users} table,
- * and associated roles are stored in the {@code user_roles} table via an element collection.</p>
+ * and associated roles are stored in the {@code user_roles} table via an element collection.
+ * The pinned impromptu event relationship is stored as a foreign key reference.</p>
+ * 
+ * <h2>Impromptu Event Pinning</h2>
+ * <p>Users can pin one impromptu event at a time as a dashboard reminder:</p>
+ * <ul>
+ *   <li><strong>Single Pin Limit</strong>: Only one impromptu event can be pinned per user</li>
+ *   <li><strong>Automatic Pinning</strong>: New impromptu events are automatically pinned when created</li>
+ *   <li><strong>Qualification Rules</strong>: Only events with {@code draft = true} and {@code impromptu = true} qualify</li>
+ *   <li><strong>Auto-Unpin Safeguards</strong>: Events are automatically unpinned when confirmed, completed, or deleted</li>
+ *   <li><strong>Manual Unpinning</strong>: Users can manually unpin events through GraphQL mutations</li>
+ *   <li><strong>Privacy Protection</strong>: Pinned events are only visible to the profile owner</li>
+ * </ul>
+ * 
+ * <h2>Data Consistency</h2>
+ * <p>The pinned event relationship includes multiple safeguards:</p>
+ * <ul>
+ *   <li><strong>Real-time Validation</strong>: Pinned events are validated during profile retrieval</li>
+ *   <li><strong>Automatic Cleanup</strong>: Invalid pinned events are automatically cleared</li>
+ *   <li><strong>Transaction Safety</strong>: All pinning operations are properly transactional</li>
+ *   <li><strong>Referential Integrity</strong>: Foreign key constraints ensure data consistency</li>
+ * </ul>
  */
 @Entity
 @Table(name = "users")
@@ -110,6 +132,24 @@ public class User {
     @OneToOne
     @JoinColumn(name = "unlabeled_id", nullable = true)
     private Label unlabeled;
+
+    /**
+     * The currently pinned impromptu event that serves as a visual reminder on the user's dashboard.
+     *
+     * <p>
+     * Only one impromptu event can be pinned at a time. An impromptu event is eligible for pinning
+     * if it has {@code draft = true} and {@code impromptu = true}. When an impromptu event is
+     * published (draft = false) or deleted, it is automatically unpinned.
+     * </p>
+     *
+     * <p>
+     * This field is not included in any UserResponseDTO to keep internal state separate from
+     * API responses. Use dedicated service methods to manage pinned events.
+     * </p>
+     */
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "pinned_event_id", referencedColumnName = "id")
+    private Event pinnedImpromptuEvent;
 
     /**
      * Role-based access control.
@@ -227,6 +267,10 @@ public class User {
         return unlabeled;
     }
 
+    public Event getPinnedImpromptuEvent() {
+        return pinnedImpromptuEvent;
+    }
+
     public Set<Role> getRoles() {
         return Set.copyOf(roles);
     }
@@ -290,6 +334,10 @@ public class User {
 
     void assignUnlabeled(Label unlabeled) {
         this.unlabeled = unlabeled;
+    }
+
+    public void setPinnedImpromptuEvent(Event pinnedImpromptuEvent) {
+        this.pinnedImpromptuEvent = pinnedImpromptuEvent;
     }
 
     /**

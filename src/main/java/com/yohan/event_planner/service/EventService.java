@@ -10,12 +10,14 @@ import com.yohan.event_planner.dto.WeekViewDTO;
 import com.yohan.event_planner.exception.ConflictException;
 import com.yohan.event_planner.exception.EventNotFoundException;
 import com.yohan.event_planner.exception.EventOwnershipException;
+import com.yohan.event_planner.exception.UserNotFoundException;
 import org.springframework.data.domain.Page;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -23,9 +25,19 @@ import java.util.Set;
  *
  * <p>
  * Provides functionality for creating, updating, deleting, confirming,
- * and retrieving events. Abstracts business rules and delegates data access
+ * and retrieving events. Includes support for impromptu event pinning
+ * as dashboard reminders. Abstracts business rules and delegates data access
  * to the appropriate layers.
  * </p>
+ * 
+ * <h2>Impromptu Event Pinning</h2>
+ * <p>This service supports automatic pinning of impromptu events for dashboard reminders:</p>
+ * <ul>
+ *   <li><strong>Automatic Pinning</strong>: New impromptu events are automatically pinned when created</li>
+ *   <li><strong>Manual Unpinning</strong>: Users can unpin events through dedicated operations</li>
+ *   <li><strong>Auto-Unpin Safeguards</strong>: Events are automatically unpinned when confirmed, completed, or deleted</li>
+ *   <li><strong>Data Consistency</strong>: Multiple layers of validation ensure pinned events remain valid</li>
+ * </ul>
  */
 public interface EventService {
 
@@ -109,6 +121,9 @@ public interface EventService {
 
     /**
      * Creates an impromptu event starting at the current time with default settings.
+     * 
+     * <p>Impromptu events are automatically pinned to the user's dashboard as reminders.
+     * The event is created in draft status and marked as impromptu for dashboard visibility.</p>
      *
      * @return the created impromptu event as EventResponseDTO
      * @throws UnauthorizedException if the user is not authenticated
@@ -121,6 +136,7 @@ public interface EventService {
      *
      * <p>
      * If the event is already confirmed (i.e. not a draft), this will throw an exception.
+     * Confirming an event will automatically unpin it if it was the user's pinned impromptu event.
      * </p>
      *
      * @param eventId the ID of the event to confirm
@@ -136,7 +152,8 @@ public interface EventService {
      *
      * <p>
      * Intended for confirming events that have already ended or been completed
-     * at the time of confirmation (e.g., impromptu events).
+     * at the time of confirmation (e.g., impromptu events). This operation will
+     * automatically unpin the event if it was the user's pinned impromptu event.
      * </p>
      *
      * @param eventId the ID of the event to confirm and complete
@@ -167,6 +184,8 @@ public interface EventService {
      *
      * <p>
      * The event must exist and be owned by the currently authenticated user.
+     * If the deleted event was the user's pinned impromptu event, it will be
+     * automatically unpinned to maintain data consistency.
      * </p>
      *
      * @param eventId the ID of the event to delete
@@ -192,5 +211,15 @@ public interface EventService {
      * @return the number of events updated
      */
     int updateFutureEventsFromRecurringEvent(RecurringEvent recurringEvent, Set<String> changedFields, ZoneId userZoneId);
+
+    /**
+     * Unpins the currently pinned impromptu event for the authenticated user.
+     *
+     * <p>This method sets the current user's pinnedImpromptuEvent field to null and saves the user.
+     * If no event is currently pinned, this operation has no effect.</p>
+     *
+     * @throws UnauthorizedException if the user is not authenticated
+     */
+    void unpinImpromptuEventForCurrentUser();
 
 }

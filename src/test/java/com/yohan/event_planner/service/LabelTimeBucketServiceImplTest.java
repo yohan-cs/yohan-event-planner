@@ -1,6 +1,7 @@
 package com.yohan.event_planner.service;
 
 import com.yohan.event_planner.domain.LabelTimeBucket;
+import com.yohan.event_planner.domain.enums.LabelColor;
 import com.yohan.event_planner.dto.EventChangeContextDTO;
 import com.yohan.event_planner.dto.LabelResponseDTO;
 import com.yohan.event_planner.repository.LabelTimeBucketRepository;
@@ -98,6 +99,7 @@ public class LabelTimeBucketServiceImplTest {
                     .thenReturn(new LabelResponseDTO(
                             labelId,
                             "Test Label",
+                            LabelColor.BLUE,
                             "testuser"
                     ));
 
@@ -156,6 +158,7 @@ public class LabelTimeBucketServiceImplTest {
                     .thenReturn(new LabelResponseDTO(
                             labelId,
                             "Test Label",
+                            LabelColor.BLUE,
                             "testuser"
                     ));
 
@@ -210,6 +213,7 @@ public class LabelTimeBucketServiceImplTest {
                     .thenReturn(new LabelResponseDTO(
                             VALID_LABEL_ID,
                             "Test Label",
+                            LabelColor.BLUE,
                             "testuser"
                     ));
 
@@ -246,6 +250,7 @@ public class LabelTimeBucketServiceImplTest {
                 .thenReturn(new LabelResponseDTO(
                         VALID_LABEL_ID,
                         "Test Label",
+                        LabelColor.BLUE,
                         "testuser"
                 ));
 
@@ -281,6 +286,7 @@ public class LabelTimeBucketServiceImplTest {
                 .thenReturn(new LabelResponseDTO(
                         VALID_LABEL_ID,
                         "Test Label",
+                        LabelColor.BLUE,
                         "testuser"
                 ));
 
@@ -331,7 +337,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 120; // 2 hours total
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", LabelColor.BLUE, "testuser"));
 
             // Mock repository responses for all bucket types for both days
             // Day buckets
@@ -393,7 +399,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 120; // 2 hours
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "DST Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "DST Label", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -424,7 +430,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 120; // 2 hours
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Year Boundary", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Year Boundary", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -459,7 +465,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 60;
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "ISO Week", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "ISO Week", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -492,7 +498,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 0;
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Zero Duration", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Zero Duration", LabelColor.BLUE, "testuser"));
 
             // Act
             bucketService.apply(userId, labelId, startTime, durationMinutes, timezone);
@@ -532,7 +538,7 @@ public class LabelTimeBucketServiceImplTest {
             existingMonthBucket.setDurationMinutes(180);
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     userId, labelId, DAY, 2024, 20240615
@@ -588,7 +594,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 60;
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -617,7 +623,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 60;
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Pacific Time", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Pacific Time", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -651,7 +657,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 60;
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Tokyo Time", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Tokyo Time", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -688,7 +694,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 25 * 60; // 25 hours to ensure day boundary crossing
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Long Event", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Long Event", LabelColor.BLUE, "testuser"));
 
             // Mock repository responses for both days (June 15 and 16, 2024)
             // Day buckets
@@ -739,7 +745,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 3 * 24 * 60; // 3 days
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Multi Week", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Multi Week", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -775,7 +781,7 @@ public class LabelTimeBucketServiceImplTest {
             int negativeDuration = -30;
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", LabelColor.BLUE, "testuser"));
 
             // Act - Service should handle negative duration gracefully
             // Note: Negative duration may result in empty time slices
@@ -802,7 +808,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 60;
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Leap Year", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Leap Year", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     userId, labelId, DAY, 2024, 20240229)).thenReturn(Optional.empty());
@@ -837,7 +843,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 60;
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "ISO Week Edge", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "ISO Week Edge", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     userId, labelId, DAY, 2021, 20210101)).thenReturn(Optional.empty());
@@ -873,7 +879,7 @@ public class LabelTimeBucketServiceImplTest {
             int durationMinutes = 60;
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Midnight Test", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Midnight Test", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -921,9 +927,9 @@ public class LabelTimeBucketServiceImplTest {
             );
 
             when(labelService.getLabelById(VALID_LABEL_ID))
-                    .thenReturn(new LabelResponseDTO(VALID_LABEL_ID, "Old Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(VALID_LABEL_ID, "Old Label", LabelColor.BLUE, "testuser"));
             when(labelService.getLabelById(VALID_LABEL_ID + 1))
-                    .thenReturn(new LabelResponseDTO(VALID_LABEL_ID + 1, "New Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(VALID_LABEL_ID + 1, "New Label", LabelColor.GREEN, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -955,7 +961,7 @@ public class LabelTimeBucketServiceImplTest {
             );
 
             when(labelService.getLabelById(VALID_LABEL_ID))
-                    .thenReturn(new LabelResponseDTO(VALID_LABEL_ID, "New Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(VALID_LABEL_ID, "New Label", LabelColor.GREEN, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     any(Long.class), any(Long.class), any(), any(Integer.class), any(Integer.class)
@@ -993,7 +999,7 @@ public class LabelTimeBucketServiceImplTest {
             existingMonthBucket.setDurationMinutes(300);
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     userId, labelId, DAY, 2024, 20240615)).thenReturn(Optional.of(existingDayBucket));
@@ -1033,7 +1039,7 @@ public class LabelTimeBucketServiceImplTest {
             existingMonthBucket.setDurationMinutes(30);
 
             when(labelService.getLabelById(labelId))
-                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", "testuser"));
+                    .thenReturn(new LabelResponseDTO(labelId, "Test Label", LabelColor.BLUE, "testuser"));
 
             when(bucketRepository.findByUserIdAndLabelIdAndBucketTypeAndBucketYearAndBucketValue(
                     userId, labelId, DAY, 2024, 20240615)).thenReturn(Optional.of(existingDayBucket));

@@ -197,5 +197,7 @@ public record EventResponseDTO(
 
         boolean unconfirmed,
 
+        boolean impromptu,
+
         boolean isVirtual
 ) {}

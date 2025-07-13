@@ -1,11 +1,15 @@
 package com.yohan.event_planner.service;
 
+import com.yohan.event_planner.business.EventBO;
 import com.yohan.event_planner.business.PasswordBO;
 import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.business.handler.UserPatchHandler;
+import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.UserInitializer;
 import com.yohan.event_planner.dto.BadgeResponseDTO;
+import com.yohan.event_planner.dto.EventResponseDTO;
+import com.yohan.event_planner.dto.EventResponseDTOFactory;
 import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.dto.UserHeaderResponseDTO;
 import com.yohan.event_planner.dto.UserHeaderUpdateDTO;
@@ -169,30 +173,36 @@ public class UserServiceImpl implements UserService {
     private static final Logger logger = LoggerFactory.getLogger(UserServiceImpl.class);
 
     private final UserBO userBO;
+    private final EventBO eventBO;
     private final UserMapper userMapper;
     private final UserPatchHandler userPatchHandler;
     private final UserInitializer userInitializer;
     private final PasswordBO passwordBO;
     private final BadgeService badgeService;
+    private final EventResponseDTOFactory eventResponseDTOFactory;
     private final AuthenticatedUserProvider authenticatedUserProvider;
     private final OwnershipValidator ownershipValidator;
 
     public UserServiceImpl(
             UserBO userBO,
+            EventBO eventBO,
             UserMapper userMapper,
             UserPatchHandler userPatchHandler,
             UserInitializer userInitializer,
             PasswordBO passwordBO,
             BadgeService badgeService,
+            EventResponseDTOFactory eventResponseDTOFactory,
             AuthenticatedUserProvider authenticatedUserProvider,
             OwnershipValidator ownershipValidator
     ) {
         this.userBO = userBO;
+        this.eventBO = eventBO;
         this.userMapper = userMapper;
         this.userPatchHandler = userPatchHandler;
         this.userInitializer = userInitializer;
         this.passwordBO = passwordBO;
         this.badgeService = badgeService;
+        this.eventResponseDTOFactory = eventResponseDTOFactory;
         this.authenticatedUserProvider = authenticatedUserProvider;
         this.ownershipValidator = ownershipValidator;
     }
@@ -293,6 +303,15 @@ public class UserServiceImpl implements UserService {
 
     /**
      * {@inheritDoc}
+     * 
+     * <p>This implementation provides context-aware profile information including automatic
+     * cleanup of invalid pinned events. When a profile owner views their own profile, the
+     * system validates the pinned impromptu event and automatically removes it if it no longer
+     * qualifies (e.g., if it was confirmed or marked as non-impromptu).</p>
+     * 
+     * <p>The pinned event validation and cleanup occurs in the same transaction as the profile
+     * retrieval to ensure data consistency. This provides a "defense in depth" approach alongside
+     * the automatic unpinning that occurs during event lifecycle operations.</p>
      */
     @Override
     @Transactional(readOnly = true)
@@ -306,8 +325,27 @@ public class UserServiceImpl implements UserService {
 
         UserHeaderResponseDTO header = getUserHeader(user);
         List<BadgeResponseDTO> badges = badgeService.getBadgesByUser(user.getId());
+        
+        // Only include pinned event for profile owner
+        EventResponseDTO pinnedEvent = null;
+        if (isSelf) {
+            Event pinnedImpromptuEvent = user.getPinnedImpromptuEvent();
+            if (pinnedImpromptuEvent != null && 
+                pinnedImpromptuEvent.isUnconfirmed() && 
+                pinnedImpromptuEvent.isImpromptu()) {
+                pinnedEvent = eventResponseDTOFactory.createFromEvent(pinnedImpromptuEvent);
+                logger.debug("Including pinned impromptu event {} for user {}", 
+                           pinnedImpromptuEvent.getId(), user.getId());
+            } else if (pinnedImpromptuEvent != null) {
+                // Auto-unpin invalid event
+                logger.info("Pinned event {} for user {} no longer qualifies, auto-unpinning", 
+                           pinnedImpromptuEvent.getId(), user.getId());
+                user.setPinnedImpromptuEvent(null);
+                userBO.updateUser(user);
+            }
+        }
 
-        return new UserProfileResponseDTO(isSelf, header, badges);
+        return new UserProfileResponseDTO(isSelf, header, badges, pinnedEvent);
     }
 
     /**

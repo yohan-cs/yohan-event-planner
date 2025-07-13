@@ -11,6 +11,18 @@ The GraphQL API provides queries for retrieving user profiles and event data, pl
 - `Date`: ISO-8601 date format (e.g., `2025-06-23`)
 - `DateTime`: ISO-8601 date-time with timezone offset (e.g., `2025-06-23T14:30:00-07:00`)
 
+## Label Color System
+
+Labels use a predefined color enum (`LabelColor`) with the following values:
+- `RED`, `ORANGE`, `YELLOW`, `GREEN`, `TEAL`, `BLUE`, `PURPLE`, `PINK`, `GRAY`
+
+Each color provides three hex variants for different event states:
+- **Base**: Default appearance
+- **Pastel**: For incomplete/draft events  
+- **Metallic**: For completed/successful events
+
+Colors are mandatory when creating labels and optional when updating them.
+
 ## Example Queries
 
 ### Get User Profile
@@ -37,6 +49,7 @@ query GetUserProfile($username: String!) {
       labels {
         id
         name
+        color
       }
     }
     weekView(anchorDate: "2025-06-23") {
@@ -52,6 +65,7 @@ query GetUserProfile($username: String!) {
           label {
             id
             name
+            color
           }
         }
       }
@@ -118,6 +132,7 @@ mutation UpdateEvent($id: ID!, $input: UpdateEventInput!) {
     label {
       id
       name
+      color
     }
   }
 }
@@ -169,6 +184,65 @@ mutation AddEventRecap($input: AddEventRecapInput!) {
       }
     ]
   }
+}
+```
+
+### Create Label with Color
+```graphql
+mutation CreateLabel($input: CreateLabelInput!) {
+  createLabel(input: $input) {
+    id
+    name
+    color
+  }
+}
+
+# Variables:
+{
+  "input": {
+    "name": "Work Tasks",
+    "color": "BLUE"
+  }
+}
+```
+
+### Update Label (Partial Update)
+```graphql
+mutation UpdateLabel($id: ID!, $input: UpdateLabelInput!) {
+  updateLabel(id: $id, input: $input) {
+    id
+    name
+    color
+  }
+}
+
+# Variables (update only color):
+{
+  "id": "123",
+  "input": {
+    "color": { "value": "RED" }
+  }
+}
+
+# Variables (update both name and color):
+{
+  "id": "123", 
+  "input": {
+    "name": { "value": "Updated Label Name" },
+    "color": { "value": "GREEN" }
+  }
+}
+```
+
+### Delete Label
+```graphql
+mutation DeleteLabel($id: ID!) {
+  deleteLabel(id: $id)
+}
+
+# Variables:
+{
+  "id": "123"
 }
 ```
 

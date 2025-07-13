@@ -422,4 +422,48 @@ class UserTest {
             assertThat(hashesAreDifferent || !hashesAreDifferent).isTrue(); // Always true, just documenting
         }
     }
+
+    @Nested
+    class PinnedImpromptuEventManagement {
+
+        @Test
+        void setPinnedImpromptuEvent_shouldSetEvent() {
+            ZonedDateTime startTime = ZonedDateTime.now();
+            Event impromptuEvent = Event.createImpromptuEvent(startTime, user);
+
+            user.setPinnedImpromptuEvent(impromptuEvent);
+
+            assertThat(user.getPinnedImpromptuEvent()).isEqualTo(impromptuEvent);
+        }
+
+        @Test
+        void setPinnedImpromptuEvent_shouldAllowNull() {
+            user.setPinnedImpromptuEvent(null);
+
+            assertThat(user.getPinnedImpromptuEvent()).isNull();
+        }
+
+        @Test
+        void setPinnedImpromptuEvent_shouldReplaceExistingEvent() {
+            ZonedDateTime startTime = ZonedDateTime.now();
+            Event firstEvent = Event.createImpromptuEvent(startTime, user);
+            Event secondEvent = Event.createImpromptuEvent(startTime.plusMinutes(30), user);
+
+            user.setPinnedImpromptuEvent(firstEvent);
+            user.setPinnedImpromptuEvent(secondEvent);
+
+            assertThat(user.getPinnedImpromptuEvent()).isEqualTo(secondEvent);
+        }
+
+        @Test
+        void setPinnedImpromptuEvent_shouldClearPreviousEvent() {
+            ZonedDateTime startTime = ZonedDateTime.now();
+            Event impromptuEvent = Event.createImpromptuEvent(startTime, user);
+
+            user.setPinnedImpromptuEvent(impromptuEvent);
+            user.setPinnedImpromptuEvent(null);
+
+            assertThat(user.getPinnedImpromptuEvent()).isNull();
+        }
+    }
 }

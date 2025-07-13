@@ -59,6 +59,7 @@ public interface LabelMapper {
      */
     @Mapping(target = "id", source = "id")
     @Mapping(target = "name", source = "name")
+    @Mapping(target = "color", source = "color")
     @Mapping(target = "creatorUsername", source = "creator.username")
     LabelResponseDTO toResponseDTO(Label label);
 }

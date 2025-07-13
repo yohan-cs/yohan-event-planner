@@ -1,11 +1,15 @@
 package com.yohan.event_planner.service;
 
+import com.yohan.event_planner.business.EventBO;
 import com.yohan.event_planner.business.PasswordBO;
 import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.business.handler.UserPatchHandler;
+import com.yohan.event_planner.domain.Event;
 import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.UserInitializer;
 import com.yohan.event_planner.dto.BadgeResponseDTO;
+import com.yohan.event_planner.dto.EventResponseDTO;
+import com.yohan.event_planner.dto.EventResponseDTOFactory;
 import com.yohan.event_planner.dto.UserCreateDTO;
 import com.yohan.event_planner.dto.UserHeaderResponseDTO;
 import com.yohan.event_planner.dto.UserHeaderUpdateDTO;
@@ -55,6 +59,8 @@ public class UserServiceImplTest {
     private BadgeService badgeService;
     private AuthenticatedUserProvider authenticatedUserProvider;
     private OwnershipValidator ownershipValidator;
+    private EventBO eventBO;
+    private EventResponseDTOFactory eventResponseDTOFactory;
     private Clock fixedClock;
 
     private UserServiceImpl userService;
@@ -69,10 +75,12 @@ public class UserServiceImplTest {
         badgeService = mock(BadgeService.class);
         authenticatedUserProvider = mock(AuthenticatedUserProvider.class);
         ownershipValidator = mock(OwnershipValidator.class);
+        eventBO = mock(EventBO.class);
+        eventResponseDTOFactory = mock(EventResponseDTOFactory.class);
 
         fixedClock = Clock.fixed(Instant.parse("2025-06-29T12:00:00Z"), ZoneId.of("UTC"));
 
-        userService = new UserServiceImpl(userBO, userMapper, userPatchHandler, userInitializer, passwordBO, badgeService, authenticatedUserProvider, ownershipValidator);
+        userService = new UserServiceImpl(userBO, eventBO, userMapper, userPatchHandler, userInitializer, passwordBO, badgeService, eventResponseDTOFactory, authenticatedUserProvider, ownershipValidator);
     }
 
     @Nested
@@ -364,6 +372,83 @@ public class UserServiceImplTest {
         }
 
         @Test
+        void testGetUserProfile_SelfView_WithPinnedEvent_IncludesPinnedEvent() {
+            // Arrange
+            String username = "testuser";
+            Long viewerId = 1L;
+            User user = TestUtils.createValidUserEntityWithId(viewerId);
+            user.setUsername(username);
+            
+            // Create a pinned impromptu event
+            Event pinnedEvent = Event.createImpromptuEvent(ZonedDateTime.now(fixedClock), user);
+            user.setPinnedImpromptuEvent(pinnedEvent);
+            EventResponseDTO pinnedEventDTO = mock(EventResponseDTO.class);
+
+            List<BadgeResponseDTO> badges = List.of(mock(BadgeResponseDTO.class));
+
+            when(userBO.getUserByUsername(username.toLowerCase())).thenReturn(Optional.of(user));
+            when(badgeService.getBadgesByUser(user.getId())).thenReturn(badges);
+            when(eventResponseDTOFactory.createFromEvent(pinnedEvent)).thenReturn(pinnedEventDTO);
+
+            // Act
+            UserProfileResponseDTO result = userService.getUserProfile(username, viewerId);
+
+            // Assert
+            assertTrue(result.isSelf());
+            assertEquals(pinnedEventDTO, result.pinnedImpromptuEvent());
+            verify(eventResponseDTOFactory).createFromEvent(pinnedEvent);
+        }
+
+        @Test
+        void testGetUserProfile_SelfView_WithInvalidPinnedEvent_CleansUpAndReturnsNull() {
+            // Arrange
+            String username = "testuser";
+            Long viewerId = 1L;
+            User user = TestUtils.createValidUserEntityWithId(viewerId);
+            user.setUsername(username);
+            
+            // Create an invalid pinned event (not impromptu or completed)
+            Event invalidPinnedEvent = TestUtils.createValidScheduledEvent(user, fixedClock);
+            invalidPinnedEvent.setCompleted(true); // completed events should be auto-unpinned
+            user.setPinnedImpromptuEvent(invalidPinnedEvent);
+
+            List<BadgeResponseDTO> badges = List.of(mock(BadgeResponseDTO.class));
+
+            when(userBO.getUserByUsername(username.toLowerCase())).thenReturn(Optional.of(user));
+            when(badgeService.getBadgesByUser(user.getId())).thenReturn(badges);
+
+            // Act
+            UserProfileResponseDTO result = userService.getUserProfile(username, viewerId);
+
+            // Assert
+            assertTrue(result.isSelf());
+            assertEquals(null, result.pinnedImpromptuEvent());
+            verify(userBO).updateUser(user); // Should clean up invalid pinned event
+        }
+
+        @Test
+        void testGetUserProfile_SelfView_WithNoPinnedEvent_ReturnsNull() {
+            // Arrange
+            String username = "testuser";
+            Long viewerId = 1L;
+            User user = TestUtils.createValidUserEntityWithId(viewerId);
+            user.setUsername(username);
+
+            List<BadgeResponseDTO> badges = List.of(mock(BadgeResponseDTO.class));
+
+            when(userBO.getUserByUsername(username.toLowerCase())).thenReturn(Optional.of(user));
+            when(badgeService.getBadgesByUser(user.getId())).thenReturn(badges);
+
+            // Act
+            UserProfileResponseDTO result = userService.getUserProfile(username, viewerId);
+
+            // Assert
+            assertTrue(result.isSelf());
+            assertEquals(null, result.pinnedImpromptuEvent());
+            verify(userBO, never()).updateUser(any(User.class));
+        }
+
+        @Test
         void testGetUserProfile_OtherView_ReturnsCorrectDTO() {
             // Arrange
             String username = "testuser";
@@ -400,6 +485,33 @@ public class UserServiceImplTest {
         }
 
         @Test
+        void testGetUserProfile_OtherView_WithPinnedEvent_DoesNotIncludePinnedEvent() {
+            // Arrange
+            String username = "testuser";
+            Long userId = 1L;
+            Long viewerId = 999L; // Different viewer
+            User user = TestUtils.createValidUserEntityWithId(userId);
+            user.setUsername(username);
+            
+            // User has a pinned event, but viewer is not the owner
+            Event pinnedEvent = Event.createImpromptuEvent(ZonedDateTime.now(fixedClock), user);
+            user.setPinnedImpromptuEvent(pinnedEvent);
+
+            List<BadgeResponseDTO> badges = List.of(mock(BadgeResponseDTO.class));
+
+            when(userBO.getUserByUsername(username.toLowerCase())).thenReturn(Optional.of(user));
+            when(badgeService.getBadgesByUser(user.getId())).thenReturn(badges);
+
+            // Act
+            UserProfileResponseDTO result = userService.getUserProfile(username, viewerId);
+
+            // Assert
+            assertFalse(result.isSelf());
+            assertEquals(null, result.pinnedImpromptuEvent()); // Should not include pinned event for other viewers
+            verify(eventResponseDTOFactory, never()).createFromEvent(any(Event.class)); // Should not convert pinned event
+        }
+
+        @Test
         void testGetUserProfile_UserNotFound_ThrowsException() {
             // Arrange
             String username = "nonexistent";
@@ -409,7 +521,67 @@ public class UserServiceImplTest {
             assertThrows(UserNotFoundException.class, () -> userService.getUserProfile(username, 1L));
             verify(userBO).getUserByUsername(username.toLowerCase());
             verifyNoInteractions(badgeService);
+            verifyNoInteractions(eventResponseDTOFactory);
         }
+
+        @Test
+        void testGetUserProfile_SelfView_InvalidPinnedEventTypes_PerformsCleanup() {
+            // Arrange
+            String username = "testuser";
+            Long viewerId = 1L;
+            User user = TestUtils.createValidUserEntityWithId(viewerId);
+            user.setUsername(username);
+            
+            // Test different invalid pinned event scenarios
+            Event nonImpromptuEvent = TestUtils.createValidScheduledEvent(user, fixedClock);
+            nonImpromptuEvent.setUnconfirmed(false); // confirmed but not impromptu
+            user.setPinnedImpromptuEvent(nonImpromptuEvent);
+
+            List<BadgeResponseDTO> badges = List.of(mock(BadgeResponseDTO.class));
+
+            when(userBO.getUserByUsername(username.toLowerCase())).thenReturn(Optional.of(user));
+            when(badgeService.getBadgesByUser(user.getId())).thenReturn(badges);
+
+            // Act
+            UserProfileResponseDTO result = userService.getUserProfile(username, viewerId);
+
+            // Assert
+            assertTrue(result.isSelf());
+            assertEquals(null, result.pinnedImpromptuEvent());
+            verify(userBO).updateUser(user); // Should clean up invalid event
+        }
+
+        @Test
+        void testGetUserProfile_SelfView_ValidImpromptuUnconfirmedEvent_IncludesEvent() {
+            // Arrange
+            String username = "testuser";
+            Long viewerId = 1L;
+            User user = TestUtils.createValidUserEntityWithId(viewerId);
+            user.setUsername(username);
+            
+            // Create a valid pinned impromptu event (unconfirmed, impromptu, not completed)
+            Event validPinnedEvent = Event.createImpromptuEvent(ZonedDateTime.now(fixedClock), user);
+            validPinnedEvent.setUnconfirmed(true);
+            validPinnedEvent.setCompleted(false);
+            user.setPinnedImpromptuEvent(validPinnedEvent);
+            
+            EventResponseDTO pinnedEventDTO = mock(EventResponseDTO.class);
+            List<BadgeResponseDTO> badges = List.of(mock(BadgeResponseDTO.class));
+
+            when(userBO.getUserByUsername(username.toLowerCase())).thenReturn(Optional.of(user));
+            when(badgeService.getBadgesByUser(user.getId())).thenReturn(badges);
+            when(eventResponseDTOFactory.createFromEvent(validPinnedEvent)).thenReturn(pinnedEventDTO);
+
+            // Act
+            UserProfileResponseDTO result = userService.getUserProfile(username, viewerId);
+
+            // Assert
+            assertTrue(result.isSelf());
+            assertEquals(pinnedEventDTO, result.pinnedImpromptuEvent());
+            verify(userBO, never()).updateUser(any(User.class)); // Should not clean up valid event
+            verify(eventResponseDTOFactory).createFromEvent(validPinnedEvent);
+        }
+
     }
 
     @Nested

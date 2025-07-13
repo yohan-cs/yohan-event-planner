@@ -6,7 +6,6 @@ import com.yohan.event_planner.config.jackson.OptionalNullableDeserializer;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * DTO for updating an existing recurring event. All fields are optional and may be {@code null}.

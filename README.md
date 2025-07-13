@@ -1,11 +1,14 @@
-# Event Planner API
+# Event Planner Backend API
 
-A comprehensive event management system with advanced scheduling capabilities, built using modern Spring Boot architecture. Features multi-timezone support, recurring events, user management, and real-time calendar generation.
+A comprehensive event management system with advanced scheduling capabilities, built using modern Spring Boot architecture. Features multi-timezone support, recurring events, user management, real-time calendar generation, and **impromptu event pinning** for dashboard reminders.
+
+> **📱 Flutter Integration Ready**: This backend is designed for seamless integration with Flutter mobile applications. Complete REST/GraphQL APIs, JWT authentication, and data contracts optimized for mobile development patterns.
 
 ## 🚀 Key Features
 
 ### 📅 **Advanced Event Management**
 - **Flexible Event Types**: Scheduled, impromptu, untimed, and unconfirmed draft events
+- **Impromptu Event Pinning**: Pin impromptu events to user dashboard as reminders with auto-unpin safeguards
 - **Multi-timezone Support**: Events stored in UTC with timezone metadata
 - **Untimed Events**: Support for open-ended or impromptu activities without end times
 - **Event Completion**: Track and mark events as completed with automatic time tracking
@@ -29,7 +32,7 @@ A comprehensive event management system with advanced scheduling capabilities, b
 - **Timezone Preferences**: Per-user timezone configuration
 
 ### 🏷️ **Organization & Analytics Features**
-- **Labels**: Categorize and organize events with custom labels and automatic "Unlabeled" system
+- **Labels**: Categorize and organize events with custom labels, visual color coding (base/pastel/metallic variants), and automatic "Unlabeled" system
 - **Badges**: Multi-label collections that aggregate time statistics across related activities
 - **Badge Analytics**: Track time spent today, this week, this month, last week, last month, and all-time
 - **Time Analytics**: Automatic time tracking with daily/weekly/monthly bucketing
@@ -57,6 +60,7 @@ A comprehensive event management system with advanced scheduling capabilities, b
 - **Time Bucket Processing**: Real-time analytics aggregation
 - **Conflict Validation**: Automatic overlap detection for events
 - **Timezone Handling**: Intelligent conversion and storage
+- **Rate Limiting**: Per-IP protection against abuse with configurable policies
 
 ## 🛠️ Technology Stack
 
@@ -89,6 +93,521 @@ A comprehensive event management system with advanced scheduling capabilities, b
 - **dotenv-java** - Environment variable management
 - **Jackson** - JSON processing with custom serializers
 
+## 📱 Flutter Integration Guide
+
+### **Quick Start for Flutter Developers**
+
+This backend provides a complete REST API and GraphQL interface optimized for Flutter mobile applications. All endpoints return JSON with consistent error handling and proper HTTP status codes.
+
+### **Base Configuration**
+
+```dart
+// lib/config/api_config.dart
+class ApiConfig {
+  static const String baseUrl = 'http://localhost:8080'; // Development
+  static const String prodUrl = 'https://your-api-domain.com'; // Production
+  
+  // Endpoints
+  static const String authEndpoint = '/auth';
+  static const String eventsEndpoint = '/events';
+  static const String graphqlEndpoint = '/graphql';
+}
+```
+
+### **Authentication Flow for Flutter**
+
+#### **1. User Registration & Login**
+```dart
+// lib/services/auth_service.dart
+class AuthService {
+  static const String _accessTokenKey = 'access_token';
+  static const String _refreshTokenKey = 'refresh_token';
+
+  // Register new user
+  Future<AuthResponse> register(String username, String firstName, String lastName, String password, String timezone) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/auth/register'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'username': username,
+        'firstName': firstName,
+        'lastName': lastName,
+        'password': password,
+        'timezone': timezone, // e.g., "America/New_York"
+      }),
+    );
+    
+    if (response.statusCode == 201) {
+      final data = jsonDecode(response.body);
+      await _storeTokens(data['accessToken'], data['refreshToken']);
+      return AuthResponse.fromJson(data);
+    } else {
+      throw AuthException(response.body);
+    }
+  }
+
+  // Login existing user
+  Future<AuthResponse> login(String username, String password) async {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/auth/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'username': username,
+        'password': password,
+      }),
+    );
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      await _storeTokens(data['accessToken'], data['refreshToken']);
+      return AuthResponse.fromJson(data);
+    } else {
+      throw AuthException(response.body);
+    }
+  }
+
+  // Auto-refresh tokens
+  Future<String?> refreshAccessToken() async {
+    final refreshToken = await _getRefreshToken();
+    if (refreshToken == null) return null;
+
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/auth/refresh'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'refreshToken': refreshToken}),
+    );
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      await _storeTokens(data['accessToken'], data['refreshToken']);
+      return data['accessToken'];
+    }
+    return null;
+  }
+}
+```
+
+#### **2. HTTP Client with Auto-Refresh**
+```dart
+// lib/services/api_client.dart
+class ApiClient {
+  final http.Client _client = http.Client();
+  final AuthService _authService = AuthService();
+
+  Future<http.Response> get(String endpoint) async {
+    return _makeRequest(() => _client.get(
+      Uri.parse('${ApiConfig.baseUrl}$endpoint'),
+      headers: await _getHeaders(),
+    ));
+  }
+
+  Future<http.Response> post(String endpoint, Map<String, dynamic> body) async {
+    return _makeRequest(() => _client.post(
+      Uri.parse('${ApiConfig.baseUrl}$endpoint'),
+      headers: await _getHeaders(),
+      body: jsonEncode(body),
+    ));
+  }
+
+  Future<http.Response> _makeRequest(Future<http.Response> Function() request) async {
+    var response = await request();
+    
+    // Auto-refresh on 401
+    if (response.statusCode == 401) {
+      final newToken = await _authService.refreshAccessToken();
+      if (newToken != null) {
+        response = await request(); // Retry with new token
+      }
+    }
+    
+    return response;
+  }
+
+  Future<Map<String, String>> _getHeaders() async {
+    final token = await _authService.getAccessToken();
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+}
+```
+
+### **Event Management for Flutter**
+
+#### **1. Create Impromptu Event (Quick Add)**
+```dart
+// lib/services/event_service.dart
+class EventService {
+  final ApiClient _apiClient = ApiClient();
+
+  // Create impromptu event for dashboard pinning
+  Future<EventResponse> createImpromptuEvent() async {
+    final response = await _apiClient.post('/events/impromptu', {});
+    
+    if (response.statusCode == 201) {
+      return EventResponse.fromJson(jsonDecode(response.body));
+    } else {
+      throw EventException('Failed to create impromptu event');
+    }
+  }
+
+  // Create scheduled event
+  Future<EventResponse> createEvent({
+    required String name,
+    required DateTime startTime,
+    required DateTime endTime,
+    String? description,
+    int? labelId,
+    bool isDraft = false,
+  }) async {
+    final response = await _apiClient.post('/events', {
+      'name': name,
+      'startTime': startTime.toUtc().toIso8601String(),
+      'endTime': endTime.toUtc().toIso8601String(),
+      'description': description,
+      'labelId': labelId,
+      'isDraft': isDraft,
+    });
+    
+    if (response.statusCode == 201) {
+      return EventResponse.fromJson(jsonDecode(response.body));
+    } else {
+      throw EventException('Failed to create event');
+    }
+  }
+}
+```
+
+#### **2. GraphQL Integration for User Profiles**
+```dart
+// lib/services/graphql_service.dart
+class GraphQLService {
+  final ApiClient _apiClient = ApiClient();
+
+  // Get user profile with pinned impromptu event
+  Future<UserProfile> getUserProfile(String username) async {
+    final query = '''
+      query GetUserProfile(\$username: String!) {
+        userProfile(username: \$username) {
+          isSelf
+          header {
+            username
+            firstName
+            lastName
+            bio
+            profilePictureUrl
+          }
+          pinnedImpromptuEvent {
+            id
+            name
+            startTimeUtc
+            impromptu
+            unconfirmed
+          }
+          badges {
+            id
+            name
+            timeStats {
+              minutesToday
+              minutesThisWeek
+              minutesThisMonth
+            }
+          }
+        }
+      }
+    ''';
+
+    final response = await _apiClient.post('/graphql', {
+      'query': query,
+      'variables': {'username': username},
+    });
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return UserProfile.fromJson(data['data']['userProfile']);
+    } else {
+      throw GraphQLException('Failed to fetch user profile');
+    }
+  }
+
+  // Unpin impromptu event
+  Future<bool> unpinImpromptuEvent() async {
+    final mutation = '''
+      mutation {
+        unpinImpromptuEvent
+      }
+    ''';
+
+    final response = await _apiClient.post('/graphql', {
+      'query': mutation,
+    });
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      return data['data']['unpinImpromptuEvent'] == true;
+    }
+    return false;
+  }
+}
+```
+
+### **Data Models for Flutter**
+
+#### **Core Event Model**
+```dart
+// lib/models/event_response.dart
+class EventResponse {
+  final int id;
+  final String? name;
+  final DateTime? startTimeUtc;
+  final DateTime? endTimeUtc;
+  final int? durationMinutes;
+  final String? startTimeZone;
+  final String? endTimeZone;
+  final String? description;
+  final String creatorUsername;
+  final String creatorTimezone;
+  final LabelResponse? label;
+  final bool isCompleted;
+  final bool unconfirmed;
+  final bool impromptu;
+  final bool isVirtual;
+
+  EventResponse({
+    required this.id,
+    this.name,
+    this.startTimeUtc,
+    this.endTimeUtc,
+    this.durationMinutes,
+    this.startTimeZone,
+    this.endTimeZone,
+    this.description,
+    required this.creatorUsername,
+    required this.creatorTimezone,
+    this.label,
+    required this.isCompleted,
+    required this.unconfirmed,
+    required this.impromptu,
+    required this.isVirtual,
+  });
+
+  factory EventResponse.fromJson(Map<String, dynamic> json) {
+    return EventResponse(
+      id: json['id'],
+      name: json['name'],
+      startTimeUtc: json['startTimeUtc'] != null ? DateTime.parse(json['startTimeUtc']) : null,
+      endTimeUtc: json['endTimeUtc'] != null ? DateTime.parse(json['endTimeUtc']) : null,
+      durationMinutes: json['durationMinutes'],
+      startTimeZone: json['startTimeZone'],
+      endTimeZone: json['endTimeZone'],
+      description: json['description'],
+      creatorUsername: json['creatorUsername'],
+      creatorTimezone: json['creatorTimezone'],
+      label: json['label'] != null ? LabelResponse.fromJson(json['label']) : null,
+      isCompleted: json['isCompleted'],
+      unconfirmed: json['unconfirmed'],
+      impromptu: json['impromptu'],
+      isVirtual: json['isVirtual'],
+    );
+  }
+}
+```
+
+#### **User Profile Model**
+```dart
+// lib/models/user_profile.dart
+class UserProfile {
+  final bool isSelf;
+  final UserHeader header;
+  final EventResponse? pinnedImpromptuEvent;
+  final List<Badge> badges;
+
+  UserProfile({
+    required this.isSelf,
+    required this.header,
+    this.pinnedImpromptuEvent,
+    required this.badges,
+  });
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) {
+    return UserProfile(
+      isSelf: json['isSelf'],
+      header: UserHeader.fromJson(json['header']),
+      pinnedImpromptuEvent: json['pinnedImpromptuEvent'] != null 
+          ? EventResponse.fromJson(json['pinnedImpromptuEvent']) 
+          : null,
+      badges: (json['badges'] as List).map((b) => Badge.fromJson(b)).toList(),
+    );
+  }
+}
+```
+
+### **Flutter UI Integration Patterns**
+
+#### **1. Dashboard with Pinned Event**
+```dart
+// lib/widgets/dashboard_widget.dart
+class DashboardWidget extends StatefulWidget {
+  @override
+  _DashboardWidgetState createState() => _DashboardWidgetState();
+}
+
+class _DashboardWidgetState extends State<DashboardWidget> {
+  UserProfile? userProfile;
+  final GraphQLService _graphqlService = GraphQLService();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserProfile();
+  }
+
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Pinned Impromptu Event Card
+        if (userProfile?.pinnedImpromptuEvent != null)
+          _buildPinnedEventCard(userProfile!.pinnedImpromptuEvent!),
+        
+        // Other dashboard content...
+      ],
+    );
+  }
+
+  Widget _buildPinnedEventCard(EventResponse event) {
+    return Card(
+      color: Colors.orange.shade100,
+      child: ListTile(
+        leading: Icon(Icons.push_pin, color: Colors.orange),
+        title: Text(event.name ?? 'Impromptu Event'),
+        subtitle: Text('Started: ${_formatTime(event.startTimeUtc)}'),
+        trailing: IconButton(
+          icon: Icon(Icons.close),
+          onPressed: () => _unpinEvent(),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _unpinEvent() async {
+    final success = await _graphqlService.unpinImpromptuEvent();
+    if (success) {
+      setState(() {
+        userProfile = userProfile?.copyWith(pinnedImpromptuEvent: null);
+      });
+    }
+  }
+}
+```
+
+#### **2. Quick Add Floating Action Button**
+```dart
+// lib/widgets/quick_add_fab.dart
+class QuickAddFAB extends StatelessWidget {
+  final EventService _eventService = EventService();
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton(
+      onPressed: _createImpromptuEvent,
+      child: Icon(Icons.add),
+      tooltip: 'Quick Add Event',
+    );
+  }
+
+  Future<void> _createImpromptuEvent() async {
+    try {
+      final event = await _eventService.createImpromptuEvent();
+      // Navigate to event details or show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impromptu event created and pinned!')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create event: $e')),
+      );
+    }
+  }
+}
+```
+
+### **Error Handling for Flutter**
+
+```dart
+// lib/models/api_exception.dart
+class ApiException implements Exception {
+  final String message;
+  final int? statusCode;
+  final String? errorCode;
+  final int? remainingAttempts;
+  final int? resetTimeSeconds;
+
+  ApiException(this.message, {this.statusCode, this.errorCode, this.remainingAttempts, this.resetTimeSeconds});
+
+  factory ApiException.fromResponse(http.Response response) {
+    final body = jsonDecode(response.body);
+    return ApiException(
+      body['message'] ?? 'Unknown error',
+      statusCode: response.statusCode,
+      errorCode: body['errorCode'],
+      remainingAttempts: body['remainingAttempts'],
+      resetTimeSeconds: body['resetTimeSeconds'],
+    );
+  }
+
+  bool get isRateLimited => statusCode == 429;
+}
+```
+
+#### **Rate Limiting Handling**
+```dart
+// lib/services/auth_service.dart (enhanced with rate limiting)
+Future<AuthResponse> login(String username, String password) async {
+  try {
+    final response = await http.post(
+      Uri.parse('${ApiConfig.baseUrl}/auth/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'username': username, 'password': password}),
+    );
+    
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body);
+      await _storeTokens(data['accessToken'], data['refreshToken']);
+      return AuthResponse.fromJson(data);
+    } else if (response.statusCode == 429) {
+      // Rate limited - provide user feedback
+      final error = ApiException.fromResponse(response);
+      throw RateLimitException(
+        'Too many login attempts. ${error.remainingAttempts} attempts remaining. '
+        'Try again in ${error.resetTimeSeconds} seconds.',
+        remainingAttempts: error.remainingAttempts,
+        resetTimeSeconds: error.resetTimeSeconds,
+      );
+    } else {
+      throw ApiException.fromResponse(response);
+    }
+  } catch (e) {
+    throw AuthException('Login failed: $e');
+  }
+}
+```
+
+### **Development Setup for Monorepo**
+
+```yaml
+# pubspec.yaml dependencies for API integration
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.1.0
+  shared_preferences: ^2.2.2
+  provider: ^6.1.1  # For state management
+  graphql_flutter: ^5.1.2  # Optional: For GraphQL integration
+```
+
+This backend provides all the necessary endpoints for a complete Flutter event management app with user authentication, event creation, and dashboard functionality.
+
 ## 🏗️ Architecture
 
 ### **Layered Architecture**
@@ -115,11 +634,56 @@ Database (PostgreSQL)
 - **User**: Authentication, preferences, soft deletion, automatic unlabeled label
 - **Event**: Flexible events (scheduled/impromptu/untimed/draft) with completion lifecycle
 - **RecurringEvent**: RRule-based templates with skip days and virtual generation
-- **Label**: Event categorization with time tracking and system protection
+- **Label**: Event categorization with visual color coding system (base/pastel/metallic variants), time tracking, and system protection
 - **Badge**: Multi-label collections with comprehensive time analytics (today/week/month/historical/all-time)
 - **EventRecap**: Post-event documentation with media attachments and ordering
 - **LabelTimeBucket**: Automatic time analytics aggregation (day/week/month)
 - **RecapMedia**: Media management with type classification and duration tracking
+
+### **Label Color System**
+
+The application provides a sophisticated color system for visual event categorization. Each label requires a color from a predefined palette, ensuring consistency and accessibility across the UI.
+
+#### **Color Palette**
+- **RED** - `#FF4D4F` (base), `#FFD6D7` (pastel), `#D72631` (metallic)
+- **ORANGE** - `#FA8C16` (base), `#FFE0B2` (pastel), `#D46B08` (metallic)
+- **YELLOW** - `#FADB14` (base), `#FFF7AE` (pastel), `#D4B106` (metallic)
+- **GREEN** - `#52C41A` (base), `#C7EFCF` (pastel), `#237804` (metallic)
+- **TEAL** - `#13C2C2` (base), `#A6E6E6` (pastel), `#08979C` (metallic)
+- **BLUE** - `#1890FF` (base), `#A3D3FF` (pastel), `#0050B3` (metallic)
+- **PURPLE** - `#722ED1` (base), `#D3C6F1` (pastel), `#391085` (metallic)
+- **PINK** - `#EB2F96` (base), `#FDCFE8` (pastel), `#C41D7F` (metallic)
+- **GRAY** - `#8C8C8C` (base), `#D9D9D9` (pastel), `#595959` (metallic)
+
+#### **Color Variants**
+Each color provides three hex values for different event states:
+- **Base**: Default appearance for normal events
+- **Pastel**: Softer appearance for incomplete or draft events
+- **Metallic**: Rich appearance for completed or successful events
+
+#### **API Usage**
+```json
+// Create label with color
+POST /labels
+{
+  "name": "Work Tasks",
+  "color": "BLUE"
+}
+
+// Update label color
+PATCH /labels/123
+{
+  "color": "RED"
+}
+
+// Response includes color
+{
+  "id": 123,
+  "name": "Work Tasks",
+  "color": "BLUE",
+  "creatorUsername": "john"
+}
+```
 
 ## 🚀 Quick Start
 
@@ -291,10 +855,10 @@ psql -h localhost -U your_username eventplanner
 - `GET /usertools` - Get all badges and labels for user
 
 #### **Labels & Badges**
-- `GET /labels/{id}` - Get label details
-- `POST /labels` - Create new label
-- `PATCH /labels/{id}` - Update label
-- `DELETE /labels/{id}` - Delete label
+- `GET /labels/{id}` - Get label details with color scheme information
+- `POST /labels` - Create new label with name and color from predefined palette (RED, ORANGE, YELLOW, GREEN, TEAL, BLUE, PURPLE, PINK, GRAY)
+- `PATCH /labels/{id}` - Update label name and/or color
+- `DELETE /labels/{id}` - Delete label and remove color assignment
 - `GET /badges/{id}` - Get badge with comprehensive time statistics across all contained labels
 - `POST /badges` - Create new badge (collection of labels)
 - `PATCH /badges/{id}` - Update badge and label associations
@@ -423,6 +987,27 @@ The system implements a dual-token authentication strategy for optimal security 
 - Automatic session renewal without re-authentication
 - Secure logout that prevents token reuse
 - Protection against token theft and replay attacks
+
+### **Rate Limiting & Protection**
+- **Per-IP Rate Limiting**: Configurable limits per client IP address
+- **Sliding Window Algorithm**: Time-based rate limiting with automatic reset
+- **Multi-Operation Protection**: Different limits for registration, login, password reset, and email verification
+- **In-Memory Caching**: Fast rate limit tracking with automatic cleanup
+- **Brute Force Prevention**: Protection against credential attacks and abuse
+- **Resource Protection**: Prevents spam, flooding, and resource exhaustion
+
+#### **Rate Limiting Policies**
+- **Registration**: 5 attempts per hour per IP
+- **Login**: 10 attempts per 15 minutes per IP  
+- **Password Reset**: 3 requests per hour per IP
+- **Email Verification**: 5 attempts per 30 minutes per IP
+
+#### **Rate Limiting Features**
+- **Automatic Expiry**: Rate limit data expires automatically after time windows
+- **Remaining Attempts API**: Clients can check remaining attempts before hitting limits
+- **Reset Time Information**: Provides feedback on when limits will reset
+- **Configurable Limits**: Adjustable via application properties
+- **Production Ready**: Supports Redis cache for multi-instance deployments
 
 ### **Security Best Practices**
 - Password hashing with BCrypt

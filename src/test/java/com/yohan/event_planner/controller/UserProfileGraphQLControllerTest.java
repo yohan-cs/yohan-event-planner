@@ -1,6 +1,7 @@
 package com.yohan.event_planner.controller;
 
 import com.yohan.event_planner.constants.ApplicationConstants;
+import com.yohan.event_planner.domain.User;
 import com.yohan.event_planner.domain.enums.RecapMediaType;
 import com.yohan.event_planner.graphql.input.UpdateFieldInput;
 import com.yohan.event_planner.security.AuthenticatedUserProvider;
@@ -9,6 +10,7 @@ import com.yohan.event_planner.service.EventRecapService;
 import com.yohan.event_planner.service.EventService;
 import com.yohan.event_planner.service.RecapMediaService;
 import com.yohan.event_planner.service.UserService;
+import com.yohan.event_planner.util.TestUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * Unit tests for UserProfileGraphQLController focusing on helper methods and 
@@ -245,5 +249,52 @@ class UserProfileGraphQLControllerTest {
             assertTrue(ApplicationConstants.GRAPHQL_OPERATION_SUCCESS);
             assertTrue(ApplicationConstants.INVALID_DATETIME_FORMAT_MESSAGE.contains("Unexpected value type"));
         }
+    }
+
+    @Nested
+    class UnpinImpromptuEventTests {
+
+        @Test
+        void shouldUnpinImpromptuEventSuccessfully() {
+            // Arrange
+            User currentUser = TestUtils.createValidUserEntityWithId();
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
+
+            // Act
+            Boolean result = controller.unpinImpromptuEvent();
+
+            // Assert
+            assertEquals(ApplicationConstants.GRAPHQL_OPERATION_SUCCESS, result);
+            verify(authenticatedUserProvider).getCurrentUser();
+            verify(eventService).unpinImpromptuEventForCurrentUser();
+        }
+
+        @Test
+        void shouldReturnTrueEvenWhenNoEventToUnpin() {
+            // Arrange
+            User currentUser = TestUtils.createValidUserEntityWithId();
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
+
+            // Act
+            Boolean result = controller.unpinImpromptuEvent();
+
+            // Assert
+            assertEquals(ApplicationConstants.GRAPHQL_OPERATION_SUCCESS, result);
+            verify(eventService).unpinImpromptuEventForCurrentUser();
+        }
+
+        @Test
+        void shouldDelegateToEventService() {
+            // Arrange
+            User currentUser = TestUtils.createValidUserEntityWithId();
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(currentUser);
+
+            // Act
+            controller.unpinImpromptuEvent();
+
+            // Assert
+            verify(eventService).unpinImpromptuEventForCurrentUser();
+        }
+
     }
 }

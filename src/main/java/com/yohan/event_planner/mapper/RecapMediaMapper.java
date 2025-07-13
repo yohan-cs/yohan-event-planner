@@ -9,12 +9,29 @@ import org.mapstruct.NullValuePropertyMappingStrategy;
 /**
  * MapStruct mapper for converting between {@link RecapMedia} domain entities and related DTOs.
  *
- * <p>
- * This mapper supports the following transformations:
+ * <p>This mapper handles the conversion of media attachment entities to client-facing DTOs,
+ * focusing on preserving media metadata and ordering information for proper client-side
+ * rendering and presentation.</p>
+ *
+ * <h3>Supported Transformations:</h3>
  * <ul>
  *     <li>Converting {@link RecapMedia} entities to {@link RecapMediaResponseDTO} for API responses</li>
+ *     <li>Preserving media type information for client categorization</li>
+ *     <li>Maintaining media ordering for sequential presentation</li>
  * </ul>
- * </p>
+ *
+ * <h3>Enum Mapping:</h3>
+ * <p>The mapper automatically handles {@code RecapMediaType} enum conversion between
+ * domain entities and DTOs, supporting the following media types:</p>
+ * <ul>
+ *   <li><strong>IMAGE</strong>: Static image files (jpg, png, gif, etc.)</li>
+ *   <li><strong>VIDEO</strong>: Video files with duration tracking</li>
+ *   <li><strong>AUDIO</strong>: Audio files with duration information</li>
+ * </ul>
+ *
+ * <h3>Null Handling:</h3>
+ * <p>Uses {@code NullValuePropertyMappingStrategy.IGNORE} to ensure clean response
+ * structures, particularly useful for optional fields like duration for image media.</p>
  */
 @Mapper(
         componentModel = "spring",

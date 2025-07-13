@@ -77,15 +77,19 @@ public interface UserService {
     void reactivateCurrentUser();
 
     /**
-     * Retrieves a user's public profile information by username.
+     * Retrieves a user's profile information by username with context-aware filtering.
      *
-     * <p>Returns profile header information and user badges. The {@code isSelf} flag
-     * indicates whether the viewer is looking at their own profile, which may affect
-     * what information is displayed on the client side.</p>
+     * <p>Returns profile header information, user badges, and pinned impromptu events (owner-only).
+     * The {@code isSelf} flag indicates whether the viewer is looking at their own profile, which 
+     * determines access to private information including pinned events.</p>
+     * 
+     * <p>Pinned impromptu events are only included when the viewer is the profile owner and the 
+     * pinned event qualifies (draft = true && impromptu = true). Invalid pinned events are 
+     * automatically cleaned up during retrieval to maintain data consistency.</p>
      *
      * @param username the username of the profile to retrieve (case-insensitive)
      * @param viewerId the ID of the user viewing the profile (null for anonymous)
-     * @return {@link UserProfileResponseDTO} containing profile header and badges
+     * @return {@link UserProfileResponseDTO} containing profile header, badges, and pinned events
      * @throws UserNotFoundException if the requested username does not exist
      */
     UserProfileResponseDTO getUserProfile(String username, Long viewerId);

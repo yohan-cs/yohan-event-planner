@@ -9,6 +9,7 @@ import com.yohan.event_planner.domain.RecapMedia;
 import com.yohan.event_planner.domain.RecurrenceRuleVO;
 import com.yohan.event_planner.domain.RecurringEvent;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.domain.enums.LabelColor;
 import com.yohan.event_planner.domain.enums.RecapMediaType;
 import com.yohan.event_planner.domain.enums.TimeBucketType;
 import com.yohan.event_planner.repository.BadgeRepository;
@@ -23,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.time.ZonedDateTime;
 
 @Component
 public class TestDataHelper {
@@ -83,9 +85,22 @@ public class TestDataHelper {
         return labelRepository.saveAndFlush(label);
     }
 
+    // Helper method to create and persist a label with specific color
+    public Label createAndPersistLabel(User user, String name, LabelColor color) {
+        String uniqueName = name + "_" + System.currentTimeMillis() + "_" + System.nanoTime();
+        var label = new Label(uniqueName, color, user);
+        return labelRepository.saveAndFlush(label);
+    }
+
     // Helper method to create and persist a label with exact name (for testing duplicate validation)
     public Label createAndPersistLabelWithExactName(User user, String name) {
         var label = TestUtils.createValidLabel(user, name);
+        return labelRepository.saveAndFlush(label);
+    }
+
+    // Helper method to create and persist a label with exact name and specific color
+    public Label createAndPersistLabelWithExactName(User user, String name, LabelColor color) {
+        var label = new Label(name, color, user);
         return labelRepository.saveAndFlush(label);
     }
 
@@ -111,6 +126,19 @@ public class TestDataHelper {
         var event = TestUtils.createValidFutureEvent(user, clock);
         event.setLabel(label);
         return eventRepository.saveAndFlush(event);
+    }
+
+    // Helper method to create and pin an impromptu event
+    public Event createAndPinImpromptuEvent(User user) {
+        var event = Event.createImpromptuEvent(ZonedDateTime.now(clock), user);
+        event.setLabel(user.getUnlabeled());
+        var savedEvent = eventRepository.saveAndFlush(event);
+        
+        // Pin the event to the user
+        user.setPinnedImpromptuEvent(savedEvent);
+        userRepository.saveAndFlush(user);
+        
+        return savedEvent;
     }
 
     // Helper method to create and persist a completed event

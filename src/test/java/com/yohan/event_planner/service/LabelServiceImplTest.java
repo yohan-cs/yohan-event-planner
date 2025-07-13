@@ -3,6 +3,7 @@ package com.yohan.event_planner.service;
 import com.yohan.event_planner.business.UserBO;
 import com.yohan.event_planner.domain.Label;
 import com.yohan.event_planner.domain.User;
+import com.yohan.event_planner.domain.enums.LabelColor;
 import com.yohan.event_planner.dto.LabelCreateDTO;
 import com.yohan.event_planner.dto.LabelResponseDTO;
 import com.yohan.event_planner.dto.LabelUpdateDTO;
@@ -39,9 +40,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -102,8 +103,8 @@ public class LabelServiceImplTest {
         @Test
         void shouldReturnLabelById() {
             // Arrange
-            Label label = new Label("Focus", testUser);
-            LabelResponseDTO expected = new LabelResponseDTO(1L, "Focus", testUser.getUsername());
+            Label label = new Label("Focus", LabelColor.BLUE, testUser);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "Focus", LabelColor.BLUE, testUser.getUsername());
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(label));
@@ -130,7 +131,7 @@ public class LabelServiceImplTest {
         void shouldThrowWhenUserDoesNotOwnLabel() {
             // Arrange
             User otherUser = TestUtils.createValidUserEntityWithId(999L);
-            Label label = new Label("Focus", otherUser);
+            Label label = new Label("Focus", LabelColor.BLUE, otherUser);
             
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(label));
@@ -150,7 +151,7 @@ public class LabelServiceImplTest {
         @Test
         void shouldReturnLabelEntity() {
             // Arrange
-            Label expected = new Label("Focus", testUser);
+            Label expected = new Label("Focus", LabelColor.BLUE, testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(expected));
 
             // Act
@@ -279,8 +280,8 @@ public class LabelServiceImplTest {
             when(labelRepository.findAllByCreatorIdOrderByNameAsc(userId)).thenReturn(List.of(unlabeled, label1, label2));
 
             // Mock the labelMapper to return non-null LabelResponseDTO objects
-            when(labelMapper.toResponseDTO(label1)).thenReturn(new LabelResponseDTO(1L, "Focus", testUser.getUsername()));
-            when(labelMapper.toResponseDTO(label2)).thenReturn(new LabelResponseDTO(2L, "Strength", testUser.getUsername()));
+            when(labelMapper.toResponseDTO(label1)).thenReturn(new LabelResponseDTO(1L, "Focus", LabelColor.BLUE, testUser.getUsername()));
+            when(labelMapper.toResponseDTO(label2)).thenReturn(new LabelResponseDTO(2L, "Strength", LabelColor.RED, testUser.getUsername()));
 
             // Act
             List<LabelResponseDTO> result = labelService.getLabelsByUser(userId);
@@ -362,9 +363,9 @@ public class LabelServiceImplTest {
             when(labelRepository.findAllByCreatorIdOrderByNameAsc(userId))
                 .thenReturn(List.of(labelB, labelC, labelA, unlabeled));
 
-            when(labelMapper.toResponseDTO(labelA)).thenReturn(new LabelResponseDTO(2L, "apple", testUser.getUsername()));
-            when(labelMapper.toResponseDTO(labelB)).thenReturn(new LabelResponseDTO(3L, "Banana", testUser.getUsername()));
-            when(labelMapper.toResponseDTO(labelC)).thenReturn(new LabelResponseDTO(4L, "Cherry", testUser.getUsername()));
+            when(labelMapper.toResponseDTO(labelA)).thenReturn(new LabelResponseDTO(2L, "apple", LabelColor.GREEN, testUser.getUsername()));
+            when(labelMapper.toResponseDTO(labelB)).thenReturn(new LabelResponseDTO(3L, "Banana", LabelColor.YELLOW, testUser.getUsername()));
+            when(labelMapper.toResponseDTO(labelC)).thenReturn(new LabelResponseDTO(4L, "Cherry", LabelColor.RED, testUser.getUsername()));
 
             // Act
             List<LabelResponseDTO> result = labelService.getLabelsByUser(userId);
@@ -383,9 +384,9 @@ public class LabelServiceImplTest {
         @Test
         void shouldCreateLabelSuccessfully() {
             // Arrange
-            LabelCreateDTO dto = new LabelCreateDTO("Focus");
-            Label savedLabel = new Label(dto.name(), testUser);
-            LabelResponseDTO expected = new LabelResponseDTO(1L, "Focus", testUser.getUsername());
+            LabelCreateDTO dto = new LabelCreateDTO("Focus", LabelColor.BLUE);
+            Label savedLabel = new Label(dto.name(), dto.color(), testUser);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "Focus", LabelColor.BLUE, testUser.getUsername());
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.existsByNameAndCreator(dto.name(), testUser)).thenReturn(false);
@@ -403,7 +404,7 @@ public class LabelServiceImplTest {
         @Test
         void shouldThrowWhenLabelAlreadyExists() {
             // Arrange
-            LabelCreateDTO dto = new LabelCreateDTO("Focus");
+            LabelCreateDTO dto = new LabelCreateDTO("Focus", LabelColor.RED);
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.existsByNameAndCreator(dto.name(), testUser)).thenReturn(true);
 
@@ -414,9 +415,9 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleSpecialCharactersInName() {
             // Arrange
-            LabelCreateDTO dto = new LabelCreateDTO("Work/Life-Balance (2024)!");
-            Label savedLabel = new Label(dto.name(), testUser);
-            LabelResponseDTO expected = new LabelResponseDTO(1L, dto.name(), testUser.getUsername());
+            LabelCreateDTO dto = new LabelCreateDTO("Work/Life-Balance (2024)!", LabelColor.GREEN);
+            Label savedLabel = new Label(dto.name(), dto.color(), testUser);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, dto.name(), LabelColor.GREEN, testUser.getUsername());
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.existsByNameAndCreator(dto.name(), testUser)).thenReturn(false);
@@ -434,9 +435,9 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleUnicodeCharacters() {
             // Arrange
-            LabelCreateDTO dto = new LabelCreateDTO("学习中文 🎯");
-            Label savedLabel = new Label(dto.name(), testUser);
-            LabelResponseDTO expected = new LabelResponseDTO(1L, dto.name(), testUser.getUsername());
+            LabelCreateDTO dto = new LabelCreateDTO("学习中文 🎯", LabelColor.PURPLE);
+            Label savedLabel = new Label(dto.name(), dto.color(), testUser);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, dto.name(), LabelColor.PURPLE, testUser.getUsername());
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.existsByNameAndCreator(dto.name(), testUser)).thenReturn(false);
@@ -450,6 +451,64 @@ public class LabelServiceImplTest {
             assertEquals(expected.name(), result.name());
             verify(labelRepository).save(any(Label.class));
         }
+
+        @Test
+        void shouldCreateLabelWithAllColorValues() {
+            // Test each LabelColor enum value works in creation
+            for (LabelColor color : LabelColor.values()) {
+                // Arrange
+                String labelName = "Test-" + color.name();
+                LabelCreateDTO dto = new LabelCreateDTO(labelName, color);
+                Label savedLabel = new Label(dto.name(), dto.color(), testUser);
+                LabelResponseDTO expected = new LabelResponseDTO(1L, labelName, color, testUser.getUsername());
+
+                when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+                when(labelRepository.existsByNameAndCreator(dto.name(), testUser)).thenReturn(false);
+                when(labelRepository.save(any(Label.class))).thenReturn(savedLabel);
+                when(labelMapper.toResponseDTO(savedLabel)).thenReturn(expected);
+
+                // Act
+                LabelResponseDTO result = labelService.createLabel(dto);
+
+                // Assert
+                assertEquals(color, result.color());
+                assertEquals(labelName, result.name());
+            }
+        }
+
+        @Test
+        void shouldMapColorCorrectlyInCreation() {
+            // Arrange
+            LabelCreateDTO dto = new LabelCreateDTO("Focus", LabelColor.TEAL);
+            Label savedLabel = new Label(dto.name(), dto.color(), testUser);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "Focus", LabelColor.TEAL, testUser.getUsername());
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+            when(labelRepository.existsByNameAndCreator(dto.name(), testUser)).thenReturn(false);
+            when(labelRepository.save(any(Label.class))).thenReturn(savedLabel);
+            when(labelMapper.toResponseDTO(savedLabel)).thenReturn(expected);
+
+            // Act
+            LabelResponseDTO result = labelService.createLabel(dto);
+
+            // Assert
+            assertEquals(LabelColor.TEAL, result.color());
+            verify(labelRepository).save(any(Label.class));
+        }
+
+        @Test
+        void shouldRejectDuplicateNameEvenWithDifferentColor() {
+            // Arrange - Test that color doesn't affect duplicate name validation
+            LabelCreateDTO dto1 = new LabelCreateDTO("SameName", LabelColor.BLUE);
+            LabelCreateDTO dto2 = new LabelCreateDTO("SameName", LabelColor.RED);
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+            when(labelRepository.existsByNameAndCreator("SameName", testUser)).thenReturn(true);
+
+            // Act + Assert
+            assertThrows(LabelException.class, () -> labelService.createLabel(dto1));
+            assertThrows(LabelException.class, () -> labelService.createLabel(dto2));
+        }
     }
 
     @Nested
@@ -458,9 +517,9 @@ public class LabelServiceImplTest {
         @Test
         void shouldUpdateLabelName() {
             // Arrange
-            Label existing = new Label("Focus", testUser);
-            LabelUpdateDTO dto = new LabelUpdateDTO("Refocus");
-            LabelResponseDTO expected = new LabelResponseDTO(1L, "Refocus", testUser.getUsername());
+            Label existing = new Label("Focus", LabelColor.BLUE, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("Refocus", null);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "Refocus", LabelColor.BLUE, testUser.getUsername());
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
@@ -479,8 +538,8 @@ public class LabelServiceImplTest {
         @Test
         void shouldThrowWhenLabelNameAlreadyExists() {
             // Arrange
-            Label existing = new Label("OldName", testUser);
-            LabelUpdateDTO dto = new LabelUpdateDTO("NewName");
+            Label existing = new Label("OldName", LabelColor.RED, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", null);
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
@@ -494,9 +553,9 @@ public class LabelServiceImplTest {
         @Test
         void shouldNotUpdateWhenNameIsUnchanged() {
             // Arrange
-            Label existing = new Label("SameName", testUser);
-            LabelUpdateDTO dto = new LabelUpdateDTO("SameName");
-            LabelResponseDTO expected = new LabelResponseDTO(1L, "SameName", testUser.getUsername());
+            Label existing = new Label("SameName", LabelColor.GREEN, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("SameName", null);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "SameName", LabelColor.GREEN, testUser.getUsername());
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
@@ -514,7 +573,7 @@ public class LabelServiceImplTest {
         @Test
         void shouldThrowWhenLabelNotFound() {
             // Arrange
-            LabelUpdateDTO dto = new LabelUpdateDTO("NewName");
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", null);
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.empty());
 
@@ -526,8 +585,8 @@ public class LabelServiceImplTest {
         void shouldThrowWhenUserDoesNotOwnLabel() {
             // Arrange
             User otherUser = TestUtils.createValidUserEntityWithId(999L);
-            Label existing = new Label("Focus", otherUser);
-            LabelUpdateDTO dto = new LabelUpdateDTO("NewName");
+            Label existing = new Label("Focus", LabelColor.BLUE, otherUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", null);
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
@@ -543,7 +602,7 @@ public class LabelServiceImplTest {
             // Arrange
             Label unlabeledLabel = TestUtils.createValidLabelWithId(1L, testUser);
             TestUtils.setUnlabeledLabel(testUser, unlabeledLabel);
-            LabelUpdateDTO dto = new LabelUpdateDTO("NewName");
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", null);
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(unlabeledLabel));
@@ -556,9 +615,9 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleNullNameInUpdateDTO() {
             // Arrange
-            Label existing = new Label("OriginalName", testUser);
-            LabelUpdateDTO dto = new LabelUpdateDTO(null); // null name should be ignored
-            LabelResponseDTO expected = new LabelResponseDTO(1L, "OriginalName", testUser.getUsername());
+            Label existing = new Label("OriginalName", LabelColor.YELLOW, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO(null, null); // null fields should be ignored
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "OriginalName", LabelColor.YELLOW, testUser.getUsername());
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
@@ -576,9 +635,9 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleIdenticalNameInUpdateDTO() {
             // Arrange - This tests the specific branch: dto.name() != null but equals current name
-            Label existing = new Label("ExactSameName", testUser);
-            LabelUpdateDTO dto = new LabelUpdateDTO("ExactSameName"); // Same name as current
-            LabelResponseDTO expected = new LabelResponseDTO(1L, "ExactSameName", testUser.getUsername());
+            Label existing = new Label("ExactSameName", LabelColor.PINK, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("ExactSameName", null); // Same name as current
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "ExactSameName", LabelColor.PINK, testUser.getUsername());
 
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
@@ -593,6 +652,182 @@ public class LabelServiceImplTest {
             verify(labelRepository, never()).save(any(Label.class)); // No save should occur
             verify(labelRepository, never()).existsByNameAndCreator(any(), any()); // Should skip duplicate check
         }
+
+        @Test
+        void shouldRejectWhitespaceOnlyNameAtServiceLayer() {
+            // Arrange - Test that service layer rejects whitespace-only names after trimming
+            Label existing = new Label("OriginalName", LabelColor.RED, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("   ", null); // whitespace-only name
+            
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+            when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
+            doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), existing);
+            
+            // Act + Assert
+            LabelException exception = assertThrows(LabelException.class, () -> labelService.updateLabel(1L, dto));
+            assertEquals("Label name cannot be empty", exception.getMessage());
+        }
+
+        @Test
+        void shouldUpdateLabelColorOnly() {
+            // Arrange
+            Label existing = new Label("Focus", LabelColor.RED, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO(null, LabelColor.BLUE);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "Focus", LabelColor.BLUE, testUser.getUsername());
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+            when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
+            doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), existing);
+            when(labelRepository.save(existing)).thenReturn(existing);
+            when(labelMapper.toResponseDTO(existing)).thenReturn(expected);
+
+            // Act
+            LabelResponseDTO result = labelService.updateLabel(1L, dto);
+
+            // Assert
+            assertEquals(LabelColor.BLUE, result.color());
+            assertEquals("Focus", result.name()); // Name should be unchanged
+            verify(labelRepository).save(existing);
+        }
+
+        @Test
+        void shouldUpdateBothNameAndColor() {
+            // Arrange
+            Label existing = new Label("OldName", LabelColor.RED, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", LabelColor.GREEN);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "NewName", LabelColor.GREEN, testUser.getUsername());
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+            when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
+            doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), existing);
+            when(labelRepository.existsByNameAndCreator("NewName", testUser)).thenReturn(false);
+            when(labelRepository.save(existing)).thenReturn(existing);
+            when(labelMapper.toResponseDTO(existing)).thenReturn(expected);
+
+            // Act
+            LabelResponseDTO result = labelService.updateLabel(1L, dto);
+
+            // Assert
+            assertEquals("NewName", result.name());
+            assertEquals(LabelColor.GREEN, result.color());
+            verify(labelRepository).save(existing);
+        }
+
+        @Test
+        void shouldNotUpdateWhenColorIsUnchanged() {
+            // Arrange
+            Label existing = new Label("Focus", LabelColor.PURPLE, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO(null, LabelColor.PURPLE); // Same color
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "Focus", LabelColor.PURPLE, testUser.getUsername());
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+            when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
+            doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), existing);
+            when(labelMapper.toResponseDTO(existing)).thenReturn(expected);
+
+            // Act
+            LabelResponseDTO result = labelService.updateLabel(1L, dto);
+
+            // Assert
+            assertEquals(LabelColor.PURPLE, result.color());
+            verify(labelRepository, never()).save(any(Label.class)); // No save should occur
+        }
+
+        @Test
+        void shouldIgnoreNullColorInUpdate() {
+            // Arrange
+            Label existing = new Label("Focus", LabelColor.ORANGE, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", null); // Null color should be ignored
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "NewName", LabelColor.ORANGE, testUser.getUsername());
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+            when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
+            doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), existing);
+            when(labelRepository.existsByNameAndCreator("NewName", testUser)).thenReturn(false);
+            when(labelRepository.save(existing)).thenReturn(existing);
+            when(labelMapper.toResponseDTO(existing)).thenReturn(expected);
+
+            // Act
+            LabelResponseDTO result = labelService.updateLabel(1L, dto);
+
+            // Assert
+            assertEquals("NewName", result.name());
+            assertEquals(LabelColor.ORANGE, result.color()); // Color should be unchanged
+            verify(labelRepository).save(existing);
+        }
+
+        @Test
+        void shouldUpdateWithAllColorValues() {
+            // Test representative color values to ensure color updates work
+            LabelColor[] testColors = {LabelColor.RED, LabelColor.BLUE, LabelColor.GREEN};
+            
+            for (LabelColor color : testColors) {
+                // Arrange
+                Label existing = new Label("TestLabel", LabelColor.GRAY, testUser);
+                LabelUpdateDTO dto = new LabelUpdateDTO(null, color);
+                LabelResponseDTO expected = new LabelResponseDTO(1L, "TestLabel", color, testUser.getUsername());
+
+                when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+                when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
+                doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), existing);
+                when(labelRepository.save(existing)).thenReturn(existing);
+                when(labelMapper.toResponseDTO(existing)).thenReturn(expected);
+
+                // Act
+                LabelResponseDTO result = labelService.updateLabel(1L, dto);
+
+                // Assert
+                assertEquals(color, result.color());
+                assertEquals("TestLabel", result.name());
+                
+                // Reset mocks for next iteration
+                reset(authenticatedUserProvider, labelRepository, ownershipValidator, labelMapper);
+            }
+        }
+
+        @Test
+        void shouldDetectColorChangeCorrectly() {
+            // Arrange - Test color change detection logic
+            Label existing = new Label("TestLabel", LabelColor.RED, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO(null, LabelColor.BLUE);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "TestLabel", LabelColor.BLUE, testUser.getUsername());
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+            when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
+            doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), existing);
+            when(labelRepository.save(existing)).thenReturn(existing);
+            when(labelMapper.toResponseDTO(existing)).thenReturn(expected);
+
+            // Act
+            LabelResponseDTO result = labelService.updateLabel(1L, dto);
+
+            // Assert
+            assertEquals(LabelColor.BLUE, result.color());
+            verify(labelRepository).save(existing); // Save should be called when color changes
+        }
+
+        @Test
+        void shouldHandleCombinedNameAndColorChanges() {
+            // Arrange - Test simultaneous name and color changes
+            Label existing = new Label("OldName", LabelColor.YELLOW, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", LabelColor.PURPLE);
+            LabelResponseDTO expected = new LabelResponseDTO(1L, "NewName", LabelColor.PURPLE, testUser.getUsername());
+
+            when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
+            when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
+            doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), existing);
+            when(labelRepository.existsByNameAndCreator("NewName", testUser)).thenReturn(false);
+            when(labelRepository.save(existing)).thenReturn(existing);
+            when(labelMapper.toResponseDTO(existing)).thenReturn(expected);
+
+            // Act
+            LabelResponseDTO result = labelService.updateLabel(1L, dto);
+
+            // Assert
+            assertEquals("NewName", result.name());
+            assertEquals(LabelColor.PURPLE, result.color());
+            verify(labelRepository).save(existing); // Save should be called for both changes
+        }
     }
 
     @Nested
@@ -601,7 +836,7 @@ public class LabelServiceImplTest {
         @Test
         void shouldDeleteLabelSuccessfully() {
             // Arrange
-            Label label = new Label("Focus", testUser);
+            Label label = new Label("Focus", LabelColor.BLUE, testUser);
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(label));
             doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), label);
@@ -640,7 +875,7 @@ public class LabelServiceImplTest {
         void shouldThrowWhenUserDoesNotOwnLabel() {
             // Arrange
             User otherUser = TestUtils.createValidUserEntityWithId(999L);
-            Label label = new Label("Focus", otherUser);
+            Label label = new Label("Focus", LabelColor.BLUE, otherUser);
             
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(label));
@@ -789,7 +1024,7 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleAuthenticationFailureInCreateLabel() {
             // Arrange
-            LabelCreateDTO dto = new LabelCreateDTO("Focus");
+            LabelCreateDTO dto = new LabelCreateDTO("Focus", LabelColor.BLUE);
             when(authenticatedUserProvider.getCurrentUser()).thenThrow(new RuntimeException("Authentication failed"));
 
             // Act + Assert
@@ -799,7 +1034,7 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleMapperFailureInGetLabelById() {
             // Arrange
-            Label label = new Label("Focus", testUser);
+            Label label = new Label("Focus", LabelColor.BLUE, testUser);
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(label));
             when(labelMapper.toResponseDTO(label)).thenThrow(new RuntimeException("Mapping failed"));
@@ -811,7 +1046,7 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleRepositoryExceptionInCreateLabel() {
             // Arrange
-            LabelCreateDTO dto = new LabelCreateDTO("Focus");
+            LabelCreateDTO dto = new LabelCreateDTO("Focus", LabelColor.BLUE);
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.existsByNameAndCreator(dto.name(), testUser)).thenReturn(false);
             when(labelRepository.save(any(Label.class))).thenThrow(new DataAccessException("Save failed") {});
@@ -823,8 +1058,8 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleRepositoryExceptionInUpdateLabel() {
             // Arrange
-            Label existing = new Label("OldName", testUser);
-            LabelUpdateDTO dto = new LabelUpdateDTO("NewName");
+            Label existing = new Label("OldName", LabelColor.RED, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", null);
             
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
@@ -839,7 +1074,7 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleRepositoryExceptionInDeleteLabel() {
             // Arrange
-            Label label = new Label("Focus", testUser);
+            Label label = new Label("Focus", LabelColor.BLUE, testUser);
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(label));
             doNothing().when(ownershipValidator).validateLabelOwnership(testUser.getId(), label);
@@ -868,8 +1103,8 @@ public class LabelServiceImplTest {
         @Test
         void shouldRollbackOnUpdateFailure() {
             // Arrange
-            Label existing = new Label("OldName", testUser);
-            LabelUpdateDTO dto = new LabelUpdateDTO("NewName");
+            Label existing = new Label("OldName", LabelColor.RED, testUser);
+            LabelUpdateDTO dto = new LabelUpdateDTO("NewName", null);
             
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.findById(1L)).thenReturn(Optional.of(existing));
@@ -890,7 +1125,7 @@ public class LabelServiceImplTest {
         @Test
         void shouldHandleConcurrentLabelCreation() {
             // Arrange - Simulate race condition where label gets created between existence check and save
-            LabelCreateDTO dto = new LabelCreateDTO("Focus");
+            LabelCreateDTO dto = new LabelCreateDTO("Focus", LabelColor.BLUE);
             when(authenticatedUserProvider.getCurrentUser()).thenReturn(testUser);
             when(labelRepository.existsByNameAndCreator(dto.name(), testUser)).thenReturn(false);
             when(labelRepository.save(any(Label.class))).thenThrow(new DataAccessException("Unique constraint violation") {});
